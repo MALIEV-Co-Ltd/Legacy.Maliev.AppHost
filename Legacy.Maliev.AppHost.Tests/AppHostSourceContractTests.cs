@@ -23,8 +23,10 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("/countries/liveness", source, StringComparison.Ordinal);
         Assert.Contains("/countries/readiness", source, StringComparison.Ordinal);
         Assert.Contains("--memory", source, StringComparison.Ordinal);
-        Assert.Contains("WaitFor(postgres)", source, StringComparison.Ordinal);
+        Assert.Contains("WaitFor(countryDatabase)", source, StringComparison.Ordinal);
         Assert.Contains("WaitFor(redis)", source, StringComparison.Ordinal);
+        Assert.Contains("Legacy_Maliev_AppHost_MigrationRunner", source, StringComparison.Ordinal);
+        Assert.Contains("WaitForCompletion", source, StringComparison.Ordinal);
         Assert.DoesNotContain("gcloud", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("kubectl", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("argocd", source, StringComparison.OrdinalIgnoreCase);
@@ -42,6 +44,26 @@ public sealed class AppHostSourceContractTests
 
         Assert.Contains("ASPIRE_ALLOW_UNSECURED_TRANSPORT", source, StringComparison.Ordinal);
         Assert.Contains("\"true\"", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void VerificationScript_PollsAndChecksTheLocalCountryContract()
+    {
+        var sourcePath = Path.Combine(FindRepositoryRoot(), "scripts", "verify-local-stack.ps1");
+
+        Assert.True(File.Exists(sourcePath), $"Expected verification script at {sourcePath}.");
+        var source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("while (", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/countries/liveness", source, StringComparison.Ordinal);
+        Assert.Contains("/countries/readiness", source, StringComparison.Ordinal);
+        Assert.Contains("/countries/scalar", source, StringComparison.Ordinal);
+        Assert.Contains("/Countries", source, StringComparison.Ordinal);
+        Assert.Contains("finally", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("--kubeconfig", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("gcloud", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("kubectl apply", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("argocd", source, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string FindRepositoryRoot()

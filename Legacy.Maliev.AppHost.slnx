@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="Legacy.Maliev.AppHost/Legacy.Maliev.AppHost.csproj" />
+  <Project Path="Legacy.Maliev.AppHost.MigrationRunner/Legacy.Maliev.AppHost.MigrationRunner.csproj" />
   <Project Path="Legacy.Maliev.AppHost.Topology/Legacy.Maliev.AppHost.Topology.csproj" />
   <Project Path="Legacy.Maliev.AppHost.Tests/Legacy.Maliev.AppHost.Tests.csproj" />
 </Solution>
