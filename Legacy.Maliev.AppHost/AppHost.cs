@@ -33,6 +33,12 @@ var redis = builder.AddRedis("legacy-redis", port: null, password: redisPassword
     .WithContainerRuntimeArgs("--cpus", "0.10", "--memory", "96m");
 
 var countryDatabase = databases["Country"];
+var countryMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-country-migrations")
+    .WithEnvironment("ConnectionStrings__CountryDbContext", countryDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WaitFor(countryDatabase);
+
 builder.AddProject<Projects.Legacy_Maliev_CountryService_Api>("legacy-maliev-country-service")
     .WithEnvironment("ConnectionStrings__CountryDbContext", countryDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("ConnectionStrings__redis", redis.Resource.ConnectionStringExpression)
@@ -50,7 +56,7 @@ builder.AddProject<Projects.Legacy_Maliev_CountryService_Api>("legacy-maliev-cou
         url.Url = "/countries/scalar";
         url.DisplayText = "Country Scalar";
     })
-    .WaitFor(postgres)
+    .WaitForCompletion(countryMigrations)
     .WaitFor(redis);
 
 builder.Build().Run();
