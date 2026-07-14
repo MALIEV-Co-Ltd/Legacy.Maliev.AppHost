@@ -6,6 +6,23 @@ namespace Legacy.Maliev.AppHost.Tests;
 
 public sealed class LegacyTopologyTests
 {
+    [Theory]
+    [InlineData("PATH", true)]
+    [InlineData("SystemRoot", true)]
+    [InlineData("DOTNET_ENVIRONMENT", true)]
+    [InlineData("ASPIRE_ALLOW_UNSECURED_TRANSPORT", true)]
+    [InlineData("ASPNETCORE_URLS", true)]
+    [InlineData("Parameters__legacy-postgres-password", true)]
+    [InlineData("GITHUB_PERSONAL_ACCESS_TOKEN", false)]
+    [InlineData("GOOGLE_ADS_DEVELOPER_TOKEN", false)]
+    [InlineData("NUGET_PASSWORD", false)]
+    [InlineData("BW_SESSION", false)]
+    [InlineData("UNRELATED_MACHINE_VARIABLE", false)]
+    public void LocalEnvironmentPolicy_IsFailClosed(string variableName, bool expected)
+    {
+        Assert.Equal(expected, LocalEnvironmentPolicy.ShouldPreserve(variableName));
+    }
+
     [Fact]
     public void DatabaseNames_MatchTheDormantCloudNativePgContract()
     {

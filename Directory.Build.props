@@ -4,5 +4,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <MalievWorkspaceRoot Condition="'$(MalievWorkspaceRoot)' == '' and Exists('$(MSBuildThisFileDirectory)..\Legacy.Maliev.CountryService')">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</MalievWorkspaceRoot>
+    <MalievWorkspaceRoot Condition="'$(MalievWorkspaceRoot)' == '' and Exists('$(MSBuildThisFileDirectory)..\..\..\Legacy.Maliev.CountryService')">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\..'))</MalievWorkspaceRoot>
   </PropertyGroup>
 </Project>
