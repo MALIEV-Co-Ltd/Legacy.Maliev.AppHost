@@ -1,0 +1,16 @@
+name: Pull request validation
+
+on:
+  pull_request:
+    branches: [main, staging, develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apphost-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    uses: ./.github/workflows/_build-and-test.yml
