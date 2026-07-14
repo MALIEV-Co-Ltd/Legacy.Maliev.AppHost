@@ -166,11 +166,11 @@
   CI restores .NET 10, builds Release, runs tests and format, and audits vulnerable packages.
   Dependabot monitors NuGet and GitHub Actions weekly.
 
-- [ ] **Step 4: Validate, publish, and protect main**
+- [x] **Step 4: Validate, publish, and protect main**
 
   Parse workflow YAML, run the full release gate, push, monitor the exact commit to green, and
   require the validation job on protected `main` with force-push/deletion disabled.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   Commit message: `ci: validate legacy apphost without cloud deployment`.
