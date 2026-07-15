@@ -72,6 +72,75 @@ function Invoke-ExpectedPostStatus {
     }
 }
 
+function Invoke-WebMemberAddressFlow {
+    param([string]$WebUrl)
+
+    $handler = [System.Net.Http.HttpClientHandler]::new()
+    $handler.AllowAutoRedirect = $false
+    $client = [System.Net.Http.HttpClient]::new($handler)
+    try {
+        $loginPage = $client.GetAsync("$WebUrl/Account/Login").GetAwaiter().GetResult()
+        $loginPageContent = $loginPage.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        if ([int]$loginPage.StatusCode -ne 200) {
+            throw "The Web login page returned HTTP $([int]$loginPage.StatusCode)."
+        }
+
+        $antiforgery = [regex]::Match(
+            $loginPageContent,
+            'name="__RequestVerificationToken"[^>]*value="([^"]+)"')
+        if (-not $antiforgery.Success) {
+            throw 'The Web login form did not expose an antiforgery token.'
+        }
+
+        $antiforgeryCookie = @($loginPage.Headers.GetValues('Set-Cookie') | ForEach-Object {
+            ($_ -split ';', 2)[0]
+        }) -join '; '
+        if (-not $antiforgeryCookie) {
+            throw 'The Web login form did not issue an antiforgery cookie.'
+        }
+
+        $loginRequest = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Post,
+            "$WebUrl/Account/Login?handler=Login")
+        $null = $loginRequest.Headers.TryAddWithoutValidation('Cookie', $antiforgeryCookie)
+        $loginForm = [System.Collections.Generic.Dictionary[string,string]]::new()
+        $loginForm.Add(
+            '__RequestVerificationToken',
+            [System.Net.WebUtility]::HtmlDecode($antiforgery.Groups[1].Value))
+        $loginForm.Add('Email', 'local.customer@maliev.test')
+        $loginForm.Add('Password', 'local-test-only')
+        $loginForm.Add('RememberMe', 'false')
+        $loginRequest.Content = [System.Net.Http.FormUrlEncodedContent]::new($loginForm)
+        $login = $client.SendAsync($loginRequest).GetAwaiter().GetResult()
+        if ([int]$login.StatusCode -notin 302, 303) {
+            throw "The Web BFF login returned HTTP $([int]$login.StatusCode)."
+        }
+
+        $sessionCookie = @($login.Headers.GetValues('Set-Cookie') | ForEach-Object {
+            ($_ -split ';', 2)[0]
+        }) -join '; '
+        if (-not $sessionCookie) {
+            throw 'The Web BFF login did not issue an encrypted session cookie.'
+        }
+
+        $addressRequest = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Get,
+            "$WebUrl/member/account/manage/address?culture=en")
+        $null = $addressRequest.Headers.TryAddWithoutValidation(
+            'Cookie',
+            "$antiforgeryCookie; $sessionCookie")
+        $address = $client.SendAsync($addressRequest).GetAwaiter().GetResult()
+        $addressContent = $address.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        if ([int]$address.StatusCode -ne 200 -or $addressContent -notmatch 'name="BillingAddress1"') {
+            throw 'The authenticated Member address boundary did not render through the Web BFF.'
+        }
+    }
+    finally {
+        $client.Dispose()
+        $handler.Dispose()
+    }
+}
+
 function Get-SingleResource {
     param(
         [object[]]$Items,
@@ -314,6 +383,7 @@ try {
     Invoke-ExpectedStatus -Uri "$webUrl/web/readiness" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$webUrl/Account/Login" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$webUrl/Account/Signup" -ExpectedStatus 200
+    Invoke-WebMemberAddressFlow -WebUrl $webUrl
 
     $postgresContainer = $resourceItems | Where-Object {
         $_.metadata.name -like 'legacy-postgres-main-*'
@@ -335,7 +405,7 @@ try {
         throw "Missing legacy databases: $($missingDatabases -join ', ')."
     }
 
-    Write-Host 'PASS: PostgreSQL, Redis, six services, five migrations, 21 preserved databases plus Auth runtime state, customer/employee login, protected boundaries, and environment isolation are healthy.'
+    Write-Host 'PASS: PostgreSQL, Redis, six services, five migrations, 21 preserved databases plus Auth runtime state, customer/employee login, authenticated Member address BFF, protected boundaries, and environment isolation are healthy.'
 }
 finally {
     if ($appHostRunner -and -not $appHostRunner.HasExited) {
