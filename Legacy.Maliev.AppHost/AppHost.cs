@@ -31,6 +31,8 @@ foreach (var databaseName in LegacyTopology.DatabaseNames)
 }
 
 var authDatabase = postgres.AddDatabase("legacy-auth-db", "Auth");
+var customerIdentityDatabase = databases["CustomerIdentity"];
+var employeeIdentityDatabase = databases["EmployeeIdentity"];
 
 var redis = builder.AddRedis("legacy-redis", port: null, password: redisPassword)
     .WithImageTag("8.4-alpine")
@@ -87,13 +89,28 @@ var authMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_Migration
     .WithEnvironment("PGGSSENCMODE", "disable")
     .WaitFor(authDatabase);
 
-const string unavailableLegacyIdentityConnection =
-    "Server=127.0.0.1,1;Database=MigrationPending;Integrated Security=true;Encrypt=false;Connect Timeout=1";
+var customerIdentityMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
+        "legacy-customer-identity-migrations")
+    .WithArgs("customer-identity")
+    .WithEnvironment("ConnectionStrings__CustomerIdentity", customerIdentityDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WaitFor(customerIdentityDatabase);
+
+var employeeIdentityMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
+        "legacy-employee-identity-migrations")
+    .WithArgs("employee-identity")
+    .WithEnvironment("ConnectionStrings__EmployeeIdentity", employeeIdentityDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WaitFor(employeeIdentityDatabase);
+
 var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>("legacy-maliev-auth-service")
     .WithHttpEndpoint(name: "http")
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
-    .WithEnvironment("ConnectionStrings__CustomerIdentity", unavailableLegacyIdentityConnection)
-    .WithEnvironment("ConnectionStrings__EmployeeIdentity", unavailableLegacyIdentityConnection)
+    .WithEnvironment("IdentityStorage__Provider", "PostgreSql")
+    .WithEnvironment("ConnectionStrings__CustomerIdentity", customerIdentityDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__EmployeeIdentity", employeeIdentityDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("ConnectionStrings__RefreshSessions", authDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
     .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
@@ -113,7 +130,9 @@ var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>("legacy-ma
         url.Url = "/auth/scalar";
         url.DisplayText = "Auth Scalar";
     })
-    .WaitForCompletion(authMigrations);
+    .WaitForCompletion(authMigrations)
+    .WaitForCompletion(customerIdentityMigrations)
+    .WaitForCompletion(employeeIdentityMigrations);
 
 var customerDatabase = databases["Customer"];
 var customerMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-customer-migrations")

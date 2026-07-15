@@ -17,11 +17,10 @@ cloud resource.
 - `Legacy.Maliev.DocumentService` wired as a stateless JWT-protected QuestPDF workload with health
   checks, Scalar, telemetry, and a 192 MiB managed-heap ceiling. It intentionally has no database,
   Redis, storage, or migration dependency.
-- `Legacy.Maliev.AuthService` wired to its isolated PostgreSQL runtime database, migration job,
-  ephemeral signing key, and least-privilege `legacy-web` client. The two legacy SQL Server identity
-  readers deliberately point to a fail-closed local placeholder until their verified PostgreSQL
-  copy migration is complete; liveness, API documentation, and service-token issuance work, while
-  legacy customer/employee password login is not represented as migrated yet.
+- `Legacy.Maliev.AuthService` wired to its isolated PostgreSQL runtime database, separate customer
+  and employee identity databases, five total migration jobs, ephemeral signing key, and
+  least-privilege `legacy-web` client. Disposable synthetic customer and employee identities prove
+  the post-copy PostgreSQL login path locally; they are never sourced from or deployed to production.
 - `Legacy.Maliev.CustomerService` wired to its preserved `Customer` PostgreSQL database, migration
   job, Redis cache, JWT trust, and AuthService boundary.
 - `Legacy.Maliev.NotificationService` wired with JWT trust and a development-only placeholder Brevo
@@ -58,7 +57,8 @@ From PowerShell:
 ```
 
 The command builds the solution, creates fresh local-only passwords, starts the Aspire stack,
-polls resource health, verifies all three migrations and all six services, confirms the anonymous
+polls resource health, verifies all five migrations and all six services, proves synthetic customer
+and employee PostgreSQL login, confirms the anonymous
 Country/Web surfaces and protected Auth/Customer/Notification/Document boundaries, checks all 21
 preserved database names plus the isolated Auth runtime database, rejects ambient credential
 leakage, and removes the local containers in `finally` even when validation fails.

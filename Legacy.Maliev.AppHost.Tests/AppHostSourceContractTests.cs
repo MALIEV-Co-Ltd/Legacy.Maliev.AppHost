@@ -91,6 +91,10 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("legacy-maliev-web", source, StringComparison.Ordinal);
 
         Assert.Contains("ConnectionStrings__RefreshSessions", source, StringComparison.Ordinal);
+        Assert.Contains("ConnectionStrings__CustomerIdentity", source, StringComparison.Ordinal);
+        Assert.Contains("ConnectionStrings__EmployeeIdentity", source, StringComparison.Ordinal);
+        Assert.Contains("IdentityStorage__Provider", source, StringComparison.Ordinal);
+        Assert.Contains("\"PostgreSql\"", source, StringComparison.Ordinal);
         Assert.Contains("ConnectionStrings__CustomerDbContext", source, StringComparison.Ordinal);
         Assert.Contains("ConnectionStrings__redis", source, StringComparison.Ordinal);
         Assert.Contains("ServiceAuthentication__ClientId", source, StringComparison.Ordinal);
@@ -148,11 +152,16 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("/documents/scalar", source, StringComparison.Ordinal);
         Assert.Contains("/Pdfs/invoice", source, StringComparison.Ordinal);
         Assert.Contains("legacy-auth-migrations-*", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-customer-identity-migrations-*", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-employee-identity-migrations-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-customer-migrations-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-maliev-auth-service-*", source, StringComparison.Ordinal);
         Assert.Contains("/auth/liveness", source, StringComparison.Ordinal);
         Assert.Contains("/auth/readiness", source, StringComparison.Ordinal);
         Assert.Contains("/auth/scalar", source, StringComparison.Ordinal);
+        Assert.Contains("/auth/v1/login", source, StringComparison.Ordinal);
+        Assert.Contains("local.customer@maliev.test", source, StringComparison.Ordinal);
+        Assert.Contains("local.employee@maliev.test", source, StringComparison.Ordinal);
         Assert.Contains("legacy-maliev-customer-service-*", source, StringComparison.Ordinal);
         Assert.Contains("/customer/liveness", source, StringComparison.Ordinal);
         Assert.Contains("/customer/readiness", source, StringComparison.Ordinal);
@@ -169,6 +178,11 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("'Auth'", source, StringComparison.Ordinal);
         Assert.Contains("dotnet build $appHostProject --configuration Release", source, StringComparison.Ordinal);
         Assert.Contains("-Method Post", source, StringComparison.Ordinal);
+        var postHelperStart = source.IndexOf("function Invoke-ExpectedPostStatus", StringComparison.Ordinal);
+        var postHelperEnd = source.IndexOf("function Get-SingleResource", postHelperStart, StringComparison.Ordinal);
+        var postHelper = source[postHelperStart..postHelperEnd];
+        Assert.Contains("[string]$Body = '{}'", postHelper, StringComparison.Ordinal);
+        Assert.Contains("-Body $Body", postHelper, StringComparison.Ordinal);
         Assert.Contains("-ExpectedStatus 401", source, StringComparison.Ordinal);
         Assert.Contains("finally", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("--kubeconfig", source, StringComparison.Ordinal);
