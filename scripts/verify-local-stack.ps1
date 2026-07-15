@@ -214,6 +214,47 @@ function Invoke-WebMemberAccountFlow {
             throw "The Member profile update returned HTTP $([int]$profileResult.StatusCode): $validationDetail. Diagnostics: $diagnostics"
         }
 
+        $quotationHistoryRequest = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Get,
+            "$WebUrl/member/quotations/index?culture=en")
+        $null = $quotationHistoryRequest.Headers.TryAddWithoutValidation(
+            'Cookie',
+            "$antiforgeryCookie; $sessionCookie")
+        $quotationHistory = $client.SendAsync($quotationHistoryRequest).GetAwaiter().GetResult()
+        $quotationHistoryContent = $quotationHistory.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        if (
+            [int]$quotationHistory.StatusCode -ne 200 -or
+            $quotationHistoryContent -notmatch 'Quotation[^<]*#1'
+        ) {
+            throw 'The authenticated customer quotation history did not render the seeded quotation.'
+        }
+
+        $quotationRequest = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Get,
+            "$WebUrl/member/quotations/view?id=1&culture=en")
+        $null = $quotationRequest.Headers.TryAddWithoutValidation(
+            'Cookie',
+            "$antiforgeryCookie; $sessionCookie")
+        $quotationPage = $client.SendAsync($quotationRequest).GetAwaiter().GetResult()
+        $quotationContent = $quotationPage.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        if (
+            [int]$quotationPage.StatusCode -ne 200 -or
+            $quotationContent -notmatch 'Local CNC quotation line' -or
+            $quotationContent -notmatch 'quotations/local-cnc-quotation.pdf' -or
+            $quotationContent -match 'paypal'
+        ) {
+            $diagnostics = @(
+                @('legacy-maliev-web', 'legacy-maliev-quotation-service') | ForEach-Object {
+                    & aspire logs $_ --apphost $appHostProject --tail 120 --format Table `
+                        --non-interactive 2>&1
+                } | Where-Object {
+                    $_ -match '(warn|fail|error|quotations/|status code|rejected|unavailable|permission| 4\d\d | 5\d\d )' -and
+                    $_ -notmatch '"?isError"?'
+                } | Select-Object -Last 50
+            ) -join ' | '
+            throw "The authenticated owned quotation detail did not render through the Web BFF. Diagnostics: $diagnostics"
+        }
+
         $historyRequest = [System.Net.Http.HttpRequestMessage]::new(
             [System.Net.Http.HttpMethod]::Get,
             "$WebUrl/member/orders/history?culture=en")
@@ -424,7 +465,9 @@ try {
         'legacy-employee-identity-migrations-*',
         'legacy-customer-migrations-*',
         'legacy-order-migrations-*',
-        'legacy-order-status-migrations-*'
+        'legacy-order-status-migrations-*',
+        'legacy-quotation-migrations-*',
+        'legacy-quotation-request-migrations-*'
     )
     $servicePatterns = @(
         'legacy-maliev-country-service-*',
@@ -432,6 +475,7 @@ try {
         'legacy-maliev-auth-service-*',
         'legacy-maliev-customer-service-*',
         'legacy-maliev-order-service-*',
+        'legacy-maliev-quotation-service-*',
         'legacy-maliev-notification-service-*',
         'legacy-maliev-web-*'
     )
@@ -473,7 +517,7 @@ try {
                     }
                 ) -notcontains $false
                 if (
-                    $resourceItems.Count -ge 16 -and
+                    $resourceItems.Count -ge 19 -and
                     $servicesPresent -and
                     $migrationsSucceeded -and
                     $unhealthy.Count -eq 0
@@ -583,6 +627,13 @@ try {
     Invoke-ExpectedStatus -Uri "$orderUrl/order/scalar" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$orderUrl/orders/customers/1" -ExpectedStatus 401
 
+    $quotationResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-quotation-service-*'
+    $quotationUrl = Get-ResourceUrl -Resource $quotationResource
+    Invoke-ExpectedStatus -Uri "$quotationUrl/quotation/liveness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$quotationUrl/quotation/readiness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$quotationUrl/quotation/scalar" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$quotationUrl/quotations/customers/1" -ExpectedStatus 401
+
     $notificationResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-notification-service-*'
     $notificationUrl = Get-ResourceUrl -Resource $notificationResource
     Invoke-ExpectedStatus -Uri "$notificationUrl/emails/liveness" -ExpectedStatus 200
@@ -616,6 +667,7 @@ try {
         'legacy-customer.companies.delete'
         'legacy.customer-orders.read'
         'legacy.customer-orders.cancel'
+        'legacy.customer-quotations.read'
     )
     $missingMemberPermissions = @($requiredMemberPermissions | Where-Object {
         $_ -notin $runtimePermissions
@@ -672,7 +724,7 @@ try {
         throw "Missing legacy databases: $($missingDatabases -join ', ')."
     }
 
-    Write-Host 'PASS: PostgreSQL, Redis, seven services, seven migrations, 21 preserved databases plus Auth runtime state, customer/employee login, authenticated Member address/profile/order cancellation/password BFF flows, protected boundaries, and environment isolation are healthy.'
+    Write-Host 'PASS: PostgreSQL, Redis, eight services, nine migrations, 21 preserved databases plus Auth runtime state, customer/employee login, authenticated Member address/profile/quotation/order cancellation/password BFF flows, protected boundaries, and environment isolation are healthy.'
 }
 finally {
     if ($appHostRunner -and -not $appHostRunner.HasExited) {

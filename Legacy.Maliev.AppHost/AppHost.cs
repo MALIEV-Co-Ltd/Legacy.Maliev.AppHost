@@ -130,6 +130,7 @@ var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>("legacy-ma
     .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__10", "legacy-customer.companies.delete")
     .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__11", "legacy.customer-orders.read")
     .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__12", "legacy.customer-orders.cancel")
+    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__13", "legacy.customer-quotations.read")
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithHttpHealthCheck("/auth/liveness", endpointName: "http")
@@ -237,6 +238,49 @@ var order = builder.AddProject<Projects.Legacy_Maliev_OrderService_Api>(
     .WaitFor(redis)
     .WaitFor(auth);
 
+var quotationDatabase = databases["Quotation"];
+var quotationRequestDatabase = databases["QuotationRequest"];
+var quotationMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
+        "legacy-quotation-migrations")
+    .WithArgs("quotation")
+    .WithEnvironment("ConnectionStrings__QuotationDbContext", quotationDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WaitFor(quotationDatabase);
+var quotationRequestMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
+        "legacy-quotation-request-migrations")
+    .WithArgs("quotation-request")
+    .WithEnvironment("ConnectionStrings__QuotationRequestDbContext", quotationRequestDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WaitFor(quotationRequestDatabase);
+
+var quotation = builder.AddProject<Projects.Legacy_Maliev_QuotationService_Api>(
+        "legacy-maliev-quotation-service",
+        launchProfileName: "http")
+    .ConfigureDynamicHttpEndpoint()
+    .WithEnvironment("ConnectionStrings__QuotationDbContext", quotationDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__QuotationRequestDbContext", quotationRequestDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__redis", redis.Resource.ConnectionStringExpression)
+    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
+    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+    .WithEnvironment("DOTNET_GCConserveMemory", "3")
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WithHttpHealthCheck("/quotation/liveness", endpointName: "http")
+    .WithHttpHealthCheck("/quotation/readiness", endpointName: "http")
+    .WithUrlForEndpoint("http", url =>
+    {
+        url.Url = "/quotation/scalar";
+        url.DisplayText = "Quotation Scalar";
+    })
+    .WaitForCompletion(quotationMigrations)
+    .WaitForCompletion(quotationRequestMigrations)
+    .WaitFor(redis)
+    .WaitFor(auth);
+
 builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WithHttpEndpoint(name: "http")
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
@@ -251,6 +295,7 @@ builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WithEnvironment("Services__Country", country.GetEndpoint("http"))
     .WithEnvironment("Services__Document", document.GetEndpoint("http"))
     .WithEnvironment("Services__Order", order.GetEndpoint("http"))
+    .WithEnvironment("Services__Quotation", quotation.GetEndpoint("http"))
     .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithHttpHealthCheck("/web/liveness", endpointName: "http")
@@ -264,6 +309,7 @@ builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WaitFor(auth)
     .WaitFor(customer)
     .WaitFor(order)
+    .WaitFor(quotation)
     .WaitFor(notification);
 
 builder.Build().Run();
