@@ -59,6 +59,19 @@ function Invoke-ExpectedStatus {
     }
 }
 
+function Invoke-ExpectedPostStatus {
+    param(
+        [string]$Uri,
+        [int[]]$ExpectedStatus
+    )
+
+    $response = Invoke-WebRequest -Uri $Uri -Method Post -ContentType 'application/json' `
+        -Body '{}' -UseBasicParsing -SkipHttpErrorCheck
+    if ($response.StatusCode -notin $ExpectedStatus) {
+        throw "Unexpected HTTP $($response.StatusCode) from POST $Uri. Expected: $($ExpectedStatus -join ', ')."
+    }
+}
+
 try {
     foreach ($commandName in @('docker', 'dotnet', 'kubectl')) {
         if (-not (Get-Command $commandName -ErrorAction SilentlyContinue)) {
@@ -136,9 +149,13 @@ try {
                 $countryIsPresent = @($resourceItems | Where-Object {
                     $_.metadata.name -like 'legacy-maliev-country-service-*'
                 }).Count -eq 1
+                $documentIsPresent = @($resourceItems | Where-Object {
+                    $_.metadata.name -like 'legacy-maliev-document-service-*'
+                }).Count -eq 1
                 if (
-                    $resourceItems.Count -ge 5 -and
+                    $resourceItems.Count -ge 6 -and
                     $countryIsPresent -and
+                    $documentIsPresent -and
                     $migrationSucceeded -and
                     $unhealthy.Count -eq 0
                 ) {
@@ -150,7 +167,7 @@ try {
         Start-Sleep -Milliseconds 500
     }
 
-    if ($resourceItems.Count -lt 5) {
+    if ($resourceItems.Count -lt 6) {
         throw 'The local Aspire resources did not become observable before the timeout.'
     }
 
@@ -211,6 +228,21 @@ try {
     Invoke-ExpectedStatus -Uri "$countryUrl/countries/scalar" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$countryUrl/Countries" -ExpectedStatus 200, 404
 
+    $documentResource = $resourceItems | Where-Object {
+        $_.metadata.name -like 'legacy-maliev-document-service-*'
+    } | Select-Object -First 1
+    $documentUrl = ($documentResource.status.effectiveEnv | Where-Object {
+        $_.name -eq 'ASPNETCORE_URLS'
+    }).value
+    if (-not $documentUrl) {
+        throw 'The Document service URL was not exported by the local orchestrator.'
+    }
+
+    Invoke-ExpectedStatus -Uri "$documentUrl/documents/liveness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$documentUrl/documents/readiness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$documentUrl/documents/scalar" -ExpectedStatus 200
+    Invoke-ExpectedPostStatus -Uri "$documentUrl/Pdfs/invoice" -ExpectedStatus 401
+
     $postgresContainer = $resourceItems | Where-Object {
         $_.metadata.name -like 'legacy-postgres-main-*'
     } | Select-Object -First 1
@@ -230,7 +262,7 @@ try {
         throw "Missing legacy databases: $($missingDatabases -join ', ')."
     }
 
-    Write-Host 'PASS: PostgreSQL, Redis, Country API, 21 database names, and environment isolation are healthy.'
+    Write-Host 'PASS: PostgreSQL, Redis, Country API, Document API, 21 database names, and environment isolation are healthy.'
 }
 finally {
     if ($appHostRunner -and -not $appHostRunner.HasExited) {

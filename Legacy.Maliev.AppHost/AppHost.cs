@@ -59,6 +59,22 @@ builder.AddProject<Projects.Legacy_Maliev_CountryService_Api>("legacy-maliev-cou
     .WaitForCompletion(countryMigrations)
     .WaitFor(redis);
 
+builder.AddProject<Projects.Legacy_Maliev_DocumentService_Api>("legacy-maliev-document-service")
+    .WithHttpEndpoint(name: "http")
+    .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+    .WithEnvironment("Jwt__Issuer", "https://legacy-iam.localhost")
+    .WithEnvironment("Jwt__Audience", "maliev-legacy-services")
+    .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
+    .WithEnvironment("DOTNET_GCConserveMemory", "3")
+    .WithHttpHealthCheck("/documents/liveness", endpointName: "http")
+    .WithHttpHealthCheck("/documents/readiness", endpointName: "http")
+    .WithUrlForEndpoint("http", url =>
+    {
+        url.Url = "/documents/scalar";
+        url.DisplayText = "Document Scalar";
+    });
+
 builder.Build().Run();
 
 static string ToKebabCase(string value)

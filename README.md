@@ -11,6 +11,9 @@ cloud resource.
 - Ephemeral RSA-3072 service-auth key material generated for every local run.
 - `Legacy.Maliev.CountryService` wired to PostgreSQL, Redis, auth, health checks, telemetry, and
   resource limits using the same configuration keys as the dormant GitOps manifests.
+- `Legacy.Maliev.DocumentService` wired as a stateless JWT-protected QuestPDF workload with health
+  checks, Scalar, telemetry, and a 192 MiB managed-heap ceiling. It intentionally has no database,
+  Redis, storage, or migration dependency.
 - A fail-closed environment policy that prevents unrelated machine credentials from reaching
   Aspire resources or appearing in the dashboard.
 
@@ -25,8 +28,9 @@ cluster and `maliev-legacy` namespace.
 - .NET SDK 10
 - Docker Desktop
 - `kubectl` (used only with Aspire DCP's generated temporary local kubeconfig)
-- Sibling repositories at `B:\maliev\Legacy.Maliev.CountryService`, `B:\maliev\Maliev.Aspire`,
-  and `B:\maliev\Maliev.MessagingContracts`
+- Sibling repositories at `B:\maliev\Legacy.Maliev.CountryService`,
+  `B:\maliev\Legacy.Maliev.DocumentService`, `B:\maliev\Maliev.Aspire`, and
+  `B:\maliev\Maliev.MessagingContracts`
 
 ## Verify locally
 
@@ -37,9 +41,10 @@ From PowerShell:
 ```
 
 The command builds the solution, creates fresh local-only passwords, starts the Aspire stack,
-polls resource health, verifies liveness/readiness/Scalar/the anonymous legacy `/Countries`
-contract, checks all 21 database names, rejects ambient credential leakage, and removes the local
-containers in `finally` even when validation fails.
+polls resource health, verifies Country and Document liveness/readiness/Scalar, confirms the
+anonymous legacy `/Countries` contract and protected PDF boundary, checks all 21 database names,
+rejects ambient credential leakage, and removes the local containers in `finally` even when
+validation fails.
 
 For interactive development, set the three `Parameters__legacy-*` environment variables to
 local-only values and run:

@@ -47,6 +47,34 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
+    public void AppHost_WiresTheStatelessDocumentServiceWithoutInfrastructureDependencies()
+    {
+        var root = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var project = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "Legacy.Maliev.AppHost.csproj"));
+
+        Assert.Contains("Legacy_Maliev_DocumentService_Api", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-document-service", source, StringComparison.Ordinal);
+        Assert.Contains("WithHttpEndpoint(name: \"http\")", source, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"ASPNETCORE_ENVIRONMENT\", \"Development\")", source, StringComparison.Ordinal);
+        Assert.Contains("/documents/liveness", source, StringComparison.Ordinal);
+        Assert.Contains("/documents/readiness", source, StringComparison.Ordinal);
+        Assert.Contains("/documents/scalar", source, StringComparison.Ordinal);
+        Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.DocumentService", project, StringComparison.Ordinal);
+
+        var documentStart = source.IndexOf("Legacy_Maliev_DocumentService_Api", StringComparison.Ordinal);
+        var documentEnd = source.IndexOf("builder.Build()", documentStart, StringComparison.Ordinal);
+        var documentResource = source[documentStart..documentEnd];
+        Assert.Contains("Jwt__PublicKey", documentResource, StringComparison.Ordinal);
+        Assert.Contains("Jwt__Issuer", documentResource, StringComparison.Ordinal);
+        Assert.Contains("Jwt__Audience", documentResource, StringComparison.Ordinal);
+        Assert.Contains("DOTNET_GCHeapHardLimit", documentResource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ConnectionStrings__", documentResource, StringComparison.Ordinal);
+        Assert.DoesNotContain(".WaitFor(", documentResource, StringComparison.Ordinal);
+        Assert.DoesNotContain(".WaitForCompletion(", documentResource, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void VerificationScript_PollsAndChecksTheLocalCountryContract()
     {
         var sourcePath = Path.Combine(FindRepositoryRoot(), "scripts", "verify-local-stack.ps1");
@@ -59,6 +87,13 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("/countries/readiness", source, StringComparison.Ordinal);
         Assert.Contains("/countries/scalar", source, StringComparison.Ordinal);
         Assert.Contains("/Countries", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-document-service-*", source, StringComparison.Ordinal);
+        Assert.Contains("/documents/liveness", source, StringComparison.Ordinal);
+        Assert.Contains("/documents/readiness", source, StringComparison.Ordinal);
+        Assert.Contains("/documents/scalar", source, StringComparison.Ordinal);
+        Assert.Contains("/Pdfs/invoice", source, StringComparison.Ordinal);
+        Assert.Contains("-Method Post", source, StringComparison.Ordinal);
+        Assert.Contains("-ExpectedStatus 401", source, StringComparison.Ordinal);
         Assert.Contains("finally", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("--kubeconfig", source, StringComparison.Ordinal);
         Assert.DoesNotContain("gcloud", source, StringComparison.OrdinalIgnoreCase);
