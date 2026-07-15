@@ -63,7 +63,7 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.DocumentService", project, StringComparison.Ordinal);
 
         var documentStart = source.IndexOf("Legacy_Maliev_DocumentService_Api", StringComparison.Ordinal);
-        var documentEnd = source.IndexOf("builder.Build()", documentStart, StringComparison.Ordinal);
+        var documentEnd = source.IndexOf("var authMigrations", documentStart, StringComparison.Ordinal);
         var documentResource = source[documentStart..documentEnd];
         Assert.Contains("Jwt__PublicKey", documentResource, StringComparison.Ordinal);
         Assert.Contains("Jwt__Issuer", documentResource, StringComparison.Ordinal);
@@ -75,7 +75,62 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
-    public void VerificationScript_PollsAndChecksTheLocalCountryContract()
+    public void AppHost_WiresThePublicCustomerAccountBoundaryWithoutProductionSecrets()
+    {
+        var root = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var project = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "Legacy.Maliev.AppHost.csproj"));
+
+        Assert.Contains("Legacy_Maliev_AuthService_Api", source, StringComparison.Ordinal);
+        Assert.Contains("Legacy_Maliev_CustomerService_Api", source, StringComparison.Ordinal);
+        Assert.Contains("Legacy_Maliev_NotificationService_Api", source, StringComparison.Ordinal);
+        Assert.Contains("Legacy_Maliev_Web", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-auth-service", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-customer-service", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-notification-service", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-web", source, StringComparison.Ordinal);
+
+        Assert.Contains("ConnectionStrings__RefreshSessions", source, StringComparison.Ordinal);
+        Assert.Contains("ConnectionStrings__CustomerDbContext", source, StringComparison.Ordinal);
+        Assert.Contains("ConnectionStrings__redis", source, StringComparison.Ordinal);
+        Assert.Contains("ServiceAuthentication__ClientId", source, StringComparison.Ordinal);
+        Assert.Contains("ServiceAuthentication__ClientSecret", source, StringComparison.Ordinal);
+        Assert.Contains("ServiceClients__Clients__legacy-web__SecretSha256", source, StringComparison.Ordinal);
+        Assert.Contains("DataProtection__CertificatePfxBase64", source, StringComparison.Ordinal);
+        Assert.Contains("DataProtection__CertificatePassword", source, StringComparison.Ordinal);
+        Assert.Contains("Services__Auth", source, StringComparison.Ordinal);
+        Assert.Contains("Services__Customer", source, StringComparison.Ordinal);
+        Assert.Contains("Services__Notification", source, StringComparison.Ordinal);
+        Assert.Contains("AuthService__LegacyCustomerIdentityBaseUrl", source, StringComparison.Ordinal);
+        Assert.Contains("ASPNETCORE_ENVIRONMENT", source, StringComparison.Ordinal);
+        Assert.Contains("Development", source, StringComparison.Ordinal);
+        Assert.Contains("ConfigureDynamicHttpEndpoint", source, StringComparison.Ordinal);
+
+        Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.AuthService", project, StringComparison.Ordinal);
+        Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.CustomerService", project, StringComparison.Ordinal);
+        Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.NotificationService", project, StringComparison.Ordinal);
+        Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.Web", project, StringComparison.Ordinal);
+        Assert.Equal(6, project.Split("AdditionalProperties=\"Configuration=$(Configuration)\"", StringSplitOptions.None).Length - 1);
+        Assert.Equal(6, project.Split("SetConfiguration=\"Configuration=$(Configuration)\"", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("maliev-legacy-secrets", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("LEGACY_DEPLOY_ENABLED", source, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void AppHost_UsesOneConsistentLocalJwtTrustContract()
+    {
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
+
+        Assert.Contains("LegacyTopology.JwtIssuer", source, StringComparison.Ordinal);
+        Assert.Contains("LegacyTopology.JwtAudience", source, StringComparison.Ordinal);
+        Assert.Contains("Jwt__PrivateKeyPem", source, StringComparison.Ordinal);
+        Assert.Contains("Jwt__KeyId", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("https://legacy-iam.localhost", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("maliev-legacy-services", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void VerificationScript_PollsAndChecksTheLocalServiceTopology()
     {
         var sourcePath = Path.Combine(FindRepositoryRoot(), "scripts", "verify-local-stack.ps1");
 
@@ -92,6 +147,27 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("/documents/readiness", source, StringComparison.Ordinal);
         Assert.Contains("/documents/scalar", source, StringComparison.Ordinal);
         Assert.Contains("/Pdfs/invoice", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-auth-migrations-*", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-customer-migrations-*", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-auth-service-*", source, StringComparison.Ordinal);
+        Assert.Contains("/auth/liveness", source, StringComparison.Ordinal);
+        Assert.Contains("/auth/readiness", source, StringComparison.Ordinal);
+        Assert.Contains("/auth/scalar", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-customer-service-*", source, StringComparison.Ordinal);
+        Assert.Contains("/customer/liveness", source, StringComparison.Ordinal);
+        Assert.Contains("/customer/readiness", source, StringComparison.Ordinal);
+        Assert.Contains("/customer/scalar", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-notification-service-*", source, StringComparison.Ordinal);
+        Assert.Contains("/emails/liveness", source, StringComparison.Ordinal);
+        Assert.Contains("/emails/readiness", source, StringComparison.Ordinal);
+        Assert.Contains("/emails/scalar", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-web-*", source, StringComparison.Ordinal);
+        Assert.Contains("/web/liveness", source, StringComparison.Ordinal);
+        Assert.Contains("/web/readiness", source, StringComparison.Ordinal);
+        Assert.Contains("/Account/Login", source, StringComparison.Ordinal);
+        Assert.Contains("/Account/Signup", source, StringComparison.Ordinal);
+        Assert.Contains("'Auth'", source, StringComparison.Ordinal);
+        Assert.Contains("dotnet build $appHostProject --configuration Release", source, StringComparison.Ordinal);
         Assert.Contains("-Method Post", source, StringComparison.Ordinal);
         Assert.Contains("-ExpectedStatus 401", source, StringComparison.Ordinal);
         Assert.Contains("finally", source, StringComparison.OrdinalIgnoreCase);

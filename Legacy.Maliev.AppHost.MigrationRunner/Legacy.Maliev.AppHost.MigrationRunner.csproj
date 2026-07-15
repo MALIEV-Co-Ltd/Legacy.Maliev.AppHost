@@ -5,5 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.CountryService\Legacy.Maliev.CountryService.Data\Legacy.Maliev.CountryService.Data.csproj" />
+    <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.AuthService\Legacy.Maliev.AuthService.Infrastructure\Legacy.Maliev.AuthService.Infrastructure.csproj" />
+    <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.CustomerService\Legacy.Maliev.CustomerService.Data\Legacy.Maliev.CustomerService.Data.csproj" />
   </ItemGroup>
 </Project>

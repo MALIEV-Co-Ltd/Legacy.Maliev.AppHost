@@ -8,7 +8,6 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$solutionPath = Join-Path $repositoryRoot 'Legacy.Maliev.AppHost.slnx'
 $appHostProject = Join-Path $repositoryRoot 'Legacy.Maliev.AppHost\Legacy.Maliev.AppHost.csproj'
 $stdoutPath = Join-Path $env:TEMP "legacy-maliev-apphost-$PID.stdout.log"
 $stderrPath = Join-Path $env:TEMP "legacy-maliev-apphost-$PID.stderr.log"
@@ -72,6 +71,33 @@ function Invoke-ExpectedPostStatus {
     }
 }
 
+function Get-SingleResource {
+    param(
+        [object[]]$Items,
+        [string]$NamePattern
+    )
+
+    $matches = @($Items | Where-Object { $_.metadata.name -like $NamePattern })
+    if ($matches.Count -ne 1) {
+        throw "Expected one resource matching '$NamePattern', found $($matches.Count)."
+    }
+
+    return $matches[0]
+}
+
+function Get-ResourceUrl {
+    param([object]$Resource)
+
+    $url = ($Resource.status.effectiveEnv | Where-Object {
+        $_.name -eq 'ASPNETCORE_URLS'
+    }).value
+    if (-not $url) {
+        throw "The URL for $($Resource.metadata.name) was not exported by the local orchestrator."
+    }
+
+    return $url
+}
+
 try {
     foreach ($commandName in @('docker', 'dotnet', 'kubectl')) {
         if (-not (Get-Command $commandName -ErrorAction SilentlyContinue)) {
@@ -89,7 +115,7 @@ try {
     }
 
     $env:GITHUB_ACTIONS = 'false'
-    & dotnet build $solutionPath --configuration Release
+    & dotnet build $appHostProject --configuration Release
     if ($LASTEXITCODE -ne 0) {
         throw 'The local Aspire solution did not build.'
     }
@@ -118,6 +144,19 @@ try {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $resourceItems = @()
     $kubeconfig = $null
+    $migrationPatterns = @(
+        'legacy-country-migrations-*',
+        'legacy-auth-migrations-*',
+        'legacy-customer-migrations-*'
+    )
+    $servicePatterns = @(
+        'legacy-maliev-country-service-*',
+        'legacy-maliev-document-service-*',
+        'legacy-maliev-auth-service-*',
+        'legacy-maliev-customer-service-*',
+        'legacy-maliev-notification-service-*',
+        'legacy-maliev-web-*'
+    )
 
     while ((Get-Date) -lt $deadline) {
         if ($appHostRunner.HasExited) {
@@ -137,26 +176,28 @@ try {
             $resourceJson = & kubectl --kubeconfig $kubeconfig get containers,executables -o json 2>$null
             if ($LASTEXITCODE -eq 0 -and $resourceJson) {
                 $resourceItems = @((ConvertFrom-Json ($resourceJson -join "`n")).items)
-                $migrationResource = $resourceItems | Where-Object {
-                    $_.metadata.name -like 'legacy-country-migrations-*'
-                } | Select-Object -First 1
-                $migrationSucceeded = $migrationResource.status.state -eq 'Finished' -and
-                    $migrationResource.status.exitCode -eq 0
+                $migrationResources = @(
+                    foreach ($pattern in $migrationPatterns) {
+                        $resourceItems | Where-Object { $_.metadata.name -like $pattern }
+                    }
+                )
+                $migrationsSucceeded = $migrationResources.Count -eq $migrationPatterns.Count -and
+                    @($migrationResources | Where-Object {
+                        $_.status.state -ne 'Finished' -or $_.status.exitCode -ne 0
+                    }).Count -eq 0
                 $unhealthy = @($resourceItems | Where-Object {
-                    $_.metadata.name -notlike 'legacy-country-migrations-*' -and
+                    $_.metadata.name -notlike 'legacy-*-migrations-*' -and
                     $_.status.healthStatus -ne 'Healthy'
                 })
-                $countryIsPresent = @($resourceItems | Where-Object {
-                    $_.metadata.name -like 'legacy-maliev-country-service-*'
-                }).Count -eq 1
-                $documentIsPresent = @($resourceItems | Where-Object {
-                    $_.metadata.name -like 'legacy-maliev-document-service-*'
-                }).Count -eq 1
+                $servicesPresent = @(
+                    foreach ($pattern in $servicePatterns) {
+                        @($resourceItems | Where-Object { $_.metadata.name -like $pattern }).Count -eq 1
+                    }
+                ) -notcontains $false
                 if (
-                    $resourceItems.Count -ge 6 -and
-                    $countryIsPresent -and
-                    $documentIsPresent -and
-                    $migrationSucceeded -and
+                    $resourceItems.Count -ge 11 -and
+                    $servicesPresent -and
+                    $migrationsSucceeded -and
                     $unhealthy.Count -eq 0
                 ) {
                     break
@@ -167,19 +208,19 @@ try {
         Start-Sleep -Milliseconds 500
     }
 
-    if ($resourceItems.Count -lt 6) {
+    if ($resourceItems.Count -lt 11) {
         throw 'The local Aspire resources did not become observable before the timeout.'
     }
 
-    $migrationResource = $resourceItems | Where-Object {
-        $_.metadata.name -like 'legacy-country-migrations-*'
-    } | Select-Object -First 1
-    if ($migrationResource.status.state -ne 'Finished' -or $migrationResource.status.exitCode -ne 0) {
-        throw 'The Country schema migration did not complete successfully.'
+    foreach ($pattern in $migrationPatterns) {
+        $migrationResource = Get-SingleResource -Items $resourceItems -NamePattern $pattern
+        if ($migrationResource.status.state -ne 'Finished' -or $migrationResource.status.exitCode -ne 0) {
+            throw "The migration resource $($migrationResource.metadata.name) did not complete successfully."
+        }
     }
 
     $unhealthy = @($resourceItems | Where-Object {
-        $_.metadata.name -notlike 'legacy-country-migrations-*' -and
+        $_.metadata.name -notlike 'legacy-*-migrations-*' -and
         $_.status.healthStatus -ne 'Healthy'
     })
     if ($unhealthy.Count -gt 0) {
@@ -205,7 +246,11 @@ try {
                     'DASHBOARD__OTLP__PRIMARYAPIKEY',
                     'DASHBOARD__RESOURCESERVICECLIENT__APIKEY',
                     'DASHBOARD__FRONTEND__BROWSERTOKEN',
-                    'OTEL_EXPORTER_OTLP_HEADERS'
+                    'OTEL_EXPORTER_OTLP_HEADERS',
+                    'ServiceAuthentication__ClientSecret',
+                    'ServiceClients__Clients__legacy-web__SecretSha256',
+                    'DataProtection__CertificatePassword',
+                    'Brevo__ApiKey'
                 )
             }
     )
@@ -213,35 +258,49 @@ try {
         throw "Ambient credential variables reached local resources: $($ambientCredentialNames -join ', ')."
     }
 
-    $countryResource = $resourceItems | Where-Object {
-        $_.metadata.name -like 'legacy-maliev-country-service-*'
-    } | Select-Object -First 1
-    $countryUrl = ($countryResource.status.effectiveEnv | Where-Object {
-        $_.name -eq 'ASPNETCORE_URLS'
-    }).value
-    if (-not $countryUrl) {
-        throw 'The Country service URL was not exported by the local orchestrator.'
-    }
+    $countryResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-country-service-*'
+    $countryUrl = Get-ResourceUrl -Resource $countryResource
 
     Invoke-ExpectedStatus -Uri "$countryUrl/countries/liveness" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$countryUrl/countries/readiness" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$countryUrl/countries/scalar" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$countryUrl/Countries" -ExpectedStatus 200, 404
 
-    $documentResource = $resourceItems | Where-Object {
-        $_.metadata.name -like 'legacy-maliev-document-service-*'
-    } | Select-Object -First 1
-    $documentUrl = ($documentResource.status.effectiveEnv | Where-Object {
-        $_.name -eq 'ASPNETCORE_URLS'
-    }).value
-    if (-not $documentUrl) {
-        throw 'The Document service URL was not exported by the local orchestrator.'
-    }
+    $documentResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-document-service-*'
+    $documentUrl = Get-ResourceUrl -Resource $documentResource
 
     Invoke-ExpectedStatus -Uri "$documentUrl/documents/liveness" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$documentUrl/documents/readiness" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$documentUrl/documents/scalar" -ExpectedStatus 200
     Invoke-ExpectedPostStatus -Uri "$documentUrl/Pdfs/invoice" -ExpectedStatus 401
+
+    $authResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-auth-service-*'
+    $authUrl = Get-ResourceUrl -Resource $authResource
+    Invoke-ExpectedStatus -Uri "$authUrl/auth/liveness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$authUrl/auth/readiness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$authUrl/auth/scalar" -ExpectedStatus 200
+    Invoke-ExpectedPostStatus -Uri "$authUrl/auth/v1/service/login" -ExpectedStatus 400
+
+    $customerResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-customer-service-*'
+    $customerUrl = Get-ResourceUrl -Resource $customerResource
+    Invoke-ExpectedStatus -Uri "$customerUrl/customer/liveness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$customerUrl/customer/readiness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$customerUrl/customer/scalar" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$customerUrl/customers" -ExpectedStatus 401
+
+    $notificationResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-notification-service-*'
+    $notificationUrl = Get-ResourceUrl -Resource $notificationResource
+    Invoke-ExpectedStatus -Uri "$notificationUrl/emails/liveness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$notificationUrl/emails/readiness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$notificationUrl/emails/scalar" -ExpectedStatus 200
+    Invoke-ExpectedPostStatus -Uri "$notificationUrl/notifications/v1/email/noreply" -ExpectedStatus 401
+
+    $webResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-web-*'
+    $webUrl = Get-ResourceUrl -Resource $webResource
+    Invoke-ExpectedStatus -Uri "$webUrl/web/liveness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$webUrl/web/readiness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$webUrl/Account/Login" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$webUrl/Account/Signup" -ExpectedStatus 200
 
     $postgresContainer = $resourceItems | Where-Object {
         $_.metadata.name -like 'legacy-postgres-main-*'
@@ -254,15 +313,16 @@ try {
         throw 'PostgreSQL database topology could not be queried.'
     }
 
+    $requiredDatabases = @([Legacy.Maliev.AppHost.Topology.LegacyTopology]::DatabaseNames) + 'Auth'
     $missingDatabases = @(
-        [Legacy.Maliev.AppHost.Topology.LegacyTopology]::DatabaseNames |
+        $requiredDatabases |
             Where-Object { $_ -notin $actualDatabases }
     )
     if ($missingDatabases.Count -gt 0) {
         throw "Missing legacy databases: $($missingDatabases -join ', ')."
     }
 
-    Write-Host 'PASS: PostgreSQL, Redis, Country API, Document API, 21 database names, and environment isolation are healthy.'
+    Write-Host 'PASS: PostgreSQL, Redis, six services, three migrations, 21 preserved databases plus Auth runtime state, protected boundaries, and environment isolation are healthy.'
 }
 finally {
     if ($appHostRunner -and -not $appHostRunner.HasExited) {
