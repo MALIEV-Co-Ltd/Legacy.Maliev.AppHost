@@ -12,5 +12,6 @@
     <ProjectReference Include="..\Legacy.Maliev.AppHost.Topology\Legacy.Maliev.AppHost.Topology.csproj" IsAspireProjectResource="false" />
     <ProjectReference Include="..\Legacy.Maliev.AppHost.MigrationRunner\Legacy.Maliev.AppHost.MigrationRunner.csproj" />
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.CountryService\Legacy.Maliev.CountryService.Api\Legacy.Maliev.CountryService.Api.csproj" />
+    <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.DocumentService\Legacy.Maliev.DocumentService.Api\Legacy.Maliev.DocumentService.Api.csproj" />
   </ItemGroup>
 </Project>
