@@ -12,6 +12,15 @@ public static class LegacyTopology
     /// <summary>Gets the non-production key identifier for the ephemeral local signing key.</summary>
     public const string JwtKeyId = "legacy-local-ephemeral";
 
+    /// <summary>Gets the synthetic customer identity used only by the disposable local stack.</summary>
+    public const string LocalCustomerEmail = "local.customer@maliev.test";
+
+    /// <summary>Gets the synthetic employee identity used only by the disposable local stack.</summary>
+    public const string LocalEmployeeEmail = "local.employee@maliev.test";
+
+    /// <summary>Gets the clearly non-production password used by local integration verification.</summary>
+    public const string LocalIdentityPassword = "local-test-only";
+
     /// <summary>Gets the legacy PostgreSQL database names without schema renaming.</summary>
     public static IReadOnlyList<string> DatabaseNames { get; } =
     [

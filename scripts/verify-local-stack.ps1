@@ -61,13 +61,14 @@ function Invoke-ExpectedStatus {
 function Invoke-ExpectedPostStatus {
     param(
         [string]$Uri,
-        [int[]]$ExpectedStatus
+        [int[]]$ExpectedStatus,
+        [string]$Body = '{}'
     )
 
     $response = Invoke-WebRequest -Uri $Uri -Method Post -ContentType 'application/json' `
-        -Body '{}' -UseBasicParsing -SkipHttpErrorCheck
+        -Body $Body -UseBasicParsing -SkipHttpErrorCheck
     if ($response.StatusCode -notin $ExpectedStatus) {
-        throw "Unexpected HTTP $($response.StatusCode) from POST $Uri. Expected: $($ExpectedStatus -join ', ')."
+        throw "Unexpected HTTP $($response.StatusCode) from POST $Uri. Expected: $($ExpectedStatus -join ', '). Response: $($response.Content)"
     }
 }
 
@@ -147,6 +148,8 @@ try {
     $migrationPatterns = @(
         'legacy-country-migrations-*',
         'legacy-auth-migrations-*',
+        'legacy-customer-identity-migrations-*',
+        'legacy-employee-identity-migrations-*',
         'legacy-customer-migrations-*'
     )
     $servicePatterns = @(
@@ -195,7 +198,7 @@ try {
                     }
                 ) -notcontains $false
                 if (
-                    $resourceItems.Count -ge 11 -and
+                    $resourceItems.Count -ge 13 -and
                     $servicesPresent -and
                     $migrationsSucceeded -and
                     $unhealthy.Count -eq 0
@@ -280,6 +283,16 @@ try {
     Invoke-ExpectedStatus -Uri "$authUrl/auth/readiness" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$authUrl/auth/scalar" -ExpectedStatus 200
     Invoke-ExpectedPostStatus -Uri "$authUrl/auth/v1/service/login" -ExpectedStatus 400
+    Invoke-ExpectedPostStatus -Uri "$authUrl/auth/v1/login" -ExpectedStatus 200 -Body (@{
+            userName = 'local.customer@maliev.test'
+            password = 'local-test-only'
+            identityKind = 0
+        } | ConvertTo-Json -Compress)
+    Invoke-ExpectedPostStatus -Uri "$authUrl/auth/v1/login" -ExpectedStatus 200 -Body (@{
+            userName = 'local.employee@maliev.test'
+            password = 'local-test-only'
+            identityKind = 1
+        } | ConvertTo-Json -Compress)
 
     $customerResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-customer-service-*'
     $customerUrl = Get-ResourceUrl -Resource $customerResource
@@ -322,7 +335,7 @@ try {
         throw "Missing legacy databases: $($missingDatabases -join ', ')."
     }
 
-    Write-Host 'PASS: PostgreSQL, Redis, six services, three migrations, 21 preserved databases plus Auth runtime state, protected boundaries, and environment isolation are healthy.'
+    Write-Host 'PASS: PostgreSQL, Redis, six services, five migrations, 21 preserved databases plus Auth runtime state, customer/employee login, protected boundaries, and environment isolation are healthy.'
 }
 finally {
     if ($appHostRunner -and -not $appHostRunner.HasExited) {

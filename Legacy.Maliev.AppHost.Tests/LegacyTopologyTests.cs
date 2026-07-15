@@ -71,6 +71,14 @@ public sealed class LegacyTopologyTests
     }
 
     [Fact]
+    public void LocalIdentitySeed_IsExplicitlyNonProduction()
+    {
+        Assert.Equal("local.customer@maliev.test", LegacyTopology.LocalCustomerEmail);
+        Assert.Equal("local.employee@maliev.test", LegacyTopology.LocalEmployeeEmail);
+        Assert.Equal("local-test-only", LegacyTopology.LocalIdentityPassword);
+    }
+
+    [Fact]
     public void CreateJwtKeyMaterial_ReturnsAWorkingRsa3072KeyPair()
     {
         var material = LocalJwtKeyMaterial.Create();
