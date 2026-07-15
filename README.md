@@ -28,6 +28,11 @@ cloud resource.
 - `Legacy.Maliev.Web` wired to Auth, Customer, Notification, Country, Document, Redis, encrypted
   server-side sessions, and the ephemeral `legacy-web` credential. Public account surfaces can be
   exercised locally; reCAPTCHA-protected signup submission remains fail closed without local ADC.
+- The local `legacy-web` service identity includes only the CustomerService customer read/update
+  and address create/update permissions required by the authenticated Member address page. Web
+  derives the customer database ID from the Auth-issued token, stores it in the encrypted
+  server-side session, and reloads owned record IDs before writes; the browser cannot select
+  another customer or receive the service token.
 - A fail-closed environment policy that prevents unrelated machine credentials from reaching
   Aspire resources or appearing in the dashboard.
 

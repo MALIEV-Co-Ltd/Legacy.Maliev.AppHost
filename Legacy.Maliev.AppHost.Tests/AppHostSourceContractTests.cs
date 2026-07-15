@@ -3,6 +3,30 @@ namespace Legacy.Maliev.AppHost.Tests;
 public sealed class AppHostSourceContractTests
 {
     [Fact]
+    public void WebServiceIdentity_HasExactLeastPrivilegeMemberAddressPermissions()
+    {
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var permissions = System.Text.RegularExpressions.Regex.Matches(
+                source,
+                "ServiceClients__Clients__legacy-web__Permissions__\\d+\", \"([^\"]+)\"")
+            .Select(match => match.Groups[1].Value)
+            .ToArray();
+
+        Assert.Equal(
+            [
+                "legacy-auth.customer-self-service",
+                "legacy-customer.customers.create",
+                "legacy-customer.customers.delete",
+                "legacy.notifications.send",
+                "legacy-customer.customers.read",
+                "legacy-customer.customers.update",
+                "legacy-customer.addresses.create",
+                "legacy-customer.addresses.update",
+            ],
+            permissions);
+    }
+
+    [Fact]
     public void AppHost_ModelsTheDormantLegacyRuntimeWithoutCloudDeployment()
     {
         var sourcePath = Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs");
@@ -175,6 +199,13 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("/web/readiness", source, StringComparison.Ordinal);
         Assert.Contains("/Account/Login", source, StringComparison.Ordinal);
         Assert.Contains("/Account/Signup", source, StringComparison.Ordinal);
+        Assert.Contains("AllowAutoRedirect = $false", source, StringComparison.Ordinal);
+        Assert.Contains("Headers.GetValues('Set-Cookie')", source, StringComparison.Ordinal);
+        Assert.Contains("TryAddWithoutValidation('Cookie', $antiforgeryCookie)", source, StringComparison.Ordinal);
+        Assert.Contains("\"$antiforgeryCookie; $sessionCookie\"", source, StringComparison.Ordinal);
+        Assert.Contains("__RequestVerificationToken", source, StringComparison.Ordinal);
+        Assert.Contains("/member/account/manage/address", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("BillingAddress1", source, StringComparison.Ordinal);
         Assert.Contains("'Auth'", source, StringComparison.Ordinal);
         Assert.Contains("dotnet build $appHostProject --configuration Release", source, StringComparison.Ordinal);
         Assert.Contains("-Method Post", source, StringComparison.Ordinal);
