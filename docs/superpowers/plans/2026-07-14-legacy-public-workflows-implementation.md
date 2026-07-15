@@ -180,28 +180,32 @@ git commit -m "feat: publish legacy images with workload identity"
 
 ---
 
-### Task 4: Immutable GitOps handoff workflow
+### Task 4: Immutable GitOps handoff action
 
 **Files:**
-- Create: `Legacy.Maliev.Workflows/.github/workflows/gitops-handoff.yml`
+- Create: `Legacy.Maliev.Workflows/actions/gitops-handoff/action.yml`
 - Create: `Legacy.Maliev.Workflows/scripts/Set-GitOpsImageDigest.ps1`
+- Modify: `Legacy.Maliev.Workflows/README.md`
 - Modify: `Legacy.Maliev.Workflows/tests/Legacy.Maliev.Workflows.Tests/RepositoryContractTests.cs`
 
 **Interfaces:**
-- Consumes: `service`, `image`, `digest`, `gitops-path`, and a protected-main-only `gitops-token` secret.
-- Produces: one branch/PR in `MALIEV-Co-Ltd/maliev-gitops` changing only the service image digest under `apps/legacy` or its established legacy path.
+- Consumes: `service`, `image`, `digest`, `gitops-path`, allowlist `contract-version`, and a token input supplied by a service-owned job bound to that service repository's protected deployment environment.
+- Produces: `changed`, `status`, and deterministic `branch` outputs plus, only when changed, one branch/PR in `MALIEV-Co-Ltd/maliev-gitops` changing the allowlisted service image digest.
+- Stores no deployment secret in the public shared repository. Contract `v1` initially permits only `Legacy.Maliev.CountryService` -> `3-apps/_legacy-country-service/overlays/legacy/kustomization.yaml` -> `legacy-maliev-country-service`.
 
 - [ ] **Step 1: Write failing path and digest validation tests**
 
-Test that `Set-GitOpsImageDigest.ps1` rejects service names outside `Legacy.Maliev.*`, non-`sha256` digests, paths outside the GitOps checkout, namespace changes, node-pool selectors, and more than the expected image field.
+Test that `Set-GitOpsImageDigest.ps1` rejects service names outside `Legacy.Maliev.*`, well-formed but unallowlisted services, non-`sha256` digests, control-character inputs, paths outside the GitOps checkout, symlink/reparse traversal, namespace changes, node-pool selectors, and more than the expected image field. Test same-digest success as an explicit no-op and enforce one-file diffs.
 
 - [ ] **Step 2: Implement the minimal updater**
 
-The script resolves the target with `GetFullPath`, confirms it remains below the supplied GitOps root, updates exactly one `newName/newTag` or digest field according to the existing manifest contract, and fails if the resulting Git diff contains any other file.
+The script resolves the target with `GetFullPath`, confirms it remains below the supplied GitOps root, rejects every reparse/symlink component, resolves the exact versioned allowlist entry, updates exactly one `newTag` or digest field, emits hardened action outputs, and fails if the resulting Git diff contains any other file.
 
-- [ ] **Step 3: Implement the reusable handoff workflow**
+- [ ] **Step 3: Implement the secretless composite handoff action**
 
-Check out `maliev-gitops` using the protected secret only inside the trusted workflow, run the updater, run the GitOps repository’s validation command, push a deterministic branch, and open or update a PR. Do not merge, sync, or call the cluster.
+Require protected `main` and a trusted push/dispatch context, accept the caller's environment-scoped token as an action input, check out `maliev-gitops` with credential persistence disabled, run the updater, and stop successfully on `changed=false`. On change, run the GitOps validation command, push a deterministic branch with a per-command authenticated header, and open or update a PR with step-scoped `GH_TOKEN`. Verify no credential configuration or authenticated remote remains. The token is limited to `maliev-gitops` Contents read/write and Pull requests read/write. Do not merge, sync, or call the cluster.
+
+The allowlisted CountryService path is not yet on `maliev-gitops` main. Its adoption task must land the dormant validated manifest before enabling this action in the service repository.
 
 - [ ] **Step 4: Test and commit**
 
@@ -210,6 +214,10 @@ Run unit/source-contract tests against a temporary fixture repository, then comm
 ```powershell
 git commit -m "feat: hand immutable image digests to gitops"
 ```
+
+- [ ] **Step 5: Apply the secret-ownership review correction**
+
+Remove the secret-bearing reusable workflow, add the composite action and explicit allowlist/no-op/path-hardening tests, update caller documentation, and commit the correction independently.
 
 ---
 
@@ -288,19 +296,19 @@ Use the merged main SHA in every caller; never reference `main`, a tag, or a flo
 - Consumes: shared composite validation action at Task 6 SHA.
 - Produces: unchanged required check `validate / validate` with caller-owned sibling dependency checkouts.
 
-- [ ] **Step 1: Add a failing caller-pin test**
+- [x] **Step 1: Add a failing caller-pin test**
 
 Require the shared action reference to equal the exact Task 6 SHA and reject duplicated restore/build/test/format/audit commands after adoption.
 
-- [ ] **Step 2: Replace duplicated validation steps**
+- [x] **Step 2: Replace duplicated validation steps**
 
 Keep CountryService, `Maliev.Aspire`, and `Maliev.MessagingContracts` checkouts in the caller job, then call the pinned composite action with `Legacy.Maliev.CountryService.slnx`.
 
-- [ ] **Step 3: Run local gates, push PR, and monitor CI**
+- [x] **Step 3: Run local gates, push PR, and monitor CI**
 
 Build/test/format/audit/Gitleaks locally, push, and wait for the exact PR commit to pass.
 
-- [ ] **Step 4: Merge and verify protected main**
+- [x] **Step 4: Merge and verify protected main**
 
 Confirm required-check continuity and no visibility/protection regression.
 
@@ -317,15 +325,15 @@ Confirm required-check continuity and no visibility/protection regression.
 - Consumes: Task 6 shared action SHA and Task 7 pilot evidence.
 - Produces: second independent public consumer and completed shared-foundation checklist.
 
-- [ ] **Step 1: Add failing pinned-caller tests**
+- [x] **Step 1: Add failing pinned-caller tests**
 
 Require the exact shared SHA and retain AppHost/Country/Aspire/Messaging dependency checkouts.
 
-- [ ] **Step 2: Adopt the shared action**
+- [x] **Step 2: Adopt the shared action**
 
 Replace duplicated .NET validation commands with the pinned composite action.
 
-- [ ] **Step 3: Run the local AppHost release and integration gates**
+- [x] **Step 3: Run the local AppHost release and integration gates**
 
 Run build, 20+ tests, format, dependency audit, full-history Gitleaks, and `scripts/verify-local-stack.ps1`; confirm no containers remain.
 
