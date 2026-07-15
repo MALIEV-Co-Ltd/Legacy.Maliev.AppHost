@@ -15,10 +15,6 @@ jobs:
     name: validate
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    defaults:
-      run:
-        shell: bash
-        working-directory: Legacy.Maliev.AppHost
     steps:
       - name: Check out AppHost
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
@@ -29,7 +25,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.CountryService
-          ref: 8edb92507edf02ac49faf3b51bc33708f9a44cdf
+          ref: 2e9b784332f052189de6ba2ac4d4c24052553949
           path: Legacy.Maliev.CountryService
           persist-credentials: false
       - name: Check out service defaults
@@ -43,27 +39,12 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: MALIEV-Co-Ltd/Maliev.MessagingContracts
-          ref: d4836f135d1cf311b2a490d9ba03809ff295e854
+          ref: c533c12a8154f5cf7c4fbc9734e82a62705ac60f
           path: Maliev.MessagingContracts
           persist-credentials: false
-      - name: Set up .NET 10
-        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+      - name: Validate .NET solution
+        uses: MALIEV-Co-Ltd/Legacy.Maliev.Workflows/actions/dotnet-validate@f7bafd4ba7e8e6e92a0b7d853150f3ca60e1eae6
         with:
-          dotnet-version: 10.0.x
-      - name: Cache NuGet packages
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('Legacy.Maliev.AppHost/**/*.csproj', 'Legacy.Maliev.AppHost/Directory.Build.props') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-
-      - name: Restore
-        run: GITHUB_ACTIONS=false dotnet restore Legacy.Maliev.AppHost.slnx
-      - name: Build
-        run: GITHUB_ACTIONS=false dotnet build Legacy.Maliev.AppHost.slnx --configuration Release --no-restore
-      - name: Test
-        run: GITHUB_ACTIONS=false dotnet test Legacy.Maliev.AppHost.slnx --configuration Release --no-build --no-restore
-      - name: Format
-        run: GITHUB_ACTIONS=false dotnet format Legacy.Maliev.AppHost.slnx --verify-no-changes --no-restore
-      - name: Vulnerability audit
-        run: GITHUB_ACTIONS=false dotnet list Legacy.Maliev.AppHost.slnx package --vulnerable --include-transitive --no-restore
+          working-directory: Legacy.Maliev.AppHost
+          solution: Legacy.Maliev.AppHost.slnx
+          use-local-maliev-dependencies: 'true'

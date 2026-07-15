@@ -47,6 +47,17 @@ public sealed partial class WorkflowContractTests
         Assert.Contains("Legacy.Maliev.CountryService", source, StringComparison.Ordinal);
         Assert.Contains("Maliev.Aspire", source, StringComparison.Ordinal);
         Assert.Contains("Maliev.MessagingContracts", source, StringComparison.Ordinal);
+        Assert.Contains(
+            "MALIEV-Co-Ltd/Legacy.Maliev.Workflows/actions/dotnet-validate@f7bafd4ba7e8e6e92a0b7d853150f3ca60e1eae6",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains("          working-directory: Legacy.Maliev.AppHost", source, StringComparison.Ordinal);
+        Assert.Contains("          solution: Legacy.Maliev.AppHost.slnx", source, StringComparison.Ordinal);
+        Assert.Contains("          use-local-maliev-dependencies: 'true'", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("actions/setup-dotnet@", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("actions/cache@", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotMatch(DuplicatedDotnetValidationRegex(), source);
+        Assert.DoesNotContain("GITHUB_ACTIONS=false dotnet", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotMatch(UnpinnedActionRegex(), source);
     }
 
@@ -63,6 +74,9 @@ public sealed partial class WorkflowContractTests
 
     [GeneratedRegex(@"uses:\s+[^\s@]+@(?!(?:[0-9a-f]{40})(?:\s|$))[^\s]+", RegexOptions.IgnoreCase)]
     private static partial Regex UnpinnedActionRegex();
+
+    [GeneratedRegex(@"run:\s*(?:GITHUB_ACTIONS=false\s+)?dotnet\s+(?:restore|build|test|format|list)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex DuplicatedDotnetValidationRegex();
 
     private static string FindRepositoryRoot()
     {
