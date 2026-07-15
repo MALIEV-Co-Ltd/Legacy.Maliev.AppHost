@@ -113,6 +113,64 @@ function Get-JwtPayload {
         [Convert]::FromBase64String($payload)))
 }
 
+function New-WebCustomerSession {
+    param(
+        [string]$WebUrl,
+        [System.Net.Http.HttpClient]$Client,
+        [string]$Email,
+        [string]$Password
+    )
+
+    $loginPage = $Client.GetAsync("$WebUrl/Account/Login").GetAwaiter().GetResult()
+    $loginPageContent = $loginPage.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+    if ([int]$loginPage.StatusCode -ne 200) {
+        throw "The Web login page returned HTTP $([int]$loginPage.StatusCode)."
+    }
+
+    $antiforgery = [regex]::Match(
+        $loginPageContent,
+        'name="__RequestVerificationToken"[^>]*value="([^"]+)"')
+    if (-not $antiforgery.Success) {
+        throw 'The Web login form did not expose an antiforgery token.'
+    }
+
+    $antiforgeryCookie = @($loginPage.Headers.GetValues('Set-Cookie') | ForEach-Object {
+        ($_ -split ';', 2)[0]
+    }) -join '; '
+    if (-not $antiforgeryCookie) {
+        throw 'The Web login form did not issue an antiforgery cookie.'
+    }
+
+    $loginRequest = [System.Net.Http.HttpRequestMessage]::new(
+        [System.Net.Http.HttpMethod]::Post,
+        "$WebUrl/Account/Login?handler=Login")
+    $null = $loginRequest.Headers.TryAddWithoutValidation('Cookie', $antiforgeryCookie)
+    $loginForm = [System.Collections.Generic.Dictionary[string,string]]::new()
+    $loginForm.Add(
+        '__RequestVerificationToken',
+        [System.Net.WebUtility]::HtmlDecode($antiforgery.Groups[1].Value))
+    $loginForm.Add('Email', $Email)
+    $loginForm.Add('Password', $Password)
+    $loginForm.Add('RememberMe', 'false')
+    $loginRequest.Content = [System.Net.Http.FormUrlEncodedContent]::new($loginForm)
+    $login = $Client.SendAsync($loginRequest).GetAwaiter().GetResult()
+    if ([int]$login.StatusCode -notin 302, 303) {
+        throw "The Web BFF login for $Email returned HTTP $([int]$login.StatusCode)."
+    }
+
+    $sessionCookie = @($login.Headers.GetValues('Set-Cookie') | ForEach-Object {
+        ($_ -split ';', 2)[0]
+    }) -join '; '
+    if (-not $sessionCookie) {
+        throw 'The Web BFF login did not issue an encrypted session cookie.'
+    }
+
+    return @{
+        AntiforgeryCookie = $antiforgeryCookie
+        SessionCookie = $sessionCookie
+    }
+}
+
 function Invoke-WebMemberAccountFlow {
     param(
         [string]$WebUrl
@@ -122,49 +180,13 @@ function Invoke-WebMemberAccountFlow {
     $handler.AllowAutoRedirect = $false
     $client = [System.Net.Http.HttpClient]::new($handler)
     try {
-        $loginPage = $client.GetAsync("$WebUrl/Account/Login").GetAwaiter().GetResult()
-        $loginPageContent = $loginPage.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-        if ([int]$loginPage.StatusCode -ne 200) {
-            throw "The Web login page returned HTTP $([int]$loginPage.StatusCode)."
-        }
-
-        $antiforgery = [regex]::Match(
-            $loginPageContent,
-            'name="__RequestVerificationToken"[^>]*value="([^"]+)"')
-        if (-not $antiforgery.Success) {
-            throw 'The Web login form did not expose an antiforgery token.'
-        }
-
-        $antiforgeryCookie = @($loginPage.Headers.GetValues('Set-Cookie') | ForEach-Object {
-            ($_ -split ';', 2)[0]
-        }) -join '; '
-        if (-not $antiforgeryCookie) {
-            throw 'The Web login form did not issue an antiforgery cookie.'
-        }
-
-        $loginRequest = [System.Net.Http.HttpRequestMessage]::new(
-            [System.Net.Http.HttpMethod]::Post,
-            "$WebUrl/Account/Login?handler=Login")
-        $null = $loginRequest.Headers.TryAddWithoutValidation('Cookie', $antiforgeryCookie)
-        $loginForm = [System.Collections.Generic.Dictionary[string,string]]::new()
-        $loginForm.Add(
-            '__RequestVerificationToken',
-            [System.Net.WebUtility]::HtmlDecode($antiforgery.Groups[1].Value))
-        $loginForm.Add('Email', 'local.customer@maliev.test')
-        $loginForm.Add('Password', 'local-test-only')
-        $loginForm.Add('RememberMe', 'false')
-        $loginRequest.Content = [System.Net.Http.FormUrlEncodedContent]::new($loginForm)
-        $login = $client.SendAsync($loginRequest).GetAwaiter().GetResult()
-        if ([int]$login.StatusCode -notin 302, 303) {
-            throw "The Web BFF login returned HTTP $([int]$login.StatusCode)."
-        }
-
-        $sessionCookie = @($login.Headers.GetValues('Set-Cookie') | ForEach-Object {
-            ($_ -split ';', 2)[0]
-        }) -join '; '
-        if (-not $sessionCookie) {
-            throw 'The Web BFF login did not issue an encrypted session cookie.'
-        }
+        $session = New-WebCustomerSession `
+            -WebUrl $WebUrl `
+            -Client $client `
+            -Email 'local.customer@maliev.test' `
+            -Password 'local-test-only'
+        $antiforgeryCookie = $session.AntiforgeryCookie
+        $sessionCookie = $session.SessionCookie
 
         $addressRequest = [System.Net.Http.HttpRequestMessage]::new(
             [System.Net.Http.HttpMethod]::Get,
@@ -431,6 +453,72 @@ function Invoke-WebMemberAccountFlow {
         $passwordResult = $client.SendAsync($passwordUpdate).GetAwaiter().GetResult()
         if ([int]$passwordResult.StatusCode -notin 302, 303) {
             throw "The Member password change returned HTTP $([int]$passwordResult.StatusCode)."
+        }
+
+        $session = New-WebCustomerSession `
+            -WebUrl $WebUrl `
+            -Client $client `
+            -Email 'local.customer@maliev.test' `
+            -Password 'local-test-updated'
+        $antiforgeryCookie = $session.AntiforgeryCookie
+        $sessionCookie = $session.SessionCookie
+
+        $emailRequest = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Get,
+            "$WebUrl/member/account/manage/changeemail?culture=en")
+        $null = $emailRequest.Headers.TryAddWithoutValidation(
+            'Cookie',
+            "$antiforgeryCookie; $sessionCookie")
+        $emailPage = $client.SendAsync($emailRequest).GetAwaiter().GetResult()
+        $emailContent = $emailPage.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        $emailAntiforgery = [regex]::Match(
+            $emailContent,
+            'name="__RequestVerificationToken"[^>]*value="([^"]+)"')
+        if ([int]$emailPage.StatusCode -ne 200 -or -not $emailAntiforgery.Success) {
+            throw 'The authenticated email-change boundary did not render through the Web BFF.'
+        }
+
+        $emailUpdate = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Post,
+            "$WebUrl/member/account/manage/changeemail?handler=ChangeEmail")
+        $null = $emailUpdate.Headers.TryAddWithoutValidation(
+            'Cookie',
+            "$antiforgeryCookie; $sessionCookie")
+        $emailForm = [System.Collections.Generic.Dictionary[string,string]]::new()
+        $emailForm.Add(
+            '__RequestVerificationToken',
+            [System.Net.WebUtility]::HtmlDecode($emailAntiforgery.Groups[1].Value))
+        $emailForm.Add('CurrentPassword', 'local-test-updated')
+        $emailForm.Add('NewEmail', 'local.changed@maliev.test')
+        $emailUpdate.Content = [System.Net.Http.FormUrlEncodedContent]::new($emailForm)
+        $emailResult = $client.SendAsync($emailUpdate).GetAwaiter().GetResult()
+        $emailLocation = $emailResult.Headers.Location
+        if ([int]$emailResult.StatusCode -notin 302, 303 -or $null -eq $emailLocation) {
+            throw "The Member email change returned HTTP $([int]$emailResult.StatusCode)."
+        }
+
+        $emailRedirect = [Uri]::new([Uri]$WebUrl, $emailLocation)
+        if (
+            $emailRedirect.AbsolutePath -ne '/Account/Login' -or
+            [System.Net.WebUtility]::UrlDecode($emailRedirect.Query) -notmatch 'email=local.changed@maliev.test'
+        ) {
+            throw "The Member email change redirected to unexpected location $emailRedirect."
+        }
+
+        $clearCookies = @($emailResult.Headers.GetValues('Set-Cookie'))
+        if (-not ($clearCookies | Where-Object { $_ -match '__Host-Maliev\.Legacy\.Session=;' })) {
+            throw 'The Member email change did not clear the encrypted BFF session cookie.'
+        }
+
+        $signedOutRequest = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Get,
+            "$WebUrl/member/account/manage/changeemail")
+        $null = $signedOutRequest.Headers.TryAddWithoutValidation(
+            'Cookie',
+            "$antiforgeryCookie; $sessionCookie")
+        $signedOut = $client.SendAsync($signedOutRequest).GetAwaiter().GetResult()
+        if ([int]$signedOut.StatusCode -notin 302, 303) {
+            throw 'The invalidated BFF session still accessed an authenticated Member route.'
         }
     }
     finally {
@@ -719,6 +807,7 @@ try {
         'legacy-customer.companies.create',
         'legacy-customer.companies.update',
         'legacy-customer.companies.delete'
+        'legacy.notifications.send'
         'legacy.customer-orders.read'
         'legacy.customer-orders.cancel'
         'legacy.customer-quotations.read'
@@ -759,6 +848,55 @@ try {
     Invoke-WebInstantQuotationFlow -WebUrl $webUrl
     Invoke-WebMemberAccountFlow -WebUrl $webUrl
 
+    $recordedResponse = Invoke-RestMethod `
+        -Uri "$notificationUrl/notifications/development/recorded" `
+        -Method Get
+    $recordedNotifications = [System.Collections.Generic.List[object]]::new()
+    foreach ($recordedNotification in $recordedResponse) {
+        $recordedNotifications.Add($recordedNotification)
+    }
+    $passwordNotification = @($recordedNotifications | Where-Object {
+        $_.to -eq 'local.customer@maliev.test' -and
+        $_.subject -eq 'Your MALIEV password was changed'
+    })
+    $emailNotification = @($recordedNotifications | Where-Object {
+        $_.to -eq 'local.changed@maliev.test' -and
+        $_.subject -eq 'Confirm your new MALIEV email address'
+    })
+    if (
+        $recordedNotifications.Count -ne 2 -or
+        $passwordNotification.Count -ne 1 -or
+        $emailNotification.Count -ne 1
+    ) {
+        $recordedSummary = @($recordedNotifications | ForEach-Object {
+            "$($_.to) | $($_.subject)"
+        }) -join '; '
+        $notificationDiagnostics = @(
+            @('legacy-maliev-web', 'legacy-maliev-notification-service', 'legacy-maliev-auth-service') |
+                ForEach-Object {
+                    & aspire logs $_ --apphost $appHostProject --tail 160 --format Table `
+                        --non-interactive 2>&1
+                } | Where-Object {
+                    $_ -match '(warn|fail|error|notification|status|permission|unauthorized|forbidden| 4\d\d | 5\d\d )' -and
+                    $_ -notmatch '"?isError"?'
+                } | Select-Object -Last 60
+        ) -join ' | '
+        throw "The development notification provider did not record the password and email security messages. Count: $($recordedNotifications.Count). Recorded: $recordedSummary. Diagnostics: $notificationDiagnostics"
+    }
+
+    $changedCustomer = Invoke-RestMethod -Uri "$customerUrl/customers/1" -Headers $serviceHeaders
+    if ($changedCustomer.email -ne 'local.changed@maliev.test') {
+        throw 'The Customer profile did not retain the new email address after the Web BFF change.'
+    }
+
+    foreach ($email in @('local.customer@maliev.test', 'local.changed@maliev.test')) {
+        Invoke-ExpectedPostStatus -Uri "$authUrl/auth/v1/login" -ExpectedStatus 401 -Body (@{
+                userName = $email
+                password = 'local-test-updated'
+                identityKind = 0
+            } | ConvertTo-Json -Compress)
+    }
+
     $postgresContainer = $resourceItems | Where-Object {
         $_.metadata.name -like 'legacy-postgres-main-*'
     } | Select-Object -First 1
@@ -779,7 +917,7 @@ try {
         throw "Missing legacy databases: $($missingDatabases -join ', ')."
     }
 
-    Write-Host 'PASS: PostgreSQL, Redis, eight services, nine migrations, 21 preserved databases plus Auth runtime state, public instant quotation, customer/employee login, authenticated Member address/profile/quotation/order cancellation/order compatibility/password BFF flows, protected boundaries, and environment isolation are healthy.'
+    Write-Host 'PASS: PostgreSQL, Redis, eight services, nine migrations, 21 preserved databases plus Auth runtime state, public instant quotation, recorded local security notifications, customer/employee login, authenticated Member address/profile/quotation/order cancellation/order compatibility/password/email BFF flows, protected boundaries, and environment isolation are healthy.'
 }
 finally {
     if ($appHostRunner -and -not $appHostRunner.HasExited) {

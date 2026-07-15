@@ -50,6 +50,8 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("Jwt__PublicKey", source, StringComparison.Ordinal);
         Assert.Contains("Jwt__Issuer", source, StringComparison.Ordinal);
         Assert.Contains("Jwt__Audience", source, StringComparison.Ordinal);
+        Assert.Contains("Notifications__UseDevelopmentRecordingProvider", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Brevo__ApiKey", source, StringComparison.Ordinal);
         Assert.Contains("/countries/liveness", source, StringComparison.Ordinal);
         Assert.Contains("/countries/readiness", source, StringComparison.Ordinal);
         Assert.Contains("--memory", source, StringComparison.Ordinal);
@@ -289,8 +291,12 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("/member/account/manage/profile", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("CompanyName", source, StringComparison.Ordinal);
         Assert.Contains("/member/account/manage/changepassword", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/member/account/manage/changeemail", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("CurrentPassword", source, StringComparison.Ordinal);
         Assert.Contains("NewPassword", source, StringComparison.Ordinal);
+        Assert.Contains("NewEmail", source, StringComparison.Ordinal);
+        Assert.Contains("/notifications/development/recorded", source, StringComparison.Ordinal);
+        Assert.Contains("local.changed@maliev.test", source, StringComparison.Ordinal);
         Assert.Contains("legacy-order-migrations-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-order-status-migrations-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-maliev-order-service-*", source, StringComparison.Ordinal);
