@@ -28,6 +28,13 @@ jobs:
           ref: 2e9b784332f052189de6ba2ac4d4c24052553949
           path: Legacy.Maliev.CountryService
           persist-credentials: false
+      - name: Check out Document service
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          repository: MALIEV-Co-Ltd/Legacy.Maliev.DocumentService
+          ref: b7492444e0a3960778ab19d554a6bc17158cfd80
+          path: Legacy.Maliev.DocumentService
+          persist-credentials: false
       - name: Check out service defaults
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
