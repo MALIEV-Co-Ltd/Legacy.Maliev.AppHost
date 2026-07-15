@@ -255,6 +255,33 @@ function Invoke-WebMemberAccountFlow {
             throw "The authenticated owned quotation detail did not render through the Web BFF. Diagnostics: $diagnostics"
         }
 
+        $serviceOrderCompatibilityRoutes = @(
+            @{ Path = '/member/orders/3d-printing'; ExpectedItem = '3D-Printing' },
+            @{ Path = '/member/orders/3d-scanning'; ExpectedItem = '3D-Scanning' },
+            @{ Path = '/member/orders/cnc-machining'; ExpectedItem = 'CNC-Machining' }
+        )
+        foreach ($route in $serviceOrderCompatibilityRoutes) {
+            $compatibilityRequest = [System.Net.Http.HttpRequestMessage]::new(
+                [System.Net.Http.HttpMethod]::Get,
+                "$WebUrl$($route.Path)")
+            $null = $compatibilityRequest.Headers.TryAddWithoutValidation(
+                'Cookie',
+                "$antiforgeryCookie; $sessionCookie")
+            $compatibilityResponse = $client.SendAsync($compatibilityRequest).GetAwaiter().GetResult()
+            $locationHeader = $compatibilityResponse.Headers.Location
+            if ([int]$compatibilityResponse.StatusCode -notin 302, 303 -or $null -eq $locationHeader) {
+                throw "The authenticated compatibility route $($route.Path) did not redirect to the quotation request."
+            }
+
+            $location = [Uri]::new([Uri]$WebUrl, $locationHeader)
+            if (
+                $location.AbsolutePath -notin '/Quotation', '/Quotation/Index' -or
+                $location.Query -ne "?item=$($route.ExpectedItem)"
+            ) {
+                throw "The compatibility route $($route.Path) redirected to unexpected location $location."
+            }
+        }
+
         $historyRequest = [System.Net.Http.HttpRequestMessage]::new(
             [System.Net.Http.HttpMethod]::Get,
             "$WebUrl/member/orders/history?culture=en")
@@ -724,7 +751,7 @@ try {
         throw "Missing legacy databases: $($missingDatabases -join ', ')."
     }
 
-    Write-Host 'PASS: PostgreSQL, Redis, eight services, nine migrations, 21 preserved databases plus Auth runtime state, customer/employee login, authenticated Member address/profile/quotation/order cancellation/password BFF flows, protected boundaries, and environment isolation are healthy.'
+    Write-Host 'PASS: PostgreSQL, Redis, eight services, nine migrations, 21 preserved databases plus Auth runtime state, customer/employee login, authenticated Member address/profile/quotation/order cancellation/order compatibility/password BFF flows, protected boundaries, and environment isolation are healthy.'
 }
 finally {
     if ($appHostRunner -and -not $appHostRunner.HasExited) {
