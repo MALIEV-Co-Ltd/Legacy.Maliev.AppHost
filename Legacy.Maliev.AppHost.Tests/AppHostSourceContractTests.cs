@@ -22,6 +22,9 @@ public sealed class AppHostSourceContractTests
                 "legacy-customer.customers.update",
                 "legacy-customer.addresses.create",
                 "legacy-customer.addresses.update",
+                "legacy-customer.companies.create",
+                "legacy-customer.companies.update",
+                "legacy-customer.companies.delete",
             ],
             permissions);
     }
@@ -158,6 +161,21 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
+    public void CustomerMigration_SeedsTheProfileOwnedByTheLocalCustomerIdentity()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "Legacy.Maliev.AppHost.MigrationRunner",
+            "Program.cs"));
+
+        Assert.Contains("await SeedCustomerAsync(context);", source, StringComparison.Ordinal);
+        Assert.Contains("LegacyTopology.LocalCustomerEmail", source, StringComparison.Ordinal);
+        Assert.Contains("FirstName = \"Local\"", source, StringComparison.Ordinal);
+        Assert.Contains("LastName = \"Customer\"", source, StringComparison.Ordinal);
+        Assert.Contains("customer.Id != 1", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void VerificationScript_PollsAndChecksTheLocalServiceTopology()
     {
         var sourcePath = Path.Combine(FindRepositoryRoot(), "scripts", "verify-local-stack.ps1");
@@ -206,6 +224,11 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("__RequestVerificationToken", source, StringComparison.Ordinal);
         Assert.Contains("/member/account/manage/address", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("BillingAddress1", source, StringComparison.Ordinal);
+        Assert.Contains("/member/account/manage/profile", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CompanyName", source, StringComparison.Ordinal);
+        Assert.Contains("/member/account/manage/changepassword", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CurrentPassword", source, StringComparison.Ordinal);
+        Assert.Contains("NewPassword", source, StringComparison.Ordinal);
         Assert.Contains("'Auth'", source, StringComparison.Ordinal);
         Assert.Contains("dotnet build $appHostProject --configuration Release", source, StringComparison.Ordinal);
         Assert.Contains("-Method Post", source, StringComparison.Ordinal);
