@@ -72,8 +72,24 @@ function Invoke-ExpectedPostStatus {
     }
 }
 
-function Invoke-WebMemberAddressFlow {
-    param([string]$WebUrl)
+function Get-JwtPayload {
+    param([string]$Token)
+
+    $segments = $Token.Split('.')
+    if ($segments.Count -ne 3) {
+        throw 'The service login response did not contain a compact JWT.'
+    }
+
+    $payload = $segments[1].Replace('-', '+').Replace('_', '/')
+    $payload = $payload.PadRight($payload.Length + ((4 - ($payload.Length % 4)) % 4), '=')
+    return ConvertFrom-Json ([System.Text.Encoding]::UTF8.GetString(
+        [Convert]::FromBase64String($payload)))
+}
+
+function Invoke-WebMemberAccountFlow {
+    param(
+        [string]$WebUrl
+    )
 
     $handler = [System.Net.Http.HttpClientHandler]::new()
     $handler.AllowAutoRedirect = $false
@@ -131,8 +147,105 @@ function Invoke-WebMemberAddressFlow {
             "$antiforgeryCookie; $sessionCookie")
         $address = $client.SendAsync($addressRequest).GetAwaiter().GetResult()
         $addressContent = $address.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-        if ([int]$address.StatusCode -ne 200 -or $addressContent -notmatch 'name="BillingAddress1"') {
+        if (
+            [int]$address.StatusCode -ne 200 -or
+            $addressContent -notmatch 'name="BillingAddress1"' -or
+            $addressContent -match 'address profile could not be loaded'
+        ) {
             throw 'The authenticated Member address boundary did not render through the Web BFF.'
+        }
+
+        $profileRequest = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Get,
+            "$WebUrl/member/account/manage/profile?culture=en")
+        $null = $profileRequest.Headers.TryAddWithoutValidation(
+            'Cookie',
+            "$antiforgeryCookie; $sessionCookie")
+        $profile = $client.SendAsync($profileRequest).GetAwaiter().GetResult()
+        $profileContent = $profile.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        $profileAntiforgery = [regex]::Match(
+            $profileContent,
+            'name="__RequestVerificationToken"[^>]*value="([^"]+)"')
+        if (
+            [int]$profile.StatusCode -ne 200 -or
+            -not $profileAntiforgery.Success -or
+            $profileContent -match 'profile could not be loaded'
+        ) {
+            throw 'The authenticated Member profile boundary did not render through the Web BFF.'
+        }
+
+        $profileUpdate = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Post,
+            "$WebUrl/member/account/manage/profile?handler=UpdateProfile")
+        $null = $profileUpdate.Headers.TryAddWithoutValidation(
+            'Cookie',
+            "$antiforgeryCookie; $sessionCookie")
+        $profileForm = [System.Collections.Generic.Dictionary[string,string]]::new()
+        $profileForm.Add(
+            '__RequestVerificationToken',
+            [System.Net.WebUtility]::HtmlDecode($profileAntiforgery.Groups[1].Value))
+        $profileForm.Add('FirstName', 'Local')
+        $profileForm.Add('LastName', 'Customer')
+        $profileForm.Add('CompanyName', 'Local Test Company')
+        $profileUpdate.Content = [System.Net.Http.FormUrlEncodedContent]::new($profileForm)
+        $profileResult = $client.SendAsync($profileUpdate).GetAwaiter().GetResult()
+        if ([int]$profileResult.StatusCode -notin 302, 303) {
+            $profileResultContent = $profileResult.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+            $validationMessages = @([regex]::Matches(
+                $profileResultContent,
+                '<li>([^<]+)</li>') | ForEach-Object {
+                    [System.Net.WebUtility]::HtmlDecode($_.Groups[1].Value)
+                })
+            $validationDetail = if ($validationMessages.Count -gt 0) {
+                $validationMessages -join '; '
+            }
+            else {
+                'no validation detail was rendered'
+            }
+            $diagnostics = @(
+                @('legacy-maliev-web', 'legacy-maliev-customer-service') | ForEach-Object {
+                    & aspire logs $_ --apphost $appHostProject --tail 100 --format Table `
+                        --non-interactive 2>&1
+                } | Where-Object {
+                    $_ -match '(warn|fail|error|companies|customers/|status code|rejected|unavailable|permission| 4\d\d | 5\d\d )' -and
+                    $_ -notmatch '"?isError"?'
+                } | Select-Object -Last 40
+            ) -join ' | '
+            throw "The Member profile update returned HTTP $([int]$profileResult.StatusCode): $validationDetail. Diagnostics: $diagnostics"
+        }
+
+        $passwordRequest = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Get,
+            "$WebUrl/member/account/manage/changepassword?culture=en")
+        $null = $passwordRequest.Headers.TryAddWithoutValidation(
+            'Cookie',
+            "$antiforgeryCookie; $sessionCookie")
+        $passwordPage = $client.SendAsync($passwordRequest).GetAwaiter().GetResult()
+        $passwordContent = $passwordPage.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        $passwordAntiforgery = [regex]::Match(
+            $passwordContent,
+            'name="__RequestVerificationToken"[^>]*value="([^"]+)"')
+        if ([int]$passwordPage.StatusCode -ne 200 -or -not $passwordAntiforgery.Success) {
+            throw 'The authenticated password-change boundary did not render through the Web BFF.'
+        }
+
+        $passwordUpdate = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Post,
+            "$WebUrl/member/account/manage/changepassword?handler=ChangePassword")
+        $null = $passwordUpdate.Headers.TryAddWithoutValidation(
+            'Cookie',
+            "$antiforgeryCookie; $sessionCookie")
+        $passwordForm = [System.Collections.Generic.Dictionary[string,string]]::new()
+        $passwordForm.Add(
+            '__RequestVerificationToken',
+            [System.Net.WebUtility]::HtmlDecode($passwordAntiforgery.Groups[1].Value))
+        $passwordForm.Add('CurrentPassword', 'local-test-only')
+        $passwordForm.Add('NewPassword', 'local-test-updated')
+        $passwordForm.Add('ConfirmPassword', 'local-test-updated')
+        $passwordUpdate.Content = [System.Net.Http.FormUrlEncodedContent]::new($passwordForm)
+        $passwordResult = $client.SendAsync($passwordUpdate).GetAwaiter().GetResult()
+        if ([int]$passwordResult.StatusCode -notin 302, 303) {
+            throw "The Member password change returned HTTP $([int]$passwordResult.StatusCode)."
         }
     }
     finally {
@@ -379,11 +492,63 @@ try {
 
     $webResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-web-*'
     $webUrl = Get-ResourceUrl -Resource $webResource
+    $webClientSecret = ($webResource.status.effectiveEnv | Where-Object {
+        $_.name -eq 'ServiceAuthentication__ClientSecret'
+    }).value
+    if (-not $webClientSecret) {
+        throw 'The Web service credential was not resolved by the local orchestrator.'
+    }
+
+    $serviceLogin = Invoke-RestMethod -Uri "$authUrl/auth/v1/service/login" -Method Post `
+        -ContentType 'application/json' -Body (@{
+            clientId = 'legacy-web'
+            clientSecret = $webClientSecret
+        } | ConvertTo-Json -Compress)
+    $serviceClaims = Get-JwtPayload -Token $serviceLogin.accessToken
+    $runtimePermissions = @($serviceClaims.permissions)
+    $requiredMemberPermissions = @(
+        'legacy-customer.customers.read',
+        'legacy-customer.customers.update',
+        'legacy-customer.addresses.create',
+        'legacy-customer.addresses.update',
+        'legacy-customer.companies.create',
+        'legacy-customer.companies.update',
+        'legacy-customer.companies.delete'
+    )
+    $missingMemberPermissions = @($requiredMemberPermissions | Where-Object {
+        $_ -notin $runtimePermissions
+    })
+    if ($missingMemberPermissions.Count -gt 0) {
+        throw "The Web service JWT is missing Member permissions: $($missingMemberPermissions -join ', ')."
+    }
+
+    $serviceHeaders = @{ Authorization = "Bearer $($serviceLogin.accessToken)" }
+    $companyCreate = Invoke-WebRequest -Uri "$customerUrl/customers/companies" -Method Post `
+        -Headers $serviceHeaders -ContentType 'application/json' -SkipHttpErrorCheck `
+        -Body (@{ name = 'Local Permission Probe' } | ConvertTo-Json -Compress)
+    if ($companyCreate.StatusCode -ne 201) {
+        throw "The Web service identity could not create companies (HTTP $($companyCreate.StatusCode)): $($companyCreate.Content)"
+    }
+
+    $probeCompany = ConvertFrom-Json $companyCreate.Content
+    $companyUpdate = Invoke-WebRequest -Uri "$customerUrl/customers/companies/$($probeCompany.id)" `
+        -Method Put -Headers $serviceHeaders -ContentType 'application/json' -SkipHttpErrorCheck `
+        -Body (@{ name = 'Updated Local Permission Probe' } | ConvertTo-Json -Compress)
+    if ($companyUpdate.StatusCode -ne 204) {
+        throw "The Web service identity could not update companies (HTTP $($companyUpdate.StatusCode)): $($companyUpdate.Content)"
+    }
+
+    $companyDelete = Invoke-WebRequest -Uri "$customerUrl/customers/companies/$($probeCompany.id)" `
+        -Method Delete -Headers $serviceHeaders -SkipHttpErrorCheck
+    if ($companyDelete.StatusCode -ne 204) {
+        throw "The Web service identity could not delete companies (HTTP $($companyDelete.StatusCode)): $($companyDelete.Content)"
+    }
+
     Invoke-ExpectedStatus -Uri "$webUrl/web/liveness" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$webUrl/web/readiness" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$webUrl/Account/Login" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$webUrl/Account/Signup" -ExpectedStatus 200
-    Invoke-WebMemberAddressFlow -WebUrl $webUrl
+    Invoke-WebMemberAccountFlow -WebUrl $webUrl
 
     $postgresContainer = $resourceItems | Where-Object {
         $_.metadata.name -like 'legacy-postgres-main-*'
@@ -405,7 +570,7 @@ try {
         throw "Missing legacy databases: $($missingDatabases -join ', ')."
     }
 
-    Write-Host 'PASS: PostgreSQL, Redis, six services, five migrations, 21 preserved databases plus Auth runtime state, customer/employee login, authenticated Member address BFF, protected boundaries, and environment isolation are healthy.'
+    Write-Host 'PASS: PostgreSQL, Redis, six services, five migrations, 21 preserved databases plus Auth runtime state, customer/employee login, authenticated Member address/profile/password BFF flows, protected boundaries, and environment isolation are healthy.'
 }
 finally {
     if ($appHostRunner -and -not $appHostRunner.HasExited) {

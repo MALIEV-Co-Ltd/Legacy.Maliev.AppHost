@@ -2,6 +2,7 @@ using Legacy.Maliev.AuthService.Infrastructure;
 using Legacy.Maliev.AppHost.Topology;
 using Legacy.Maliev.CountryService.Data;
 using Legacy.Maliev.CustomerService.Data;
+using Legacy.Maliev.CustomerService.Domain;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -87,9 +88,35 @@ static async Task MigrateAsync(string workload, string connectionString)
             await using (var context = new CustomerDbContext(customerOptions))
             {
                 await context.Database.MigrateAsync();
+                await SeedCustomerAsync(context);
             }
 
             break;
+    }
+}
+
+static async Task SeedCustomerAsync(CustomerDbContext context)
+{
+    var customer = await context.Customers.SingleOrDefaultAsync(
+        row => row.Email == LegacyTopology.LocalCustomerEmail);
+    if (customer is null)
+    {
+        customer = new Customer
+        {
+            FirstName = "Local",
+            LastName = "Customer",
+            Email = LegacyTopology.LocalCustomerEmail,
+            Telephone = "local-only",
+            Mobile = "local-only",
+        };
+        context.Customers.Add(customer);
+        await context.SaveChangesAsync();
+    }
+
+    if (customer.Id != 1)
+    {
+        throw new InvalidOperationException(
+            $"The local customer profile ID {customer.Id} does not match the local identity database ID 1.");
     }
 }
 

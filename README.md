@@ -33,6 +33,10 @@ cloud resource.
   derives the customer database ID from the Auth-issued token, stores it in the encrypted
   server-side session, and reloads owned record IDs before writes; the browser cannot select
   another customer or receive the service token.
+- Member profile validation additionally grants only company create/update/delete. The Web BFF
+  reloads the owned customer and nested company ID before any operation; no company identifier is
+  accepted from the browser. Company read is not granted because the customer response already
+  contains the owned company projection.
 - A fail-closed environment policy that prevents unrelated machine credentials from reaching
   Aspire resources or appearing in the dashboard.
 
