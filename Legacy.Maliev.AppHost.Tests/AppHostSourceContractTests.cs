@@ -295,6 +295,14 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("/order/scalar", source, StringComparison.Ordinal);
         Assert.Contains("/member/orders/history", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("/member/orders/view?itemID=1", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/member/orders/3d-printing", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/member/orders/3d-scanning", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/member/orders/cnc-machining", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ExpectedItem = '3D-Printing'", source, StringComparison.Ordinal);
+        Assert.Contains("ExpectedItem = '3D-Scanning'", source, StringComparison.Ordinal);
+        Assert.Contains("ExpectedItem = 'CNC-Machining'", source, StringComparison.Ordinal);
+        Assert.Contains("AbsolutePath -notin '/Quotation', '/Quotation/Index'", source, StringComparison.Ordinal);
+        Assert.Contains("Headers.Location", source, StringComparison.Ordinal);
         Assert.Contains("handler=CancelOrder", source, StringComparison.Ordinal);
         Assert.Contains("orderId", source, StringComparison.Ordinal);
         Assert.Contains("legacy-quotation-migrations-*", source, StringComparison.Ordinal);
