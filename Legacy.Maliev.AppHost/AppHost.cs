@@ -8,6 +8,8 @@ var postgresUsername = builder.AddParameter("legacy-postgres-username");
 var postgresPassword = builder.AddParameter("legacy-postgres-password", secret: true);
 var redisPassword = builder.AddParameter("legacy-redis-password", secret: true);
 var jwt = LocalJwtKeyMaterial.Create();
+var webCredential = LocalServiceCredential.Create();
+var dataProtectionCertificate = LocalDataProtectionCertificate.Create();
 
 var postgres = builder.AddPostgres("legacy-postgres-main", postgresUsername, postgresPassword)
     .WithImageTag("18-alpine")
@@ -28,23 +30,26 @@ foreach (var databaseName in LegacyTopology.DatabaseNames)
     databases.Add(databaseName, postgres.AddDatabase(resourceName, databaseName));
 }
 
+var authDatabase = postgres.AddDatabase("legacy-auth-db", "Auth");
+
 var redis = builder.AddRedis("legacy-redis", port: null, password: redisPassword)
     .WithImageTag("8.4-alpine")
     .WithContainerRuntimeArgs("--cpus", "0.10", "--memory", "96m");
 
 var countryDatabase = databases["Country"];
 var countryMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-country-migrations")
+    .WithArgs("country")
     .WithEnvironment("ConnectionStrings__CountryDbContext", countryDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
     .WaitFor(countryDatabase);
 
-builder.AddProject<Projects.Legacy_Maliev_CountryService_Api>("legacy-maliev-country-service")
+var country = builder.AddProject<Projects.Legacy_Maliev_CountryService_Api>("legacy-maliev-country-service")
     .WithEnvironment("ConnectionStrings__CountryDbContext", countryDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("ConnectionStrings__redis", redis.Resource.ConnectionStringExpression)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", "https://legacy-iam.localhost")
-    .WithEnvironment("Jwt__Audience", "maliev-legacy-services")
+    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
+    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
@@ -59,12 +64,12 @@ builder.AddProject<Projects.Legacy_Maliev_CountryService_Api>("legacy-maliev-cou
     .WaitForCompletion(countryMigrations)
     .WaitFor(redis);
 
-builder.AddProject<Projects.Legacy_Maliev_DocumentService_Api>("legacy-maliev-document-service")
+var document = builder.AddProject<Projects.Legacy_Maliev_DocumentService_Api>("legacy-maliev-document-service")
     .WithHttpEndpoint(name: "http")
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", "https://legacy-iam.localhost")
-    .WithEnvironment("Jwt__Audience", "maliev-legacy-services")
+    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
+    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithHttpHealthCheck("/documents/liveness", endpointName: "http")
@@ -74,6 +79,120 @@ builder.AddProject<Projects.Legacy_Maliev_DocumentService_Api>("legacy-maliev-do
         url.Url = "/documents/scalar";
         url.DisplayText = "Document Scalar";
     });
+
+var authMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-auth-migrations")
+    .WithArgs("auth")
+    .WithEnvironment("ConnectionStrings__RefreshSessions", authDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WaitFor(authDatabase);
+
+const string unavailableLegacyIdentityConnection =
+    "Server=127.0.0.1,1;Database=MigrationPending;Integrated Security=true;Encrypt=false;Connect Timeout=1";
+var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>("legacy-maliev-auth-service")
+    .WithHttpEndpoint(name: "http")
+    .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+    .WithEnvironment("ConnectionStrings__CustomerIdentity", unavailableLegacyIdentityConnection)
+    .WithEnvironment("ConnectionStrings__EmployeeIdentity", unavailableLegacyIdentityConnection)
+    .WithEnvironment("ConnectionStrings__RefreshSessions", authDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
+    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("Jwt__PrivateKeyPem", jwt.PrivateKeyPem)
+    .WithEnvironment("Jwt__KeyId", LegacyTopology.JwtKeyId)
+    .WithEnvironment("ServiceClients__Clients__legacy-web__SecretSha256", webCredential.SecretSha256)
+    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__0", "legacy-auth.customer-self-service")
+    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__1", "legacy-customer.customers.create")
+    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__2", "legacy-customer.customers.delete")
+    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__3", "legacy.notifications.send")
+    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+    .WithEnvironment("DOTNET_GCConserveMemory", "3")
+    .WithHttpHealthCheck("/auth/liveness", endpointName: "http")
+    .WithHttpHealthCheck("/auth/readiness", endpointName: "http")
+    .WithUrlForEndpoint("http", url =>
+    {
+        url.Url = "/auth/scalar";
+        url.DisplayText = "Auth Scalar";
+    })
+    .WaitForCompletion(authMigrations);
+
+var customerDatabase = databases["Customer"];
+var customerMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-customer-migrations")
+    .WithArgs("customer")
+    .WithEnvironment("ConnectionStrings__CustomerDbContext", customerDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WaitFor(customerDatabase);
+
+var customer = builder.AddProject<Projects.Legacy_Maliev_CustomerService_Api>(
+        "legacy-maliev-customer-service",
+        launchProfileName: "http")
+    .ConfigureDynamicHttpEndpoint()
+    .WithEnvironment("ConnectionStrings__CustomerDbContext", customerDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__redis", redis.Resource.ConnectionStringExpression)
+    .WithEnvironment("AuthService__LegacyCustomerIdentityBaseUrl", ReferenceExpression.Create($"{auth.GetEndpoint("http")}/auth/v1/legacy/customers/"))
+    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
+    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+    .WithEnvironment("DOTNET_GCConserveMemory", "3")
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WithHttpHealthCheck("/customer/liveness", endpointName: "http")
+    .WithHttpHealthCheck("/customer/readiness", endpointName: "http")
+    .WithUrlForEndpoint("http", url =>
+    {
+        url.Url = "/customer/scalar";
+        url.DisplayText = "Customer Scalar";
+    })
+    .WaitForCompletion(customerMigrations)
+    .WaitFor(redis)
+    .WaitFor(auth);
+
+var notification = builder.AddProject<Projects.Legacy_Maliev_NotificationService_Api>(
+        "legacy-maliev-notification-service",
+        launchProfileName: "http")
+    .ConfigureDynamicHttpEndpoint()
+    .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+    .WithEnvironment("Brevo__ApiKey", "development-placeholder")
+    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
+    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("DOTNET_GCHeapHardLimit", "100663296")
+    .WithEnvironment("DOTNET_GCConserveMemory", "3")
+    .WithHttpHealthCheck("/emails/liveness", endpointName: "http")
+    .WithHttpHealthCheck("/emails/readiness", endpointName: "http")
+    .WithUrlForEndpoint("http", url =>
+    {
+        url.Url = "/emails/scalar";
+        url.DisplayText = "Notification Scalar";
+    });
+
+builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
+    .WithHttpEndpoint(name: "http")
+    .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+    .WithEnvironment("ConnectionStrings__redis", redis.Resource.ConnectionStringExpression)
+    .WithEnvironment("DataProtection__CertificatePfxBase64", dataProtectionCertificate.PfxBase64)
+    .WithEnvironment("DataProtection__CertificatePassword", dataProtectionCertificate.Password)
+    .WithEnvironment("ServiceAuthentication__ClientId", "legacy-web")
+    .WithEnvironment("ServiceAuthentication__ClientSecret", webCredential.Secret)
+    .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
+    .WithEnvironment("Services__Customer", customer.GetEndpoint("http"))
+    .WithEnvironment("Services__Notification", notification.GetEndpoint("http"))
+    .WithEnvironment("Services__Country", country.GetEndpoint("http"))
+    .WithEnvironment("Services__Document", document.GetEndpoint("http"))
+    .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
+    .WithEnvironment("DOTNET_GCConserveMemory", "3")
+    .WithHttpHealthCheck("/web/liveness", endpointName: "http")
+    .WithHttpHealthCheck("/web/readiness", endpointName: "http")
+    .WithUrlForEndpoint("http", url =>
+    {
+        url.Url = "/Account/Login";
+        url.DisplayText = "Legacy Web";
+    })
+    .WaitFor(redis)
+    .WaitFor(auth)
+    .WaitFor(customer)
+    .WaitFor(notification);
 
 builder.Build().Run();
 
@@ -92,4 +211,17 @@ static string ToKebabCase(string value)
     }
 
     return result.ToString();
+}
+
+static class LocalEndpointExtensions
+{
+    public static IResourceBuilder<ProjectResource> ConfigureDynamicHttpEndpoint(
+        this IResourceBuilder<ProjectResource> resource)
+    {
+        return resource.WithEndpoint("http", endpoint =>
+        {
+            endpoint.Port = null;
+            endpoint.TargetPort = null;
+        });
+    }
 }

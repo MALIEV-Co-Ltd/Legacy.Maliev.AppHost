@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using Legacy.Maliev.AppHost.Topology;
 
@@ -89,5 +90,32 @@ public sealed class LegacyTopologyTests
         Assert.Contains("PRIVATE KEY", privatePem, StringComparison.Ordinal);
         Assert.StartsWith("-----BEGIN ", publicPem, StringComparison.Ordinal);
         Assert.Contains("PUBLIC KEY", publicPem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CreateServiceCredential_ReturnsMatchingRandomSha256Material()
+    {
+        var first = LocalServiceCredential.Create();
+        var second = LocalServiceCredential.Create();
+        var expectedHash = Convert.ToHexStringLower(
+            SHA256.HashData(Encoding.UTF8.GetBytes(first.Secret)));
+
+        Assert.Equal(64, first.Secret.Length);
+        Assert.Equal(expectedHash, first.SecretSha256);
+        Assert.NotEqual(first.Secret, second.Secret);
+    }
+
+    [Fact]
+    public void CreateDataProtectionCertificate_ReturnsAnImportablePrivateKey()
+    {
+        var material = LocalDataProtectionCertificate.Create();
+        using var certificate = X509CertificateLoader.LoadPkcs12(
+            Convert.FromBase64String(material.PfxBase64),
+            material.Password,
+            X509KeyStorageFlags.EphemeralKeySet);
+
+        Assert.True(certificate.HasPrivateKey);
+        Assert.Contains("Legacy.Maliev.Web", certificate.Subject, StringComparison.Ordinal);
+        Assert.True(certificate.NotAfter > DateTime.UtcNow);
     }
 }
