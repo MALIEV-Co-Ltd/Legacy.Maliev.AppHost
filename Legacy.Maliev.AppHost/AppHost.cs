@@ -182,7 +182,7 @@ var notification = builder.AddProject<Projects.Legacy_Maliev_NotificationService
         launchProfileName: "http")
     .ConfigureDynamicHttpEndpoint()
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
-    .WithEnvironment("Brevo__ApiKey", "development-placeholder")
+    .WithEnvironment("Notifications__UseDevelopmentRecordingProvider", "true")
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
     .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
