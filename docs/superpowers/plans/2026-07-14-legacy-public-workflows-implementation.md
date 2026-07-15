@@ -337,10 +337,10 @@ Replace duplicated .NET validation commands with the pinned composite action.
 
 Run build, 20+ tests, format, dependency audit, full-history Gitleaks, and `scripts/verify-local-stack.ps1`; confirm no containers remain.
 
-- [ ] **Step 4: Publish through protected main**
+- [x] **Step 4: Publish through protected main**
 
 Push a PR, monitor exact-commit CI, merge after green, and verify main CI/readback.
 
-- [ ] **Step 5: Close the implementation checklist**
+- [x] **Step 5: Close the implementation checklist**
 
 Mark every completed step in this plan and commit the evidence update.
