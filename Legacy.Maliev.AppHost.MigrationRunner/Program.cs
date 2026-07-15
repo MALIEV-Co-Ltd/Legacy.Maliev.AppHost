@@ -5,6 +5,8 @@ using Legacy.Maliev.CustomerService.Data;
 using Legacy.Maliev.CustomerService.Domain;
 using Legacy.Maliev.OrderService.Data;
 using Legacy.Maliev.OrderService.Domain;
+using Legacy.Maliev.QuotationService.Data;
+using Legacy.Maliev.QuotationService.Domain;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -19,6 +21,8 @@ var connectionName = workload switch
     "customer" => "CustomerDbContext",
     "order" => "OrderDbContext",
     "order-status" => "OrderStatusDbContext",
+    "quotation" => "QuotationDbContext",
+    "quotation-request" => "QuotationRequestDbContext",
     _ => throw new InvalidOperationException($"Unknown migration workload '{workload}'."),
 };
 var connectionString = Environment.GetEnvironmentVariable($"ConnectionStrings__{connectionName}");
@@ -118,7 +122,96 @@ static async Task MigrateAsync(string workload, string connectionString)
             }
 
             break;
+        case "quotation":
+            var quotationOptions = new DbContextOptionsBuilder<QuotationDbContext>()
+                .UseNpgsql(connectionString)
+                .Options;
+            await using (var context = new QuotationDbContext(quotationOptions))
+            {
+                await context.Database.MigrateAsync();
+                await SeedQuotationAsync(context);
+            }
+
+            break;
+        case "quotation-request":
+            var quotationRequestOptions = new DbContextOptionsBuilder<QuotationRequestDbContext>()
+                .UseNpgsql(connectionString)
+                .Options;
+            await using (var context = new QuotationRequestDbContext(quotationRequestOptions))
+            {
+                await context.Database.MigrateAsync();
+            }
+
+            break;
     }
+}
+
+static async Task SeedQuotationAsync(QuotationDbContext context)
+{
+    var quotation = await context.Quotations.SingleOrDefaultAsync(row =>
+        row.CustomerId == 1 && row.Comment == "Local CNC quotation");
+    if (quotation is null)
+    {
+        var timestamp = new DateTime(2026, 7, 15, 0, 0, 0, DateTimeKind.Utc);
+        quotation = new Quotation
+        {
+            CustomerId = 1,
+            Period = 30,
+            ExpirationDate = new DateTime(2026, 12, 31, 0, 0, 0, DateTimeKind.Utc),
+            Subtotal = 100,
+            Vat = 7,
+            Total = 107,
+            WithholdingTax = 3,
+            CurrencyId = 764,
+            Comment = "Local CNC quotation",
+            Fob = "MALIEV",
+            ShippedVia = "Courier",
+            Terms = "30 days",
+            CreatedDate = timestamp,
+            ModifiedDate = timestamp,
+        };
+        context.Quotations.Add(quotation);
+        await context.SaveChangesAsync();
+    }
+
+    if (quotation.Id != 1)
+    {
+        throw new InvalidOperationException(
+            $"The local quotation ID {quotation.Id} does not match the verifier quotation ID 1.");
+    }
+
+    if (!await context.OrderItems.AnyAsync(row => row.QuotationId == quotation.Id))
+    {
+        context.OrderItems.Add(new QuotationOrderItem
+        {
+            QuotationId = quotation.Id,
+            OrderId = 1,
+            Description = "Local CNC quotation line",
+            Quantity = 2,
+            UnitPrice = 50,
+        });
+    }
+
+    if (!await context.OrderLinks.AnyAsync(row => row.QuotationId == quotation.Id))
+    {
+        context.OrderLinks.Add(new QuotationOrderLink
+        {
+            QuotationId = quotation.Id,
+            OrderId = 1,
+        });
+    }
+
+    if (!await context.Files.AnyAsync(row => row.QuotationId == quotation.Id))
+    {
+        context.Files.Add(new QuotationFile
+        {
+            QuotationId = quotation.Id,
+            Bucket = "legacy-local-quotations",
+            ObjectName = "quotations/local-cnc-quotation.pdf",
+        });
+    }
+
+    await context.SaveChangesAsync();
 }
 
 static async Task SeedOrderAsync(OrderDbContext context)

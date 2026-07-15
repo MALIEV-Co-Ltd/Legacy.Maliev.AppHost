@@ -9,5 +9,6 @@
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.AuthService\Legacy.Maliev.AuthService.Infrastructure\Legacy.Maliev.AuthService.Infrastructure.csproj" />
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.CustomerService\Legacy.Maliev.CustomerService.Data\Legacy.Maliev.CustomerService.Data.csproj" />
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.OrderService\Legacy.Maliev.OrderService.Data\Legacy.Maliev.OrderService.Data.csproj" />
+    <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.QuotationService\Legacy.Maliev.QuotationService.Data\Legacy.Maliev.QuotationService.Data.csproj" />
   </ItemGroup>
 </Project>
