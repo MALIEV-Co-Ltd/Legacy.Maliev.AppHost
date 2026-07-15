@@ -275,6 +275,10 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("/web/readiness", source, StringComparison.Ordinal);
         Assert.Contains("/Account/Login", source, StringComparison.Ordinal);
         Assert.Contains("/Account/Signup", source, StringComparison.Ordinal);
+        Assert.Contains("/InstantQuotation/3D-Printing?culture=en", source, StringComparison.Ordinal);
+        Assert.Contains("handler=GetEstimate", source, StringComparison.Ordinal);
+        Assert.Contains("Get an instant manufacturing estimate", source, StringComparison.Ordinal);
+        Assert.Contains("currency -ne 'THB'", source, StringComparison.Ordinal);
         Assert.Contains("AllowAutoRedirect = $false", source, StringComparison.Ordinal);
         Assert.Contains("Headers.GetValues('Set-Cookie')", source, StringComparison.Ordinal);
         Assert.Contains("TryAddWithoutValidation('Cookie', $antiforgeryCookie)", source, StringComparison.Ordinal);

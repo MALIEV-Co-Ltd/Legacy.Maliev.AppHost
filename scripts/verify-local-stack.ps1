@@ -72,6 +72,33 @@ function Invoke-ExpectedPostStatus {
     }
 }
 
+function Invoke-WebInstantQuotationFlow {
+    param([string]$WebUrl)
+
+    $pageUri = "$WebUrl/InstantQuotation/3D-Printing?culture=en"
+    $page = Invoke-WebRequest -Uri $pageUri -UseBasicParsing -SkipHttpErrorCheck
+    if (
+        $page.StatusCode -ne 200 -or
+        $page.Content -notmatch 'Get an instant manufacturing estimate' -or
+        $page.Content -notmatch '<option value="PLA" selected>'
+    ) {
+        throw "The public instant quotation page did not render its deterministic pricing form (HTTP $($page.StatusCode))."
+    }
+
+    $estimateUri = "$WebUrl/InstantQuotation/3D-Printing" +
+        '?handler=GetEstimate&material=PLA&dimensionZ=10&volume=1000&footprint=100&quantity=1&currency=THB'
+    $estimate = Invoke-RestMethod -Uri $estimateUri -Method Get
+    if (
+        -not $estimate.success -or
+        $estimate.process -ne 'fdm' -or
+        $estimate.currency -ne 'THB' -or
+        $estimate.unitPrice -le 0 -or
+        $estimate.subtotal -le 0
+    ) {
+        throw 'The public instant quotation endpoint did not return a valid deterministic THB estimate.'
+    }
+}
+
 function Get-JwtPayload {
     param([string]$Token)
 
@@ -729,6 +756,7 @@ try {
     Invoke-ExpectedStatus -Uri "$webUrl/web/readiness" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$webUrl/Account/Login" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$webUrl/Account/Signup" -ExpectedStatus 200
+    Invoke-WebInstantQuotationFlow -WebUrl $webUrl
     Invoke-WebMemberAccountFlow -WebUrl $webUrl
 
     $postgresContainer = $resourceItems | Where-Object {
@@ -751,7 +779,7 @@ try {
         throw "Missing legacy databases: $($missingDatabases -join ', ')."
     }
 
-    Write-Host 'PASS: PostgreSQL, Redis, eight services, nine migrations, 21 preserved databases plus Auth runtime state, customer/employee login, authenticated Member address/profile/quotation/order cancellation/order compatibility/password BFF flows, protected boundaries, and environment isolation are healthy.'
+    Write-Host 'PASS: PostgreSQL, Redis, eight services, nine migrations, 21 preserved databases plus Auth runtime state, public instant quotation, customer/employee login, authenticated Member address/profile/quotation/order cancellation/order compatibility/password BFF flows, protected boundaries, and environment isolation are healthy.'
 }
 finally {
     if ($appHostRunner -and -not $appHostRunner.HasExited) {

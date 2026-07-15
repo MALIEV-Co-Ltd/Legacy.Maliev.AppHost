@@ -74,7 +74,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.Web
-          ref: d4c647721c3ee804305e22920bf6638e01fe3ca1
+          ref: 838b6e337261753847ae9b263b3c740a3e5453a5
           path: Legacy.Maliev.Web
           persist-credentials: false
       - name: Check out service defaults
