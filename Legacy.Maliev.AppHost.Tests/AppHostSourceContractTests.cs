@@ -25,6 +25,8 @@ public sealed class AppHostSourceContractTests
                 "legacy-customer.companies.create",
                 "legacy-customer.companies.update",
                 "legacy-customer.companies.delete",
+                "legacy.customer-orders.read",
+                "legacy.customer-orders.cancel",
             ],
             permissions);
     }
@@ -141,10 +143,38 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.CustomerService", project, StringComparison.Ordinal);
         Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.NotificationService", project, StringComparison.Ordinal);
         Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.Web", project, StringComparison.Ordinal);
-        Assert.Equal(6, project.Split("AdditionalProperties=\"Configuration=$(Configuration)\"", StringSplitOptions.None).Length - 1);
-        Assert.Equal(6, project.Split("SetConfiguration=\"Configuration=$(Configuration)\"", StringSplitOptions.None).Length - 1);
+        Assert.Equal(7, project.Split("AdditionalProperties=\"Configuration=$(Configuration)\"", StringSplitOptions.None).Length - 1);
+        Assert.Equal(7, project.Split("SetConfiguration=\"Configuration=$(Configuration)\"", StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("maliev-legacy-secrets", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("LEGACY_DEPLOY_ENABLED", source, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void AppHost_WiresTheCustomerOwnedOrderBoundaryWithSeparateLegacyDatabases()
+    {
+        var root = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var project = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "Legacy.Maliev.AppHost.csproj"));
+        var migrations = File.ReadAllText(Path.Combine(
+            root,
+            "Legacy.Maliev.AppHost.MigrationRunner",
+            "Program.cs"));
+
+        Assert.Contains("Legacy_Maliev_OrderService_Api", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-order-service", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-order-migrations", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-order-status-migrations", source, StringComparison.Ordinal);
+        Assert.Contains("ConnectionStrings__OrderDbContext", source, StringComparison.Ordinal);
+        Assert.Contains("ConnectionStrings__OrderStatusDbContext", source, StringComparison.Ordinal);
+        Assert.Contains("Services__Order", source, StringComparison.Ordinal);
+        Assert.Contains("/order/liveness", source, StringComparison.Ordinal);
+        Assert.Contains("/order/readiness", source, StringComparison.Ordinal);
+        Assert.Contains("/order/scalar", source, StringComparison.Ordinal);
+        Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.OrderService", project, StringComparison.Ordinal);
+        Assert.Contains("\"order\" => \"OrderDbContext\"", migrations, StringComparison.Ordinal);
+        Assert.Contains("\"order-status\" => \"OrderStatusDbContext\"", migrations, StringComparison.Ordinal);
+        Assert.Contains("await SeedOrderAsync(context);", migrations, StringComparison.Ordinal);
+        Assert.Contains("await SeedOrderStatusesAsync(context);", migrations, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -229,6 +259,16 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("/member/account/manage/changepassword", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("CurrentPassword", source, StringComparison.Ordinal);
         Assert.Contains("NewPassword", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-order-migrations-*", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-order-status-migrations-*", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-order-service-*", source, StringComparison.Ordinal);
+        Assert.Contains("/order/liveness", source, StringComparison.Ordinal);
+        Assert.Contains("/order/readiness", source, StringComparison.Ordinal);
+        Assert.Contains("/order/scalar", source, StringComparison.Ordinal);
+        Assert.Contains("/member/orders/history", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/member/orders/view?itemID=1", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("handler=CancelOrder", source, StringComparison.Ordinal);
+        Assert.Contains("orderId", source, StringComparison.Ordinal);
         Assert.Contains("'Auth'", source, StringComparison.Ordinal);
         Assert.Contains("dotnet build $appHostProject --configuration Release", source, StringComparison.Ordinal);
         Assert.Contains("-Method Post", source, StringComparison.Ordinal);

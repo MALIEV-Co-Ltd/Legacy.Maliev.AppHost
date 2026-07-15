@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.AuthService
-          ref: 9fa8779b5c69e7fd22805f70fee3f1eb31dec094
+          ref: 4058189f8ecc78edba0417145407fa748cafe5a5
           path: Legacy.Maliev.AuthService
           persist-credentials: false
       - name: Check out Customer service
@@ -56,11 +56,18 @@ jobs:
           ref: 7b4ba38e8777217b24eafa7533687703e636531b
           path: Legacy.Maliev.NotificationService
           persist-credentials: false
+      - name: Check out Order service
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          repository: MALIEV-Co-Ltd/Legacy.Maliev.OrderService
+          ref: 3088a4660ed9c918daee4ec36a302fd8536bf10d
+          path: Legacy.Maliev.OrderService
+          persist-credentials: false
       - name: Check out Web BFF
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.Web
-          ref: 400e389164900e1790e8a7c5713c66cc7cc8bb45
+          ref: 3e33d920479fa8c1cb835d0476c1648f91ffe904
           path: Legacy.Maliev.Web
           persist-credentials: false
       - name: Check out service defaults

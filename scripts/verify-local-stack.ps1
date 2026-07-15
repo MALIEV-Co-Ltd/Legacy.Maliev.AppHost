@@ -214,6 +214,96 @@ function Invoke-WebMemberAccountFlow {
             throw "The Member profile update returned HTTP $([int]$profileResult.StatusCode): $validationDetail. Diagnostics: $diagnostics"
         }
 
+        $historyRequest = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Get,
+            "$WebUrl/member/orders/history?culture=en")
+        $null = $historyRequest.Headers.TryAddWithoutValidation(
+            'Cookie',
+            "$antiforgeryCookie; $sessionCookie")
+        $historyPage = $client.SendAsync($historyRequest).GetAwaiter().GetResult()
+        $historyContent = $historyPage.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        if ([int]$historyPage.StatusCode -ne 200 -or $historyContent -notmatch 'Local CNC order') {
+            $historyErrors = @([regex]::Matches(
+                $historyContent,
+                '<li>([^<]+)</li>') | ForEach-Object {
+                    [System.Net.WebUtility]::HtmlDecode($_.Groups[1].Value)
+                }) -join '; '
+            $diagnostics = @(
+                @('legacy-maliev-web', 'legacy-maliev-order-service') | ForEach-Object {
+                    & aspire logs $_ --apphost $appHostProject --tail 120 --format Table `
+                        --non-interactive 2>&1
+                } | Where-Object {
+                    $_ -match '(warn|fail|error|orders/|status code|rejected|unavailable|permission| 4\d\d | 5\d\d )' -and
+                    $_ -notmatch '"?isError"?'
+                } | Select-Object -Last 50
+            ) -join ' | '
+            throw "The authenticated order history returned HTTP $([int]$historyPage.StatusCode) without the seeded order. Rendered errors: $historyErrors. Diagnostics: $diagnostics"
+        }
+
+        $orderRequest = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Get,
+            "$WebUrl/member/orders/view?itemID=1&culture=en")
+        $null = $orderRequest.Headers.TryAddWithoutValidation(
+            'Cookie',
+            "$antiforgeryCookie; $sessionCookie")
+        $orderPage = $client.SendAsync($orderRequest).GetAwaiter().GetResult()
+        $orderContent = $orderPage.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        $orderAntiforgery = [regex]::Match(
+            $orderContent,
+            'name="__RequestVerificationToken"[^>]*value="([^"]+)"')
+        if (
+            [int]$orderPage.StatusCode -ne 200 -or
+            -not $orderAntiforgery.Success -or
+            $orderContent -notmatch 'Reviewing' -or
+            $orderContent -notmatch 'orders/local-cnc-part.step'
+        ) {
+            throw 'The authenticated owned order detail did not render through the Web BFF.'
+        }
+
+        $cancelRequest = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Post,
+            "$WebUrl/member/orders/view?handler=CancelOrder")
+        $null = $cancelRequest.Headers.TryAddWithoutValidation(
+            'Cookie',
+            "$antiforgeryCookie; $sessionCookie")
+        $cancelForm = [System.Collections.Generic.Dictionary[string,string]]::new()
+        $cancelForm.Add(
+            '__RequestVerificationToken',
+            [System.Net.WebUtility]::HtmlDecode($orderAntiforgery.Groups[1].Value))
+        $cancelForm.Add('orderId', '1')
+        $cancelRequest.Content = [System.Net.Http.FormUrlEncodedContent]::new($cancelForm)
+        $cancelResult = $client.SendAsync($cancelRequest).GetAwaiter().GetResult()
+        if ([int]$cancelResult.StatusCode -notin 302, 303) {
+            $cancelContent = $cancelResult.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+            $cancelErrors = @([regex]::Matches(
+                $cancelContent,
+                '<li>([^<]+)</li>') | ForEach-Object {
+                    [System.Net.WebUtility]::HtmlDecode($_.Groups[1].Value)
+                }) -join '; '
+            $diagnostics = @(
+                @('legacy-maliev-web', 'legacy-maliev-order-service') | ForEach-Object {
+                    & aspire logs $_ --apphost $appHostProject --tail 160 --format Table `
+                        --non-interactive 2>&1
+                } | Where-Object {
+                    $_ -match '(warn|fail|error|cancel|orders/|status code|rejected|unavailable|permission|transition|InvalidOperationException|Sequence|Npgsql| 4\d\d | 5\d\d )' -and
+                    $_ -notmatch '"?isError"?'
+                } | Select-Object -Last 70
+            ) -join ' | '
+            throw "The owned order cancellation returned HTTP $([int]$cancelResult.StatusCode). Rendered errors: $cancelErrors. Diagnostics: $diagnostics"
+        }
+
+        $cancelledRequest = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Get,
+            "$WebUrl/member/orders/view?itemID=1&culture=en")
+        $null = $cancelledRequest.Headers.TryAddWithoutValidation(
+            'Cookie',
+            "$antiforgeryCookie; $sessionCookie")
+        $cancelledPage = $client.SendAsync($cancelledRequest).GetAwaiter().GetResult()
+        $cancelledContent = $cancelledPage.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        if ([int]$cancelledPage.StatusCode -ne 200 -or $cancelledContent -notmatch 'Cancelled') {
+            throw 'The cancelled status was not observable through the owned order detail boundary.'
+        }
+
         $passwordRequest = [System.Net.Http.HttpRequestMessage]::new(
             [System.Net.Http.HttpMethod]::Get,
             "$WebUrl/member/account/manage/changepassword?culture=en")
@@ -332,13 +422,16 @@ try {
         'legacy-auth-migrations-*',
         'legacy-customer-identity-migrations-*',
         'legacy-employee-identity-migrations-*',
-        'legacy-customer-migrations-*'
+        'legacy-customer-migrations-*',
+        'legacy-order-migrations-*',
+        'legacy-order-status-migrations-*'
     )
     $servicePatterns = @(
         'legacy-maliev-country-service-*',
         'legacy-maliev-document-service-*',
         'legacy-maliev-auth-service-*',
         'legacy-maliev-customer-service-*',
+        'legacy-maliev-order-service-*',
         'legacy-maliev-notification-service-*',
         'legacy-maliev-web-*'
     )
@@ -380,7 +473,7 @@ try {
                     }
                 ) -notcontains $false
                 if (
-                    $resourceItems.Count -ge 13 -and
+                    $resourceItems.Count -ge 16 -and
                     $servicesPresent -and
                     $migrationsSucceeded -and
                     $unhealthy.Count -eq 0
@@ -483,6 +576,13 @@ try {
     Invoke-ExpectedStatus -Uri "$customerUrl/customer/scalar" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$customerUrl/customers" -ExpectedStatus 401
 
+    $orderResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-order-service-*'
+    $orderUrl = Get-ResourceUrl -Resource $orderResource
+    Invoke-ExpectedStatus -Uri "$orderUrl/order/liveness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$orderUrl/order/readiness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$orderUrl/order/scalar" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$orderUrl/orders/customers/1" -ExpectedStatus 401
+
     $notificationResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-notification-service-*'
     $notificationUrl = Get-ResourceUrl -Resource $notificationResource
     Invoke-ExpectedStatus -Uri "$notificationUrl/emails/liveness" -ExpectedStatus 200
@@ -514,6 +614,8 @@ try {
         'legacy-customer.companies.create',
         'legacy-customer.companies.update',
         'legacy-customer.companies.delete'
+        'legacy.customer-orders.read'
+        'legacy.customer-orders.cancel'
     )
     $missingMemberPermissions = @($requiredMemberPermissions | Where-Object {
         $_ -notin $runtimePermissions
@@ -570,7 +672,7 @@ try {
         throw "Missing legacy databases: $($missingDatabases -join ', ')."
     }
 
-    Write-Host 'PASS: PostgreSQL, Redis, six services, five migrations, 21 preserved databases plus Auth runtime state, customer/employee login, authenticated Member address/profile/password BFF flows, protected boundaries, and environment isolation are healthy.'
+    Write-Host 'PASS: PostgreSQL, Redis, seven services, seven migrations, 21 preserved databases plus Auth runtime state, customer/employee login, authenticated Member address/profile/order cancellation/password BFF flows, protected boundaries, and environment isolation are healthy.'
 }
 finally {
     if ($appHostRunner -and -not $appHostRunner.HasExited) {

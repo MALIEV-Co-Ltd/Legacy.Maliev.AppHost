@@ -128,6 +128,8 @@ var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>("legacy-ma
     .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__8", "legacy-customer.companies.create")
     .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__9", "legacy-customer.companies.update")
     .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__10", "legacy-customer.companies.delete")
+    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__11", "legacy.customer-orders.read")
+    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__12", "legacy.customer-orders.cancel")
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithHttpHealthCheck("/auth/liveness", endpointName: "http")
@@ -193,6 +195,48 @@ var notification = builder.AddProject<Projects.Legacy_Maliev_NotificationService
         url.DisplayText = "Notification Scalar";
     });
 
+var orderDatabase = databases["Order"];
+var orderStatusDatabase = databases["OrderStatus"];
+var orderMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-order-migrations")
+    .WithArgs("order")
+    .WithEnvironment("ConnectionStrings__OrderDbContext", orderDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WaitFor(orderDatabase);
+var orderStatusMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
+        "legacy-order-status-migrations")
+    .WithArgs("order-status")
+    .WithEnvironment("ConnectionStrings__OrderStatusDbContext", orderStatusDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WaitFor(orderStatusDatabase);
+
+var order = builder.AddProject<Projects.Legacy_Maliev_OrderService_Api>(
+        "legacy-maliev-order-service",
+        launchProfileName: "http")
+    .ConfigureDynamicHttpEndpoint()
+    .WithEnvironment("ConnectionStrings__OrderDbContext", orderDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__OrderStatusDbContext", orderStatusDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__redis", redis.Resource.ConnectionStringExpression)
+    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
+    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+    .WithEnvironment("DOTNET_GCConserveMemory", "3")
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WithHttpHealthCheck("/order/liveness", endpointName: "http")
+    .WithHttpHealthCheck("/order/readiness", endpointName: "http")
+    .WithUrlForEndpoint("http", url =>
+    {
+        url.Url = "/order/scalar";
+        url.DisplayText = "Order Scalar";
+    })
+    .WaitForCompletion(orderMigrations)
+    .WaitForCompletion(orderStatusMigrations)
+    .WaitFor(redis)
+    .WaitFor(auth);
+
 builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WithHttpEndpoint(name: "http")
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
@@ -206,6 +250,7 @@ builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WithEnvironment("Services__Notification", notification.GetEndpoint("http"))
     .WithEnvironment("Services__Country", country.GetEndpoint("http"))
     .WithEnvironment("Services__Document", document.GetEndpoint("http"))
+    .WithEnvironment("Services__Order", order.GetEndpoint("http"))
     .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithHttpHealthCheck("/web/liveness", endpointName: "http")
@@ -218,6 +263,7 @@ builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WaitFor(redis)
     .WaitFor(auth)
     .WaitFor(customer)
+    .WaitFor(order)
     .WaitFor(notification);
 
 builder.Build().Run();

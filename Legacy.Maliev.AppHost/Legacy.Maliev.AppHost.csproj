@@ -16,6 +16,7 @@
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.AuthService\Legacy.Maliev.AuthService.Api\Legacy.Maliev.AuthService.Api.csproj" AdditionalProperties="Configuration=$(Configuration)" SetConfiguration="Configuration=$(Configuration)" />
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.CustomerService\Legacy.Maliev.CustomerService.Api\Legacy.Maliev.CustomerService.Api.csproj" AdditionalProperties="Configuration=$(Configuration)" SetConfiguration="Configuration=$(Configuration)" />
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.NotificationService\Legacy.Maliev.NotificationService.Api\Legacy.Maliev.NotificationService.Api.csproj" AdditionalProperties="Configuration=$(Configuration)" SetConfiguration="Configuration=$(Configuration)" />
+    <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.OrderService\Legacy.Maliev.OrderService.Api\Legacy.Maliev.OrderService.Api.csproj" AdditionalProperties="Configuration=$(Configuration)" SetConfiguration="Configuration=$(Configuration)" />
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.Web\Legacy.Maliev.Web\Legacy.Maliev.Web.csproj" AdditionalProperties="Configuration=$(Configuration)" SetConfiguration="Configuration=$(Configuration)" />
   </ItemGroup>
 </Project>
