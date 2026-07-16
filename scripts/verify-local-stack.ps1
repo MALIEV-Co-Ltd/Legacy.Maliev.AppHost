@@ -527,6 +527,61 @@ function Invoke-WebMemberAccountFlow {
     }
 }
 
+function Invoke-IntranetEmployeeFlow {
+    param([string]$IntranetUrl)
+
+    $handler = [System.Net.Http.HttpClientHandler]::new()
+    $handler.AllowAutoRedirect = $false
+    $handler.CookieContainer = [System.Net.CookieContainer]::new()
+    $client = [System.Net.Http.HttpClient]::new($handler)
+    try {
+        $loginPage = $client.GetAsync("$IntranetUrl/Login").GetAwaiter().GetResult()
+        $loginContent = $loginPage.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        $antiforgery = [regex]::Match(
+            $loginContent,
+            'name="__RequestVerificationToken"[^>]*value="([^"]+)"')
+        if ([int]$loginPage.StatusCode -ne 200 -or -not $antiforgery.Success) {
+            throw 'The Intranet login form did not render with antiforgery protection.'
+        }
+
+        $loginForm = [System.Collections.Generic.Dictionary[string,string]]::new()
+        $loginForm.Add(
+            '__RequestVerificationToken',
+            [System.Net.WebUtility]::HtmlDecode($antiforgery.Groups[1].Value))
+        $loginForm.Add('Email', 'local.employee@maliev.test')
+        $loginForm.Add('Password', 'local-test-only')
+        $loginForm.Add('ReturnUrl', '/Dashboard')
+        $loginResponse = $client.PostAsync(
+            "$IntranetUrl/Login",
+            [System.Net.Http.FormUrlEncodedContent]::new($loginForm)).GetAwaiter().GetResult()
+        if ([int]$loginResponse.StatusCode -notin 302, 303) {
+            $content = $loginResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+            throw "The Intranet employee login returned HTTP $([int]$loginResponse.StatusCode): $content"
+        }
+
+        $routes = @(
+            '/Dashboard',
+            '/Customers/Index',
+            '/Employees/Index',
+            '/Materials/Index',
+            '/Suppliers/Index',
+            '/Orders/Index',
+            '/PurchaseOrders/Index'
+        )
+        foreach ($route in $routes) {
+            $response = $client.GetAsync("$IntranetUrl$route").GetAwaiter().GetResult()
+            if ([int]$response.StatusCode -ne 200) {
+                $content = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                throw "The authenticated Intranet route $route returned HTTP $([int]$response.StatusCode): $content"
+            }
+        }
+    }
+    finally {
+        $client.Dispose()
+        $handler.Dispose()
+    }
+}
+
 function Get-SingleResource {
     param(
         [object[]]$Items,
@@ -606,6 +661,11 @@ try {
         'legacy-customer-identity-migrations-*',
         'legacy-employee-identity-migrations-*',
         'legacy-customer-migrations-*',
+        'legacy-employee-migrations-*',
+        'legacy-catalog-migrations-*',
+        'legacy-supplier-migrations-*',
+        'legacy-purchase-order-migrations-*',
+        'legacy-file-migrations-*',
         'legacy-order-migrations-*',
         'legacy-order-status-migrations-*',
         'legacy-quotation-migrations-*',
@@ -616,10 +676,15 @@ try {
         'legacy-maliev-document-service-*',
         'legacy-maliev-auth-service-*',
         'legacy-maliev-customer-service-*',
+        'legacy-maliev-employee-service-*',
+        'legacy-maliev-catalog-service-*',
+        'legacy-maliev-procurement-service-*',
+        'legacy-maliev-file-service-*',
         'legacy-maliev-order-service-*',
         'legacy-maliev-quotation-service-*',
         'legacy-maliev-notification-service-*',
-        'legacy-maliev-web-*'
+        'legacy-maliev-web-*',
+        'legacy-maliev-intranet-*'
     )
 
     while ((Get-Date) -lt $deadline) {
@@ -659,7 +724,7 @@ try {
                     }
                 ) -notcontains $false
                 if (
-                    $resourceItems.Count -ge 19 -and
+                    $resourceItems.Count -ge ($migrationPatterns.Count + $servicePatterns.Count) -and
                     $servicesPresent -and
                     $migrationsSucceeded -and
                     $unhealthy.Count -eq 0
@@ -713,6 +778,7 @@ try {
                     'OTEL_EXPORTER_OTLP_HEADERS',
                     'ServiceAuthentication__ClientSecret',
                     'ServiceClients__Clients__legacy-web__SecretSha256',
+                    'ServiceClients__Clients__legacy-intranet__SecretSha256',
                     'DataProtection__CertificatePassword',
                     'Brevo__ApiKey'
                 )
@@ -761,6 +827,34 @@ try {
     Invoke-ExpectedStatus -Uri "$customerUrl/customer/readiness" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$customerUrl/customer/scalar" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$customerUrl/customers" -ExpectedStatus 401
+
+    $employeeResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-employee-service-*'
+    $employeeUrl = Get-ResourceUrl -Resource $employeeResource
+    Invoke-ExpectedStatus -Uri "$employeeUrl/employee/liveness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$employeeUrl/employee/readiness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$employeeUrl/employee/scalar" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$employeeUrl/employees" -ExpectedStatus 401
+
+    $catalogResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-catalog-service-*'
+    $catalogUrl = Get-ResourceUrl -Resource $catalogResource
+    Invoke-ExpectedStatus -Uri "$catalogUrl/catalog/liveness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$catalogUrl/catalog/readiness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$catalogUrl/catalog/scalar" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$catalogUrl/materials" -ExpectedStatus 401
+
+    $procurementResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-procurement-service-*'
+    $procurementUrl = Get-ResourceUrl -Resource $procurementResource
+    Invoke-ExpectedStatus -Uri "$procurementUrl/procurement/liveness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$procurementUrl/procurement/readiness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$procurementUrl/procurement/scalar" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$procurementUrl/suppliers" -ExpectedStatus 401
+
+    $fileResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-file-service-*'
+    $fileUrl = Get-ResourceUrl -Resource $fileResource
+    Invoke-ExpectedStatus -Uri "$fileUrl/file/liveness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$fileUrl/file/readiness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$fileUrl/file/scalar" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$fileUrl/uploads/SignedUrl?bucket=maliev.com&objectName=probe" -ExpectedStatus 401
 
     $orderResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-order-service-*'
     $orderUrl = Get-ResourceUrl -Resource $orderResource
@@ -848,6 +942,42 @@ try {
     Invoke-WebInstantQuotationFlow -WebUrl $webUrl
     Invoke-WebMemberAccountFlow -WebUrl $webUrl
 
+    # Verify the revoked pre-change identities before the separate Intranet login flow
+    # consumes the remaining shared Auth login-rate-limit permits.
+    foreach ($email in @('local.customer@maliev.test', 'local.changed@maliev.test')) {
+        Invoke-ExpectedPostStatus -Uri "$authUrl/auth/v1/login" -ExpectedStatus 401 -Body (@{
+                userName = $email
+                password = 'local-test-updated'
+                identityKind = 0
+            } | ConvertTo-Json -Compress)
+    }
+
+    $intranetResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-intranet-*'
+    $intranetUrl = Get-ResourceUrl -Resource $intranetResource
+    $intranetClientSecret = ($intranetResource.status.effectiveEnv | Where-Object {
+        $_.name -eq 'ServiceAuthentication__ClientSecret'
+    }).value
+    if (-not $intranetClientSecret) {
+        throw 'The Intranet service credential was not resolved by the local orchestrator.'
+    }
+
+    $intranetServiceLogin = Invoke-RestMethod -Uri "$authUrl/auth/v1/service/login" -Method Post `
+        -ContentType 'application/json' -Body (@{
+            clientId = 'legacy-intranet'
+            clientSecret = $intranetClientSecret
+        } | ConvertTo-Json -Compress)
+    $intranetClaims = Get-JwtPayload -Token $intranetServiceLogin.accessToken
+    $actualIntranetPermissions = @($intranetClaims.permissions | Sort-Object)
+    $expectedIntranetPermissions = @(
+        [Legacy.Maliev.AppHost.Topology.LegacyTopology]::IntranetPermissions | Sort-Object)
+    if (Compare-Object $expectedIntranetPermissions $actualIntranetPermissions) {
+        throw 'The Intranet service JWT did not contain the exact least-privilege permission contract.'
+    }
+
+    Invoke-ExpectedStatus -Uri "$intranetUrl/intranet/liveness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$intranetUrl/intranet/readiness" -ExpectedStatus 200
+    Invoke-IntranetEmployeeFlow -IntranetUrl $intranetUrl
+
     $recordedResponse = Invoke-RestMethod `
         -Uri "$notificationUrl/notifications/development/recorded" `
         -Method Get
@@ -889,14 +1019,6 @@ try {
         throw 'The Customer profile did not retain the new email address after the Web BFF change.'
     }
 
-    foreach ($email in @('local.customer@maliev.test', 'local.changed@maliev.test')) {
-        Invoke-ExpectedPostStatus -Uri "$authUrl/auth/v1/login" -ExpectedStatus 401 -Body (@{
-                userName = $email
-                password = 'local-test-updated'
-                identityKind = 0
-            } | ConvertTo-Json -Compress)
-    }
-
     $postgresContainer = $resourceItems | Where-Object {
         $_.metadata.name -like 'legacy-postgres-main-*'
     } | Select-Object -First 1
@@ -917,7 +1039,7 @@ try {
         throw "Missing legacy databases: $($missingDatabases -join ', ')."
     }
 
-    Write-Host 'PASS: PostgreSQL, Redis, eight services, nine migrations, 21 preserved databases plus Auth runtime state, public instant quotation, recorded local security notifications, customer/employee login, authenticated Member address/profile/quotation/order cancellation/order compatibility/password/email BFF flows, protected boundaries, and environment isolation are healthy.'
+    Write-Host 'PASS: PostgreSQL, Redis, 13 services, 14 migrations, 21 preserved databases plus Auth runtime state, public instant quotation, recorded local security notifications, customer/employee login, authenticated Member and Intranet flows, protected boundaries, and environment isolation are healthy.'
 }
 finally {
     if ($appHostRunner -and -not $appHostRunner.HasExited) {

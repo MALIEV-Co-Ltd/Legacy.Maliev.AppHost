@@ -9,7 +9,8 @@ cloud resource.
 - PostgreSQL 18 with the 21 legacy database names preserved exactly and a separate `Auth` database
   for refresh sessions and single-use account-action tokens.
 - Authenticated Redis 8.4.
-- Ephemeral RSA-3072 service-auth key material, a random `legacy-web` credential, and a short-lived
+- Ephemeral RSA-3072 service-auth key material, independent random `legacy-web` and
+  `legacy-intranet` credentials, and a short-lived
   Web data-protection certificate generated for every local run. They are never persisted or read
   from production Secret Manager.
 - `Legacy.Maliev.CountryService` wired to PostgreSQL, Redis, auth, health checks, telemetry, and
@@ -23,11 +24,22 @@ cloud resource.
   the post-copy PostgreSQL login path locally; they are never sourced from or deployed to production.
 - `Legacy.Maliev.CustomerService` wired to its preserved `Customer` PostgreSQL database, migration
   job, Redis cache, JWT trust, and AuthService boundary.
+- `Legacy.Maliev.EmployeeService`, `Legacy.Maliev.CatalogService`, and
+  `Legacy.Maliev.ProcurementService` wired to their preserved PostgreSQL databases, isolated
+  migration jobs, Redis caches, JWT trust, health checks, Scalar, telemetry, and bounded heaps.
+  Supplier and purchase-order databases remain separate.
+- `Legacy.Maliev.FileService` wired to the preserved `Upload` database and JWT boundary. Local
+  verification checks startup and authorization without uploading an object; real upload tests use
+  ADC/Workload Identity and the configured ClamAV scanner rather than stored service-account keys.
 - `Legacy.Maliev.NotificationService` wired with JWT trust and a development-only placeholder Brevo
   credential. The local verifier never sends email, so it cannot contact the production provider.
 - `Legacy.Maliev.Web` wired to Auth, Customer, Notification, Country, Document, Redis, encrypted
   server-side sessions, and the ephemeral `legacy-web` credential. Public account surfaces can be
   exercised locally; reCAPTCHA-protected signup submission remains fail closed without local ADC.
+- `Legacy.Maliev.Intranet` wired independently to Auth, Customer, Employee, Catalog, Procurement,
+  Order, Document, File, Notification, and Redis. Its short-lived machine JWT has an exact
+  wildcard-free permission list, while the browser receives only an opaque HttpOnly employee
+  session cookie backed by Redis.
 - The local `legacy-web` service identity includes only the CustomerService customer read/update
   and address create/update permissions required by the authenticated Member address page. Web
   derives the customer database ID from the Auth-issued token, stores it in the encrypted
@@ -53,8 +65,11 @@ cluster and `maliev-legacy` namespace.
 - `kubectl` (used only with Aspire DCP's generated temporary local kubeconfig)
 - Sibling repositories at `B:\maliev\Legacy.Maliev.AuthService`,
   `B:\maliev\Legacy.Maliev.CountryService`, `B:\maliev\Legacy.Maliev.CustomerService`,
-  `B:\maliev\Legacy.Maliev.DocumentService`, `B:\maliev\Legacy.Maliev.NotificationService`,
-  `B:\maliev\Legacy.Maliev.Web`, `B:\maliev\Maliev.Aspire`, and
+  `B:\maliev\Legacy.Maliev.DocumentService`, `B:\maliev\Legacy.Maliev.EmployeeService`,
+  `B:\maliev\Legacy.Maliev.CatalogService`, `B:\maliev\Legacy.Maliev.ProcurementService`,
+  `B:\maliev\Legacy.Maliev.FileService`, `B:\maliev\Legacy.Maliev.NotificationService`,
+  `B:\maliev\Legacy.Maliev.Web`, `B:\maliev\Legacy.Maliev.Intranet`,
+  `B:\maliev\Maliev.Aspire`, and
   `B:\maliev\Maliev.MessagingContracts`.
 
 ## Verify locally
@@ -66,9 +81,11 @@ From PowerShell:
 ```
 
 The command builds the solution, creates fresh local-only passwords, starts the Aspire stack,
-polls resource health, verifies all five migrations and all six services, proves synthetic customer
-and employee PostgreSQL login, confirms the anonymous
-Country/Web surfaces and protected Auth/Customer/Notification/Document boundaries, checks all 21
+polls resource health, verifies all fourteen migrations and all thirteen services, proves synthetic
+customer and employee PostgreSQL login, confirms the anonymous Country/Web surfaces and protected
+service boundaries, validates the exact Intranet service-token permissions, signs into the
+Intranet, exercises Dashboard plus Customer/Employee/Material/Supplier/Order/PurchaseOrder pages,
+checks all 21
 preserved database names plus the isolated Auth runtime database, rejects ambient credential
 leakage, and removes the local containers in `finally` even when validation fails.
 
