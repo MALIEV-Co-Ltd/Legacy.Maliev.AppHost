@@ -9,6 +9,7 @@ var postgresPassword = builder.AddParameter("legacy-postgres-password", secret: 
 var redisPassword = builder.AddParameter("legacy-redis-password", secret: true);
 var jwt = LocalJwtKeyMaterial.Create();
 var webCredential = LocalServiceCredential.Create();
+var intranetCredential = LocalServiceCredential.Create();
 var dataProtectionCertificate = LocalDataProtectionCertificate.Create();
 
 var postgres = builder.AddPostgres("legacy-postgres-main", postgresUsername, postgresPassword)
@@ -131,6 +132,7 @@ var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>("legacy-ma
     .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__11", "legacy.customer-orders.read")
     .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__12", "legacy.customer-orders.cancel")
     .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__13", "legacy.customer-quotations.read")
+    .WithEnvironment("ServiceClients__Clients__legacy-intranet__SecretSha256", intranetCredential.SecretSha256)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithHttpHealthCheck("/auth/liveness", endpointName: "http")
@@ -143,6 +145,13 @@ var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>("legacy-ma
     .WaitForCompletion(authMigrations)
     .WaitForCompletion(customerIdentityMigrations)
     .WaitForCompletion(employeeIdentityMigrations);
+
+for (var permissionIndex = 0; permissionIndex < LegacyTopology.IntranetPermissions.Count; permissionIndex++)
+{
+    auth.WithEnvironment(
+        $"ServiceClients__Clients__legacy-intranet__Permissions__{permissionIndex}",
+        LegacyTopology.IntranetPermissions[permissionIndex]);
+}
 
 var customerDatabase = databases["Customer"];
 var customerMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-customer-migrations")
@@ -175,6 +184,142 @@ var customer = builder.AddProject<Projects.Legacy_Maliev_CustomerService_Api>(
     })
     .WaitForCompletion(customerMigrations)
     .WaitFor(redis)
+    .WaitFor(auth);
+
+var employeeDatabase = databases["Employee"];
+var employeeMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-employee-migrations")
+    .WithArgs("employee")
+    .WithEnvironment("ConnectionStrings__EmployeeDbContext", employeeDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WaitFor(employeeDatabase);
+
+var employee = builder.AddProject<Projects.Legacy_Maliev_EmployeeService_Api>(
+        "legacy-maliev-employee-service",
+        launchProfileName: "http")
+    .ConfigureDynamicHttpEndpoint()
+    .WithEnvironment("ConnectionStrings__EmployeeDbContext", employeeDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__redis", redis.Resource.ConnectionStringExpression)
+    .WithEnvironment("AuthService__LegacyEmployeeIdentityBaseUrl", ReferenceExpression.Create($"{auth.GetEndpoint("http")}/auth/v1/legacy/employees/"))
+    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
+    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+    .WithEnvironment("DOTNET_GCConserveMemory", "3")
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WithHttpHealthCheck("/employee/liveness", endpointName: "http")
+    .WithHttpHealthCheck("/employee/readiness", endpointName: "http")
+    .WithUrlForEndpoint("http", url =>
+    {
+        url.Url = "/employee/scalar";
+        url.DisplayText = "Employee Scalar";
+    })
+    .WaitForCompletion(employeeMigrations)
+    .WaitFor(redis)
+    .WaitFor(auth);
+
+var catalogDatabase = databases["Material"];
+var catalogMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-catalog-migrations")
+    .WithArgs("catalog")
+    .WithEnvironment("ConnectionStrings__CatalogDbContext", catalogDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WaitFor(catalogDatabase);
+
+var catalog = builder.AddProject<Projects.Legacy_Maliev_CatalogService_Api>(
+        "legacy-maliev-catalog-service",
+        launchProfileName: "http")
+    .ConfigureDynamicHttpEndpoint()
+    .WithEnvironment("ConnectionStrings__CatalogDbContext", catalogDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__redis", redis.Resource.ConnectionStringExpression)
+    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
+    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+    .WithEnvironment("DOTNET_GCConserveMemory", "3")
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WithHttpHealthCheck("/catalog/liveness", endpointName: "http")
+    .WithHttpHealthCheck("/catalog/readiness", endpointName: "http")
+    .WithUrlForEndpoint("http", url =>
+    {
+        url.Url = "/catalog/scalar";
+        url.DisplayText = "Catalog Scalar";
+    })
+    .WaitForCompletion(catalogMigrations)
+    .WaitFor(redis)
+    .WaitFor(auth);
+
+var supplierDatabase = databases["Supplier"];
+var purchaseOrderDatabase = databases["PurchaseOrder"];
+var supplierMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-supplier-migrations")
+    .WithArgs("supplier")
+    .WithEnvironment("ConnectionStrings__SupplierDbContext", supplierDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WaitFor(supplierDatabase);
+var purchaseOrderMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-purchase-order-migrations")
+    .WithArgs("purchase-order")
+    .WithEnvironment("ConnectionStrings__PurchaseOrderDbContext", purchaseOrderDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WaitFor(purchaseOrderDatabase);
+
+var procurement = builder.AddProject<Projects.Legacy_Maliev_ProcurementService_Api>(
+        "legacy-maliev-procurement-service",
+        launchProfileName: "http")
+    .ConfigureDynamicHttpEndpoint()
+    .WithEnvironment("ConnectionStrings__SupplierDbContext", supplierDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__PurchaseOrderDbContext", purchaseOrderDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__redis", redis.Resource.ConnectionStringExpression)
+    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
+    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+    .WithEnvironment("DOTNET_GCConserveMemory", "3")
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WithHttpHealthCheck("/procurement/liveness", endpointName: "http")
+    .WithHttpHealthCheck("/procurement/readiness", endpointName: "http")
+    .WithUrlForEndpoint("http", url =>
+    {
+        url.Url = "/procurement/scalar";
+        url.DisplayText = "Procurement Scalar";
+    })
+    .WaitForCompletion(supplierMigrations)
+    .WaitForCompletion(purchaseOrderMigrations)
+    .WaitFor(redis)
+    .WaitFor(auth);
+
+var fileDatabase = databases["Upload"];
+var fileMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-file-migrations")
+    .WithArgs("file")
+    .WithEnvironment("ConnectionStrings__FileDbContext", fileDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WaitFor(fileDatabase);
+
+var file = builder.AddProject<Projects.Legacy_Maliev_FileService_Api>(
+        "legacy-maliev-file-service",
+        launchProfileName: "http")
+    .ConfigureDynamicHttpEndpoint()
+    .WithEnvironment("ConnectionStrings__FileDbContext", fileDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
+    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+    .WithEnvironment("DOTNET_GCConserveMemory", "3")
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WithHttpHealthCheck("/file/liveness", endpointName: "http")
+    .WithHttpHealthCheck("/file/readiness", endpointName: "http")
+    .WithUrlForEndpoint("http", url =>
+    {
+        url.Url = "/file/scalar";
+        url.DisplayText = "File Scalar";
+    })
+    .WaitForCompletion(fileMigrations)
     .WaitFor(auth);
 
 var notification = builder.AddProject<Projects.Legacy_Maliev_NotificationService_Api>(
@@ -310,6 +455,41 @@ builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WaitFor(customer)
     .WaitFor(order)
     .WaitFor(quotation)
+    .WaitFor(notification);
+
+builder.AddProject<Projects.Legacy_Maliev_Intranet>("legacy-maliev-intranet")
+    .WithHttpEndpoint(name: "http")
+    .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+    .WithEnvironment("ConnectionStrings__redis", redis.Resource.ConnectionStringExpression)
+    .WithEnvironment("ServiceAuthentication__ClientId", "legacy-intranet")
+    .WithEnvironment("ServiceAuthentication__ClientSecret", intranetCredential.Secret)
+    .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
+    .WithEnvironment("Services__Catalog", catalog.GetEndpoint("http"))
+    .WithEnvironment("Services__Customer", customer.GetEndpoint("http"))
+    .WithEnvironment("Services__Employee", employee.GetEndpoint("http"))
+    .WithEnvironment("Services__Procurement", procurement.GetEndpoint("http"))
+    .WithEnvironment("Services__Document", document.GetEndpoint("http"))
+    .WithEnvironment("Services__File", file.GetEndpoint("http"))
+    .WithEnvironment("Services__Order", order.GetEndpoint("http"))
+    .WithEnvironment("Services__Notification", notification.GetEndpoint("http"))
+    .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
+    .WithEnvironment("DOTNET_GCConserveMemory", "3")
+    .WithHttpHealthCheck("/intranet/liveness", endpointName: "http")
+    .WithHttpHealthCheck("/intranet/readiness", endpointName: "http")
+    .WithUrlForEndpoint("http", url =>
+    {
+        url.Url = "/Login";
+        url.DisplayText = "Legacy Intranet";
+    })
+    .WaitFor(redis)
+    .WaitFor(auth)
+    .WaitFor(catalog)
+    .WaitFor(customer)
+    .WaitFor(employee)
+    .WaitFor(procurement)
+    .WaitFor(document)
+    .WaitFor(file)
+    .WaitFor(order)
     .WaitFor(notification);
 
 builder.Build().Run();

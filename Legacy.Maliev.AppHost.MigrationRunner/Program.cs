@@ -3,6 +3,10 @@ using Legacy.Maliev.AppHost.Topology;
 using Legacy.Maliev.CountryService.Data;
 using Legacy.Maliev.CustomerService.Data;
 using Legacy.Maliev.CustomerService.Domain;
+using Legacy.Maliev.EmployeeService.Data;
+using Legacy.Maliev.CatalogService.Data;
+using Legacy.Maliev.ProcurementService.Data;
+using Legacy.Maliev.FileService.Data;
 using Legacy.Maliev.OrderService.Data;
 using Legacy.Maliev.OrderService.Domain;
 using Legacy.Maliev.QuotationService.Data;
@@ -19,6 +23,11 @@ var connectionName = workload switch
     "employee-identity" => "EmployeeIdentity",
     "country" => "CountryDbContext",
     "customer" => "CustomerDbContext",
+    "employee" => "EmployeeDbContext",
+    "catalog" => "CatalogDbContext",
+    "supplier" => "SupplierDbContext",
+    "purchase-order" => "PurchaseOrderDbContext",
+    "file" => "FileDbContext",
     "order" => "OrderDbContext",
     "order-status" => "OrderStatusDbContext",
     "quotation" => "QuotationDbContext",
@@ -97,6 +106,56 @@ static async Task MigrateAsync(string workload, string connectionString)
             {
                 await context.Database.MigrateAsync();
                 await SeedCustomerAsync(context);
+            }
+
+            break;
+        case "employee":
+            var employeeOptions = new DbContextOptionsBuilder<EmployeeDbContext>()
+                .UseNpgsql(connectionString)
+                .Options;
+            await using (var context = new EmployeeDbContext(employeeOptions))
+            {
+                await context.Database.MigrateAsync();
+            }
+
+            break;
+        case "catalog":
+            var catalogOptions = new DbContextOptionsBuilder<CatalogDbContext>()
+                .UseNpgsql(connectionString)
+                .Options;
+            await using (var context = new CatalogDbContext(catalogOptions))
+            {
+                await context.Database.MigrateAsync();
+            }
+
+            break;
+        case "supplier":
+            var supplierOptions = new DbContextOptionsBuilder<SupplierDbContext>()
+                .UseNpgsql(connectionString)
+                .Options;
+            await using (var context = new SupplierDbContext(supplierOptions))
+            {
+                await context.Database.MigrateAsync();
+            }
+
+            break;
+        case "purchase-order":
+            var purchaseOrderOptions = new DbContextOptionsBuilder<PurchaseOrderDbContext>()
+                .UseNpgsql(connectionString)
+                .Options;
+            await using (var context = new PurchaseOrderDbContext(purchaseOrderOptions))
+            {
+                await context.Database.MigrateAsync();
+            }
+
+            break;
+        case "file":
+            var fileOptions = new DbContextOptionsBuilder<FileDbContext>()
+                .UseNpgsql(connectionString)
+                .Options;
+            await using (var context = new FileDbContext(fileOptions))
+            {
+                await context.Database.MigrateAsync();
             }
 
             break;

@@ -146,8 +146,8 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.CustomerService", project, StringComparison.Ordinal);
         Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.NotificationService", project, StringComparison.Ordinal);
         Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.Web", project, StringComparison.Ordinal);
-        Assert.Equal(8, project.Split("AdditionalProperties=\"Configuration=$(Configuration)\"", StringSplitOptions.None).Length - 1);
-        Assert.Equal(8, project.Split("SetConfiguration=\"Configuration=$(Configuration)\"", StringSplitOptions.None).Length - 1);
+        Assert.Equal(13, project.Split("AdditionalProperties=\"Configuration=$(Configuration)\"", StringSplitOptions.None).Length - 1);
+        Assert.Equal(13, project.Split("SetConfiguration=\"Configuration=$(Configuration)\"", StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("maliev-legacy-secrets", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("LEGACY_DEPLOY_ENABLED", source, StringComparison.OrdinalIgnoreCase);
     }
@@ -178,6 +178,41 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("\"order-status\" => \"OrderStatusDbContext\"", migrations, StringComparison.Ordinal);
         Assert.Contains("await SeedOrderAsync(context);", migrations, StringComparison.Ordinal);
         Assert.Contains("await SeedOrderStatusesAsync(context);", migrations, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AppHost_WiresTheLegacyIntranetAsAnIndependentServiceBoundary()
+    {
+        var root = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var project = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "Legacy.Maliev.AppHost.csproj"));
+        var migrations = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost.MigrationRunner", "Program.cs"));
+
+        Assert.Contains("Legacy_Maliev_Intranet", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-intranet", source, StringComparison.Ordinal);
+        Assert.Contains("ServiceClients__Clients__legacy-intranet__SecretSha256", source, StringComparison.Ordinal);
+        Assert.Contains("LegacyTopology.IntranetPermissions", source, StringComparison.Ordinal);
+        Assert.Contains("ServiceAuthentication__ClientId", source, StringComparison.Ordinal);
+        Assert.Contains("\"legacy-intranet\"", source, StringComparison.Ordinal);
+        Assert.Contains("ServiceAuthentication__ClientSecret", source, StringComparison.Ordinal);
+        Assert.Contains("Services__Catalog", source, StringComparison.Ordinal);
+        Assert.Contains("Services__Employee", source, StringComparison.Ordinal);
+        Assert.Contains("Services__Procurement", source, StringComparison.Ordinal);
+        Assert.Contains("Services__File", source, StringComparison.Ordinal);
+        Assert.Contains("/intranet/liveness", source, StringComparison.Ordinal);
+        Assert.Contains("/intranet/readiness", source, StringComparison.Ordinal);
+        Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.Intranet", project, StringComparison.Ordinal);
+        Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.CatalogService", project, StringComparison.Ordinal);
+        Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.EmployeeService", project, StringComparison.Ordinal);
+        Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.ProcurementService", project, StringComparison.Ordinal);
+        Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.FileService", project, StringComparison.Ordinal);
+        Assert.Contains("\"catalog\" => \"CatalogDbContext\"", migrations, StringComparison.Ordinal);
+        Assert.Contains("\"employee\" => \"EmployeeDbContext\"", migrations, StringComparison.Ordinal);
+        Assert.Contains("\"supplier\" => \"SupplierDbContext\"", migrations, StringComparison.Ordinal);
+        Assert.Contains("\"purchase-order\" => \"PurchaseOrderDbContext\"", migrations, StringComparison.Ordinal);
+        Assert.Contains("\"file\" => \"FileDbContext\"", migrations, StringComparison.Ordinal);
+        Assert.Contains("ServiceClients__Clients__legacy-intranet__Permissions__{permissionIndex}", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("ServiceClients__Clients__legacy-intranet__Permissions__0\", \"*\"", source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -315,6 +350,23 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("Headers.Location", source, StringComparison.Ordinal);
         Assert.Contains("handler=CancelOrder", source, StringComparison.Ordinal);
         Assert.Contains("orderId", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-catalog-migrations-*", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-employee-migrations-*", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-supplier-migrations-*", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-purchase-order-migrations-*", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-file-migrations-*", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-catalog-service-*", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-employee-service-*", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-procurement-service-*", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-file-service-*", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-intranet-*", source, StringComparison.Ordinal);
+        Assert.Contains("Invoke-IntranetEmployeeFlow", source, StringComparison.Ordinal);
+        Assert.Contains("/Customers/Index", source, StringComparison.Ordinal);
+        Assert.Contains("/Employees/Index", source, StringComparison.Ordinal);
+        Assert.Contains("/Materials/Index", source, StringComparison.Ordinal);
+        Assert.Contains("/Suppliers/Index", source, StringComparison.Ordinal);
+        Assert.Contains("/Orders/Index", source, StringComparison.Ordinal);
+        Assert.Contains("/PurchaseOrders/Index", source, StringComparison.Ordinal);
         Assert.Contains("legacy-quotation-migrations-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-quotation-request-migrations-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-maliev-quotation-service-*", source, StringComparison.Ordinal);
