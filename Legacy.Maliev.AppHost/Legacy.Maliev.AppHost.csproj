@@ -24,5 +24,8 @@
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.QuotationService\Legacy.Maliev.QuotationService.Api\Legacy.Maliev.QuotationService.Api.csproj" AdditionalProperties="Configuration=$(Configuration)" SetConfiguration="Configuration=$(Configuration)" />
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.Web\Legacy.Maliev.Web\Legacy.Maliev.Web.csproj" AdditionalProperties="Configuration=$(Configuration)" SetConfiguration="Configuration=$(Configuration)" />
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.Intranet\Legacy.Maliev.Intranet\Legacy.Maliev.Intranet.csproj" AdditionalProperties="Configuration=$(Configuration)" SetConfiguration="Configuration=$(Configuration)" />
+    <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.CareerService\Legacy.Maliev.CareerService.Api\Legacy.Maliev.CareerService.Api.csproj" AdditionalProperties="Configuration=$(Configuration)" SetConfiguration="Configuration=$(Configuration)" />
+    <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.ContactService\Legacy.Maliev.ContactService.Api\Legacy.Maliev.ContactService.Api.csproj" AdditionalProperties="Configuration=$(Configuration)" SetConfiguration="Configuration=$(Configuration)" />
+    <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.AccountingService\Legacy.Maliev.AccountingService.Api\Legacy.Maliev.AccountingService.Api.csproj" AdditionalProperties="Configuration=$(Configuration)" SetConfiguration="Configuration=$(Configuration)" />
   </ItemGroup>
 </Project>

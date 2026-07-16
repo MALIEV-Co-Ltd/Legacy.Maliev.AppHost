@@ -11,6 +11,10 @@ using Legacy.Maliev.OrderService.Data;
 using Legacy.Maliev.OrderService.Domain;
 using Legacy.Maliev.QuotationService.Data;
 using Legacy.Maliev.QuotationService.Domain;
+using Legacy.Maliev.CareerService.Data;
+using Legacy.Maliev.CareerService.Domain;
+using Legacy.Maliev.ContactService.Data;
+using Legacy.Maliev.AccountingService.Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -32,6 +36,11 @@ var connectionName = workload switch
     "order-status" => "OrderStatusDbContext",
     "quotation" => "QuotationDbContext",
     "quotation-request" => "QuotationRequestDbContext",
+    "career" => "CareerDbContext",
+    "contact" => "ContactRequestDbContext",
+    "payment" => "PaymentDbContext",
+    "invoice" => "InvoiceDbContext",
+    "receipt" => "ReceiptDbContext",
     _ => throw new InvalidOperationException($"Unknown migration workload '{workload}'."),
 };
 var connectionString = Environment.GetEnvironmentVariable($"ConnectionStrings__{connectionName}");
@@ -202,6 +211,90 @@ static async Task MigrateAsync(string workload, string connectionString)
             }
 
             break;
+        case "career":
+            var careerOptions = new DbContextOptionsBuilder<CareerDbContext>()
+                .UseNpgsql(connectionString)
+                .Options;
+            await using (var context = new CareerDbContext(careerOptions))
+            {
+                await context.Database.MigrateAsync();
+                await SeedCareerAsync(context);
+            }
+
+            break;
+        case "contact":
+            var contactOptions = new DbContextOptionsBuilder<ContactRequestDbContext>()
+                .UseNpgsql(connectionString)
+                .Options;
+            await using (var context = new ContactRequestDbContext(contactOptions))
+            {
+                await context.Database.MigrateAsync();
+            }
+
+            break;
+        case "payment":
+            var paymentOptions = new DbContextOptionsBuilder<PaymentDbContext>()
+                .UseNpgsql(connectionString)
+                .Options;
+            await using (var context = new PaymentDbContext(paymentOptions))
+            {
+                await context.Database.MigrateAsync();
+            }
+
+            break;
+        case "invoice":
+            var invoiceOptions = new DbContextOptionsBuilder<InvoiceDbContext>()
+                .UseNpgsql(connectionString)
+                .Options;
+            await using (var context = new InvoiceDbContext(invoiceOptions))
+            {
+                await context.Database.MigrateAsync();
+            }
+
+            break;
+        case "receipt":
+            var receiptOptions = new DbContextOptionsBuilder<ReceiptDbContext>()
+                .UseNpgsql(connectionString)
+                .Options;
+            await using (var context = new ReceiptDbContext(receiptOptions))
+            {
+                await context.Database.MigrateAsync();
+            }
+
+            break;
+    }
+}
+
+static async Task SeedCareerAsync(CareerDbContext context)
+{
+    var level = await context.Levels.SingleOrDefaultAsync(row => row.Name == "Experienced");
+    if (level is null)
+    {
+        level = new JobLevel
+        {
+            Name = "Experienced",
+            Description = "Local Aspire verification level",
+            CreatedDate = new DateTime(2026, 7, 15, 0, 0, 0, DateTimeKind.Utc),
+        };
+        context.Levels.Add(level);
+        await context.SaveChangesAsync();
+    }
+
+    if (!await context.Offers.AnyAsync(row => row.Title == "Local Manufacturing Engineer"))
+    {
+        context.Offers.Add(new JobOffer
+        {
+            LevelId = level.Id,
+            Title = "Local Manufacturing Engineer",
+            Introduction = "Local Aspire career boundary verification",
+            Description = "Support digital manufacturing projects.",
+            Prerequisites = "Manufacturing experience",
+            WhatWeOffer = "Independent engineering work",
+            Location = "Nonthaburi",
+            IsFilled = false,
+            CreatedDate = new DateTime(2026, 7, 15, 0, 0, 0, DateTimeKind.Utc),
+        });
+        await context.SaveChangesAsync();
     }
 }
 

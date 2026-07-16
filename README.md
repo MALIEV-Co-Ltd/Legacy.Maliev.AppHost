@@ -33,7 +33,14 @@ cloud resource.
   ADC/Workload Identity and the configured ClamAV scanner rather than stored service-account keys.
 - `Legacy.Maliev.NotificationService` wired with JWT trust and a development-only placeholder Brevo
   credential. The local verifier never sends email, so it cannot contact the production provider.
-- `Legacy.Maliev.Web` wired to Auth, Customer, Notification, Country, Document, Redis, encrypted
+- `Legacy.Maliev.CareerService` and `Legacy.Maliev.ContactService` wired to their preserved
+  `JobOffers` and `Message` databases, isolated migrations, Redis, JWT trust, health checks, and
+  bounded heaps. Career reads stay public; Contact message reads require permission and Web has
+  create-only access.
+- `Legacy.Maliev.AccountingService` wired as a standalone protected historical-record API over the
+  separate `Payment`, `Invoice`, and `Receipt` databases. It is intentionally not connected to Web,
+  Intranet, Omise/Opn, or any payment-execution workflow.
+- `Legacy.Maliev.Web` wired to Auth, Customer, Notification, Country, Career, Contact, Document, Redis, encrypted
   server-side sessions, and the ephemeral `legacy-web` credential. Public account surfaces can be
   exercised locally; reCAPTCHA-protected signup submission remains fail closed without local ADC.
 - `Legacy.Maliev.Intranet` wired independently to Auth, Customer, Employee, Catalog, Procurement,
@@ -68,7 +75,9 @@ cluster and `maliev-legacy` namespace.
   `B:\maliev\Legacy.Maliev.DocumentService`, `B:\maliev\Legacy.Maliev.EmployeeService`,
   `B:\maliev\Legacy.Maliev.CatalogService`, `B:\maliev\Legacy.Maliev.ProcurementService`,
   `B:\maliev\Legacy.Maliev.FileService`, `B:\maliev\Legacy.Maliev.NotificationService`,
-  `B:\maliev\Legacy.Maliev.Web`, `B:\maliev\Legacy.Maliev.Intranet`,
+  `B:\maliev\Legacy.Maliev.CareerService`, `B:\maliev\Legacy.Maliev.ContactService`,
+  `B:\maliev\Legacy.Maliev.AccountingService`, `B:\maliev\Legacy.Maliev.Web`,
+  `B:\maliev\Legacy.Maliev.Intranet`,
   `B:\maliev\Maliev.Aspire`, and
   `B:\maliev\Maliev.MessagingContracts`.
 
@@ -81,9 +90,11 @@ From PowerShell:
 ```
 
 The command builds the solution, creates fresh local-only passwords, starts the Aspire stack,
-polls resource health, verifies all fourteen migrations and all thirteen services, proves synthetic
+polls resource health, verifies all nineteen migrations and all sixteen services, proves synthetic
 customer and employee PostgreSQL login, confirms the anonymous Country/Web surfaces and protected
-service boundaries, validates the exact Intranet service-token permissions, signs into the
+service boundaries, renders the seeded Career listing through Web, persists a Contact request with
+the create-only Web identity, keeps Accounting frontend-disconnected, validates the exact Intranet
+service-token permissions, signs into the
 Intranet, exercises Dashboard plus Customer/Employee/Material/Supplier/Order/PurchaseOrder pages,
 checks all 21
 preserved database names plus the isolated Auth runtime database, rejects ambient credential

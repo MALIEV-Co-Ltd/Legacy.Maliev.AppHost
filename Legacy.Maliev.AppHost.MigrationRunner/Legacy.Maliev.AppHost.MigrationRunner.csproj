@@ -14,5 +14,8 @@
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.FileService\Legacy.Maliev.FileService.Data\Legacy.Maliev.FileService.Data.csproj" />
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.OrderService\Legacy.Maliev.OrderService.Data\Legacy.Maliev.OrderService.Data.csproj" />
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.QuotationService\Legacy.Maliev.QuotationService.Data\Legacy.Maliev.QuotationService.Data.csproj" />
+    <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.CareerService\Legacy.Maliev.CareerService.Data\Legacy.Maliev.CareerService.Data.csproj" />
+    <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.ContactService\Legacy.Maliev.ContactService.Data\Legacy.Maliev.ContactService.Data.csproj" />
+    <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.AccountingService\Legacy.Maliev.AccountingService.Data\Legacy.Maliev.AccountingService.Data.csproj" />
   </ItemGroup>
 </Project>

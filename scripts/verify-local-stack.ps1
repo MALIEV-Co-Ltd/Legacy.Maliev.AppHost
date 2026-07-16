@@ -669,7 +669,12 @@ try {
         'legacy-order-migrations-*',
         'legacy-order-status-migrations-*',
         'legacy-quotation-migrations-*',
-        'legacy-quotation-request-migrations-*'
+        'legacy-quotation-request-migrations-*',
+        'legacy-career-migrations-*',
+        'legacy-contact-migrations-*',
+        'legacy-payment-migrations-*',
+        'legacy-invoice-migrations-*',
+        'legacy-receipt-migrations-*'
     )
     $servicePatterns = @(
         'legacy-maliev-country-service-*',
@@ -684,7 +689,10 @@ try {
         'legacy-maliev-quotation-service-*',
         'legacy-maliev-notification-service-*',
         'legacy-maliev-web-*',
-        'legacy-maliev-intranet-*'
+        'legacy-maliev-intranet-*',
+        'legacy-maliev-career-service-*',
+        'legacy-maliev-contact-service-*',
+        'legacy-maliev-accounting-service-*'
     )
 
     while ((Get-Date) -lt $deadline) {
@@ -877,6 +885,30 @@ try {
     Invoke-ExpectedStatus -Uri "$notificationUrl/emails/scalar" -ExpectedStatus 200
     Invoke-ExpectedPostStatus -Uri "$notificationUrl/notifications/v1/email/noreply" -ExpectedStatus 401
 
+    $careerResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-career-service-*'
+    $careerUrl = Get-ResourceUrl -Resource $careerResource
+    Invoke-ExpectedStatus -Uri "$careerUrl/Jobs/liveness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$careerUrl/Jobs/readiness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$careerUrl/Jobs/scalar" -ExpectedStatus 200
+    $careerListing = Invoke-WebRequest -Uri "$careerUrl/Jobs" -UseBasicParsing -SkipHttpErrorCheck
+    if ($careerListing.StatusCode -ne 200 -or $careerListing.Content -notmatch 'Local Manufacturing Engineer') {
+        throw 'The anonymous Career API did not return the seeded local job offer.'
+    }
+
+    $contactResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-contact-service-*'
+    $contactUrl = Get-ResourceUrl -Resource $contactResource
+    Invoke-ExpectedStatus -Uri "$contactUrl/messages/liveness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$contactUrl/messages/readiness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$contactUrl/messages/scalar" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$contactUrl/Messages" -ExpectedStatus 401
+
+    $accountingResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-accounting-service-*'
+    $accountingUrl = Get-ResourceUrl -Resource $accountingResource
+    Invoke-ExpectedStatus -Uri "$accountingUrl/accounting/liveness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$accountingUrl/accounting/readiness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$accountingUrl/accounting/scalar" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$accountingUrl/payments" -ExpectedStatus 401
+
     $webResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-web-*'
     $webUrl = Get-ResourceUrl -Resource $webResource
     $webClientSecret = ($webResource.status.effectiveEnv | Where-Object {
@@ -905,6 +937,11 @@ try {
         'legacy.customer-orders.read'
         'legacy.customer-orders.cancel'
         'legacy.customer-quotations.read'
+        'legacy-contact.messages.create'
+        'legacy.quotation-requests.create'
+        'legacy.quotation-files.write'
+        'legacy-file.uploads.create'
+        'legacy-file.uploads.delete'
     )
     $missingMemberPermissions = @($requiredMemberPermissions | Where-Object {
         $_ -notin $runtimePermissions
@@ -935,10 +972,30 @@ try {
         throw "The Web service identity could not delete companies (HTTP $($companyDelete.StatusCode)): $($companyDelete.Content)"
     }
 
+    $contactCreate = Invoke-WebRequest -Uri "$contactUrl/Messages" -Method Post `
+        -Headers $serviceHeaders -ContentType 'application/json' -SkipHttpErrorCheck `
+        -Body (@{
+            firstName = 'Local'
+            lastName = 'Verifier'
+            company = 'MALIEV Local'
+            email = 'local.contact@maliev.test'
+            telephone = 'local-only'
+            country = 'Thailand'
+            messageContent = 'Local AppHost contact boundary verification'
+        } | ConvertTo-Json -Compress)
+    if ($contactCreate.StatusCode -ne 201) {
+        throw "The Web service identity could not persist a Contact request (HTTP $($contactCreate.StatusCode)): $($contactCreate.Content)"
+    }
+
     Invoke-ExpectedStatus -Uri "$webUrl/web/liveness" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$webUrl/web/readiness" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$webUrl/Account/Login" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$webUrl/Account/Signup" -ExpectedStatus 200
+    $careerPage = Invoke-WebRequest -Uri "$webUrl/career?culture=en" -UseBasicParsing -SkipHttpErrorCheck
+    if ($careerPage.StatusCode -ne 200 -or $careerPage.Content -notmatch 'Local Manufacturing Engineer') {
+        throw 'The Web Career page did not render the Career service result.'
+    }
+    Invoke-ExpectedStatus -Uri "$webUrl/contact?culture=en" -ExpectedStatus 200
     Invoke-WebInstantQuotationFlow -WebUrl $webUrl
     Invoke-WebMemberAccountFlow -WebUrl $webUrl
 
@@ -1039,7 +1096,7 @@ try {
         throw "Missing legacy databases: $($missingDatabases -join ', ')."
     }
 
-    Write-Host 'PASS: PostgreSQL, Redis, 13 services, 14 migrations, 21 preserved databases plus Auth runtime state, public instant quotation, recorded local security notifications, customer/employee login, authenticated Member and Intranet flows, protected boundaries, and environment isolation are healthy.'
+    Write-Host 'PASS: PostgreSQL, Redis, 16 services, 19 migrations, 21 preserved databases plus Auth runtime state, public Career and Contact boundaries, standalone Accounting protection, public instant quotation, recorded local security notifications, customer/employee login, authenticated Member and Intranet flows, and environment isolation are healthy.'
 }
 finally {
     if ($appHostRunner -and -not $appHostRunner.HasExited) {

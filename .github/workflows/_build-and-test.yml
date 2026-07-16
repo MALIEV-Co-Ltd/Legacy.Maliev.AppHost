@@ -112,6 +112,27 @@ jobs:
           ref: 9670e5430a98f235124435273d6ff89e15acc896
           path: Legacy.Maliev.Intranet
           persist-credentials: false
+      - name: Check out Career service
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          repository: MALIEV-Co-Ltd/Legacy.Maliev.CareerService
+          ref: 1e026db743d2105e226ae5e97ce5a50ac425da89
+          path: Legacy.Maliev.CareerService
+          persist-credentials: false
+      - name: Check out Contact service
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          repository: MALIEV-Co-Ltd/Legacy.Maliev.ContactService
+          ref: ac8e641a6ee2136574fedc797748ffbcc70440eb
+          path: Legacy.Maliev.ContactService
+          persist-credentials: false
+      - name: Check out Accounting service
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          repository: MALIEV-Co-Ltd/Legacy.Maliev.AccountingService
+          ref: c0f38c0a5a0505abd13b9250b25c326a833105fe
+          path: Legacy.Maliev.AccountingService
+          persist-credentials: false
       - name: Check out service defaults
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:

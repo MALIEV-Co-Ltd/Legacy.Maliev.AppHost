@@ -132,6 +132,11 @@ var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>("legacy-ma
     .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__11", "legacy.customer-orders.read")
     .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__12", "legacy.customer-orders.cancel")
     .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__13", "legacy.customer-quotations.read")
+    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__14", "legacy-contact.messages.create")
+    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__15", "legacy.quotation-requests.create")
+    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__16", "legacy.quotation-files.write")
+    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__17", "legacy-file.uploads.create")
+    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__18", "legacy-file.uploads.delete")
     .WithEnvironment("ServiceClients__Clients__legacy-intranet__SecretSha256", intranetCredential.SecretSha256)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
@@ -426,6 +431,114 @@ var quotation = builder.AddProject<Projects.Legacy_Maliev_QuotationService_Api>(
     .WaitFor(redis)
     .WaitFor(auth);
 
+var careerDatabase = databases["JobOffers"];
+var careerMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-career-migrations")
+    .WithArgs("career")
+    .WithEnvironment("ConnectionStrings__CareerDbContext", careerDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WaitFor(careerDatabase);
+var career = builder.AddProject<Projects.Legacy_Maliev_CareerService_Api>(
+        "legacy-maliev-career-service",
+        launchProfileName: "http")
+    .ConfigureDynamicHttpEndpoint()
+    .WithEnvironment("ConnectionStrings__CareerDbContext", careerDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__redis", redis.Resource.ConnectionStringExpression)
+    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
+    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+    .WithEnvironment("DOTNET_GCConserveMemory", "3")
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WithHttpHealthCheck("/Jobs/liveness", endpointName: "http")
+    .WithHttpHealthCheck("/Jobs/readiness", endpointName: "http")
+    .WithUrlForEndpoint("http", url =>
+    {
+        url.Url = "/Jobs/scalar";
+        url.DisplayText = "Career Scalar";
+    })
+    .WaitForCompletion(careerMigrations)
+    .WaitFor(redis);
+
+var contactDatabase = databases["Message"];
+var contactMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-contact-migrations")
+    .WithArgs("contact")
+    .WithEnvironment("ConnectionStrings__ContactRequestDbContext", contactDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WaitFor(contactDatabase);
+var contact = builder.AddProject<Projects.Legacy_Maliev_ContactService_Api>(
+        "legacy-maliev-contact-service",
+        launchProfileName: "http")
+    .ConfigureDynamicHttpEndpoint()
+    .WithEnvironment("ConnectionStrings__ContactRequestDbContext", contactDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__redis", redis.Resource.ConnectionStringExpression)
+    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
+    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+    .WithEnvironment("DOTNET_GCConserveMemory", "3")
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WithHttpHealthCheck("/messages/liveness", endpointName: "http")
+    .WithHttpHealthCheck("/messages/readiness", endpointName: "http")
+    .WithUrlForEndpoint("http", url =>
+    {
+        url.Url = "/messages/scalar";
+        url.DisplayText = "Contact Scalar";
+    })
+    .WaitForCompletion(contactMigrations)
+    .WaitFor(redis);
+
+var paymentDatabase = databases["Payment"];
+var invoiceDatabase = databases["Invoice"];
+var receiptDatabase = databases["Receipt"];
+var paymentMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-payment-migrations")
+    .WithArgs("payment")
+    .WithEnvironment("ConnectionStrings__PaymentDbContext", paymentDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WaitFor(paymentDatabase);
+var invoiceMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-invoice-migrations")
+    .WithArgs("invoice")
+    .WithEnvironment("ConnectionStrings__InvoiceDbContext", invoiceDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WaitFor(invoiceDatabase);
+var receiptMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-receipt-migrations")
+    .WithArgs("receipt")
+    .WithEnvironment("ConnectionStrings__ReceiptDbContext", receiptDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WaitFor(receiptDatabase);
+var accounting = builder.AddProject<Projects.Legacy_Maliev_AccountingService_Api>(
+        "legacy-maliev-accounting-service",
+        launchProfileName: "http")
+    .ConfigureDynamicHttpEndpoint()
+    .WithEnvironment("ConnectionStrings__PaymentDbContext", paymentDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__InvoiceDbContext", invoiceDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__ReceiptDbContext", receiptDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__redis", redis.Resource.ConnectionStringExpression)
+    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
+    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+    .WithEnvironment("DOTNET_GCConserveMemory", "3")
+    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+    .WithEnvironment("PGGSSENCMODE", "disable")
+    .WithHttpHealthCheck("/accounting/liveness", endpointName: "http")
+    .WithHttpHealthCheck("/accounting/readiness", endpointName: "http")
+    .WithUrlForEndpoint("http", url =>
+    {
+        url.Url = "/accounting/scalar";
+        url.DisplayText = "Accounting Scalar";
+    })
+    .WaitForCompletion(paymentMigrations)
+    .WaitForCompletion(invoiceMigrations)
+    .WaitForCompletion(receiptMigrations)
+    .WaitFor(redis);
+
 builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WithHttpEndpoint(name: "http")
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
@@ -441,6 +554,8 @@ builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WithEnvironment("Services__Document", document.GetEndpoint("http"))
     .WithEnvironment("Services__Order", order.GetEndpoint("http"))
     .WithEnvironment("Services__Quotation", quotation.GetEndpoint("http"))
+    .WithEnvironment("Services__Career", career.GetEndpoint("http"))
+    .WithEnvironment("Services__Contact", contact.GetEndpoint("http"))
     .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithHttpHealthCheck("/web/liveness", endpointName: "http")
@@ -455,7 +570,9 @@ builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WaitFor(customer)
     .WaitFor(order)
     .WaitFor(quotation)
-    .WaitFor(notification);
+    .WaitFor(notification)
+    .WaitFor(career)
+    .WaitFor(contact);
 
 builder.AddProject<Projects.Legacy_Maliev_Intranet>("legacy-maliev-intranet")
     .WithHttpEndpoint(name: "http")
