@@ -70,6 +70,22 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
+    public void AppHost_WiresExistingRedisIntoTheFileServiceRuntime()
+    {
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var file = ExtractResource(
+            source,
+            "var file = builder.AddProject<Projects.Legacy_Maliev_FileService_Api>",
+            "var notification = builder.AddProject<Projects.Legacy_Maliev_NotificationService_Api>");
+
+        Assert.Contains(
+            "WithEnvironment(\"ConnectionStrings__redis\", redis.Resource.ConnectionStringExpression)",
+            file,
+            StringComparison.Ordinal);
+        Assert.Contains(".WaitFor(redis)", file, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void HttpLaunchProfile_ExplicitlyAllowsLocalUnsecuredTransport()
     {
         var sourcePath = Path.Combine(

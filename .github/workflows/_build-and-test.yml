@@ -102,7 +102,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.FileService
-          ref: b7f041b4c70546e2f4600feb3a7d202a5c8739b3
+          ref: cf27388398fc7845cbfb9c04917ba1def2e6bb20
           path: Legacy.Maliev.FileService
           persist-credentials: false
       - name: Check out Intranet
