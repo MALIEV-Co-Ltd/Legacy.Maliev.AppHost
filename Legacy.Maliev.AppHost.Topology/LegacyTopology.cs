@@ -61,6 +61,7 @@ public static class LegacyTopology
     public static IReadOnlyList<string> IntranetPermissions { get; } =
     [
         "legacy-auth.customer-identities.create",
+        "legacy-auth.employee-identities.create",
         "legacy-customer.customers.read",
         "legacy-customer.customers.list",
         "legacy-customer.customers.create",
