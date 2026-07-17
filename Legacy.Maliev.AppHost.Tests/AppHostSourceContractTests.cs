@@ -306,6 +306,41 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
+    public void AppHost_ProjectsExistingDataProtectionCertificateOnlyToWebAndBothIntranetHosts()
+    {
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var web = ExtractResource(
+            source,
+            "builder.AddProject<Projects.Legacy_Maliev_Web>",
+            "var intranetCompatibility = builder.AddProject<Projects.Legacy_Maliev_Intranet>");
+        var compatibility = ExtractResource(
+            source,
+            "var intranetCompatibility = builder.AddProject<Projects.Legacy_Maliev_Intranet>",
+            "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>");
+        var bff = ExtractResource(
+            source,
+            "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>",
+            "builder.Build().Run()");
+
+        foreach (var resource in new[] { web, compatibility, bff })
+        {
+            Assert.Contains(
+                "WithEnvironment(\"DataProtection__CertificatePfxBase64\", dataProtectionCertificate.PfxBase64)",
+                resource,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "WithEnvironment(\"DataProtection__CertificatePassword\", dataProtectionCertificate.Password)",
+                resource,
+                StringComparison.Ordinal);
+        }
+
+        Assert.Equal(3, source.Split("WithEnvironment(\"DataProtection__CertificatePfxBase64\"", StringSplitOptions.None).Length - 1);
+        Assert.Equal(3, source.Split("WithEnvironment(\"DataProtection__CertificatePassword\"", StringSplitOptions.None).Length - 1);
+        Assert.Contains("WithReference(redis)", compatibility, StringComparison.Ordinal);
+        Assert.Contains("WithReference(redis)", bff, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AppHost_WiresCustomerOwnedQuotationReadsWithPreservedDatabases()
     {
         var root = FindRepositoryRoot();
