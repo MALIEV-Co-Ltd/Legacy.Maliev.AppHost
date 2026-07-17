@@ -71,7 +71,7 @@ public sealed partial class WorkflowContractTests
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.FileService", source, StringComparison.Ordinal);
         Assert.Contains("ref: b7f041b4c70546e2f4600feb3a7d202a5c8739b3", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.Intranet", source, StringComparison.Ordinal);
-        Assert.Contains("ref: 9670e5430a98f235124435273d6ff89e15acc896", source, StringComparison.Ordinal);
+        Assert.Contains("ref: 92c9ce747b415853685f3482e4b23c9918b153e1", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.CareerService", source, StringComparison.Ordinal);
         Assert.Contains("ref: 1e026db743d2105e226ae5e97ce5a50ac425da89", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.ContactService", source, StringComparison.Ordinal);
