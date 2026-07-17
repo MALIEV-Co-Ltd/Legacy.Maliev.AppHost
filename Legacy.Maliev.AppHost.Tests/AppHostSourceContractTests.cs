@@ -151,8 +151,8 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.CustomerService", project, StringComparison.Ordinal);
         Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.NotificationService", project, StringComparison.Ordinal);
         Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.Web", project, StringComparison.Ordinal);
-        Assert.Equal(16, project.Split("AdditionalProperties=\"Configuration=$(Configuration)\"", StringSplitOptions.None).Length - 1);
-        Assert.Equal(16, project.Split("SetConfiguration=\"Configuration=$(Configuration)\"", StringSplitOptions.None).Length - 1);
+        Assert.Equal(17, project.Split("AdditionalProperties=\"Configuration=$(Configuration)\"", StringSplitOptions.None).Length - 1);
+        Assert.Equal(17, project.Split("SetConfiguration=\"Configuration=$(Configuration)\"", StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("maliev-legacy-secrets", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("LEGACY_DEPLOY_ENABLED", source, StringComparison.OrdinalIgnoreCase);
     }
@@ -261,6 +261,48 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("\"file\" => \"FileDbContext\"", migrations, StringComparison.Ordinal);
         Assert.Contains("ServiceClients__Clients__legacy-intranet__Permissions__{permissionIndex}", source, StringComparison.Ordinal);
         Assert.DoesNotContain("ServiceClients__Clients__legacy-intranet__Permissions__0\", \"*\"", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AppHost_RunsCompatibilityAndBffWithTheSamePublicJwtTrust()
+    {
+        var root = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var project = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "Legacy.Maliev.AppHost.csproj"));
+
+        Assert.Contains(
+            "Legacy.Maliev.Intranet\\Legacy.Maliev.Intranet.Bff\\Legacy.Maliev.Intranet.Bff.csproj",
+            project,
+            StringComparison.Ordinal);
+
+        var compatibility = ExtractResource(
+            source,
+            "var intranetCompatibility = builder.AddProject<Projects.Legacy_Maliev_Intranet>",
+            "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>");
+        var bff = ExtractResource(
+            source,
+            "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>",
+            "builder.Build().Run()");
+
+        Assert.Contains("\"legacy-maliev-intranet\"", compatibility, StringComparison.Ordinal);
+        Assert.Contains("\"legacy-maliev-intranet-bff\"", bff, StringComparison.Ordinal);
+        foreach (var resource in new[] { compatibility, bff })
+        {
+            Assert.Contains("WithEnvironment(\"Jwt__PublicKey\", jwt.PublicKeyBase64)", resource, StringComparison.Ordinal);
+            Assert.Contains("WithEnvironment(\"Jwt__Issuer\", LegacyTopology.JwtIssuer)", resource, StringComparison.Ordinal);
+            Assert.Contains("WithEnvironment(\"Jwt__Audience\", LegacyTopology.JwtAudience)", resource, StringComparison.Ordinal);
+            Assert.Contains("WithEnvironment(\"Jwt__KeyId\", LegacyTopology.JwtKeyId)", resource, StringComparison.Ordinal);
+            Assert.Contains("WithEnvironment(\"ConnectionStrings__redis\", redis.Resource.ConnectionStringExpression)", resource, StringComparison.Ordinal);
+            Assert.Contains("WithEnvironment(\"Services__Auth\", auth.GetEndpoint(\"http\"))", resource, StringComparison.Ordinal);
+            Assert.Contains(".WithReference(redis)", resource, StringComparison.Ordinal);
+            Assert.Contains(".WithReference(auth)", resource, StringComparison.Ordinal);
+            Assert.Contains(".WaitFor(redis)", resource, StringComparison.Ordinal);
+            Assert.Contains(".WaitFor(auth)", resource, StringComparison.Ordinal);
+            Assert.DoesNotContain("Jwt__PrivateKeyPem", resource, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("/intranet/liveness", compatibility, StringComparison.Ordinal);
+        Assert.Contains("/intranet-bff/liveness", bff, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -462,5 +504,14 @@ public sealed class AppHostSourceContractTests
         }
 
         return directory?.FullName ?? throw new DirectoryNotFoundException("Repository root was not found.");
+    }
+
+    private static string ExtractResource(string source, string startMarker, string endMarker)
+    {
+        var start = source.IndexOf(startMarker, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"Expected resource marker '{startMarker}'.");
+        var end = source.IndexOf(endMarker, start, StringComparison.Ordinal);
+        Assert.True(end > start, $"Expected resource terminator '{endMarker}'.");
+        return source[start..end];
     }
 }

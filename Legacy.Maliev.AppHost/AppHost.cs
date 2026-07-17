@@ -574,10 +574,14 @@ builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WaitFor(career)
     .WaitFor(contact);
 
-builder.AddProject<Projects.Legacy_Maliev_Intranet>("legacy-maliev-intranet")
+var intranetCompatibility = builder.AddProject<Projects.Legacy_Maliev_Intranet>("legacy-maliev-intranet")
     .WithHttpEndpoint(name: "http")
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
     .WithEnvironment("ConnectionStrings__redis", redis.Resource.ConnectionStringExpression)
+    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
+    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("Jwt__KeyId", LegacyTopology.JwtKeyId)
     .WithEnvironment("ServiceAuthentication__ClientId", "legacy-intranet")
     .WithEnvironment("ServiceAuthentication__ClientSecret", intranetCredential.Secret)
     .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
@@ -598,6 +602,8 @@ builder.AddProject<Projects.Legacy_Maliev_Intranet>("legacy-maliev-intranet")
         url.Url = "/Login";
         url.DisplayText = "Legacy Intranet";
     })
+    .WithReference(redis)
+    .WithReference(auth)
     .WaitFor(redis)
     .WaitFor(auth)
     .WaitFor(catalog)
@@ -608,6 +614,29 @@ builder.AddProject<Projects.Legacy_Maliev_Intranet>("legacy-maliev-intranet")
     .WaitFor(file)
     .WaitFor(order)
     .WaitFor(notification);
+
+var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legacy-maliev-intranet-bff")
+    .WithHttpEndpoint(name: "http")
+    .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+    .WithEnvironment("ConnectionStrings__redis", redis.Resource.ConnectionStringExpression)
+    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
+    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("Jwt__KeyId", LegacyTopology.JwtKeyId)
+    .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
+    .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
+    .WithEnvironment("DOTNET_GCConserveMemory", "3")
+    .WithHttpHealthCheck("/intranet-bff/liveness", endpointName: "http")
+    .WithHttpHealthCheck("/intranet-bff/readiness", endpointName: "http")
+    .WithUrlForEndpoint("http", url =>
+    {
+        url.Url = "/Login";
+        url.DisplayText = "Legacy Intranet BFF";
+    })
+    .WithReference(redis)
+    .WithReference(auth)
+    .WaitFor(redis)
+    .WaitFor(auth);
 
 builder.Build().Run();
 
