@@ -631,6 +631,8 @@ var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legac
     .WithEnvironment("ServiceAuthentication__ClientSecret", intranetCredential.Secret)
     .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
     .WithEnvironment("Services__Catalog", catalog.GetEndpoint("http"))
+    .WithEnvironment("Services__Order", order.GetEndpoint("http"))
+    .WithEnvironment("Services__Employee", employee.GetEndpoint("http"))
     .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithHttpHealthCheck("/intranet-bff/liveness", endpointName: "http")
@@ -643,9 +645,13 @@ var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legac
     .WithReference(redis)
     .WithReference(auth)
     .WithReference(catalog)
+    .WithReference(order)
+    .WithReference(employee)
     .WaitFor(redis)
     .WaitFor(auth)
-    .WaitFor(catalog);
+    .WaitFor(catalog)
+    .WaitFor(order)
+    .WaitFor(employee);
 
 builder.Build().Run();
 

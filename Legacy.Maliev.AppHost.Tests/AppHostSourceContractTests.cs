@@ -347,6 +347,29 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
+    public void AppHost_WiresOrderAndEmployeeDiscoveryIntoTheIntranetBff()
+    {
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var bff = ExtractResource(
+            source,
+            "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>",
+            "builder.Build().Run()");
+
+        Assert.Contains(
+            "WithEnvironment(\"Services__Order\", order.GetEndpoint(\"http\"))",
+            bff,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WithEnvironment(\"Services__Employee\", employee.GetEndpoint(\"http\"))",
+            bff,
+            StringComparison.Ordinal);
+        Assert.Contains(".WithReference(order)", bff, StringComparison.Ordinal);
+        Assert.Contains(".WithReference(employee)", bff, StringComparison.Ordinal);
+        Assert.Contains(".WaitFor(order)", bff, StringComparison.Ordinal);
+        Assert.Contains(".WaitFor(employee)", bff, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AppHost_ProjectsExistingDataProtectionCertificateOnlyToWebAndBothIntranetHosts()
     {
         var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
