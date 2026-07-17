@@ -306,6 +306,47 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
+    public void AppHost_WiresCatalogAndExistingServiceCredentialIntoTheIntranetBff()
+    {
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var bff = ExtractResource(
+            source,
+            "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>",
+            "builder.Build().Run()");
+
+        Assert.Contains(
+            "WithEnvironment(\"ServiceAuthentication__ClientId\", \"legacy-intranet\")",
+            bff,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WithEnvironment(\"ServiceAuthentication__ClientSecret\", intranetCredential.Secret)",
+            bff,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WithEnvironment(\"Services__Catalog\", catalog.GetEndpoint(\"http\"))",
+            bff,
+            StringComparison.Ordinal);
+        Assert.Contains(".WithReference(catalog)", bff, StringComparison.Ordinal);
+        Assert.Contains(".WaitFor(catalog)", bff, StringComparison.Ordinal);
+        Assert.DoesNotContain("Jwt__PrivateKeyPem", bff, StringComparison.Ordinal);
+        Assert.Contains(
+            "WithEnvironment(\"DataProtection__CertificatePfxBase64\", dataProtectionCertificate.PfxBase64)",
+            bff,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WithEnvironment(\"DataProtection__CertificatePassword\", dataProtectionCertificate.Password)",
+            bff,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"legacy-catalog.materials.read\"",
+            File.ReadAllText(Path.Combine(
+                FindRepositoryRoot(),
+                "Legacy.Maliev.AppHost.Topology",
+                "LegacyTopology.cs")),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AppHost_ProjectsExistingDataProtectionCertificateOnlyToWebAndBothIntranetHosts()
     {
         var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));

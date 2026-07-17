@@ -627,7 +627,10 @@ var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legac
     .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
     .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
     .WithEnvironment("Jwt__KeyId", LegacyTopology.JwtKeyId)
+    .WithEnvironment("ServiceAuthentication__ClientId", "legacy-intranet")
+    .WithEnvironment("ServiceAuthentication__ClientSecret", intranetCredential.Secret)
     .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
+    .WithEnvironment("Services__Catalog", catalog.GetEndpoint("http"))
     .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithHttpHealthCheck("/intranet-bff/liveness", endpointName: "http")
@@ -639,8 +642,10 @@ var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legac
     })
     .WithReference(redis)
     .WithReference(auth)
+    .WithReference(catalog)
     .WaitFor(redis)
-    .WaitFor(auth);
+    .WaitFor(auth)
+    .WaitFor(catalog);
 
 builder.Build().Run();
 
