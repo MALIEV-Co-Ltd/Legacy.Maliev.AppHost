@@ -310,6 +310,7 @@ var file = builder.AddProject<Projects.Legacy_Maliev_FileService_Api>(
         launchProfileName: "http")
     .ConfigureDynamicHttpEndpoint()
     .WithEnvironment("ConnectionStrings__FileDbContext", fileDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__redis", redis.Resource.ConnectionStringExpression)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
     .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
@@ -325,6 +326,7 @@ var file = builder.AddProject<Projects.Legacy_Maliev_FileService_Api>(
         url.DisplayText = "File Scalar";
     })
     .WaitForCompletion(fileMigrations)
+    .WaitFor(redis)
     .WaitFor(auth);
 
 var notification = builder.AddProject<Projects.Legacy_Maliev_NotificationService_Api>(
