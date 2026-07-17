@@ -60,6 +60,7 @@ public static class LegacyTopology
     /// <summary>Gets the exact permissions required by currently migrated Intranet workflows.</summary>
     public static IReadOnlyList<string> IntranetPermissions { get; } =
     [
+        "legacy-auth.customer-identities.create",
         "legacy-customer.customers.read",
         "legacy-customer.customers.list",
         "legacy-customer.customers.create",
