@@ -105,6 +105,18 @@ public sealed partial class WorkflowContractTests
         Assert.Contains("package-ecosystem: github-actions", source, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ReusableWorkflow_GeneratesAndVerifiesTheIntranetBffManifestContract()
+    {
+        var root = FindRepositoryRoot();
+        var workflow = File.ReadAllText(Path.Combine(root, ".github", "workflows", "_build-and-test.yml"));
+        var verifierPath = Path.Combine(root, "scripts", "verify-intranet-bff-manifest.ps1");
+
+        Assert.Contains("--publisher manifest", workflow, StringComparison.Ordinal);
+        Assert.Contains("verify-intranet-bff-manifest.ps1", workflow, StringComparison.Ordinal);
+        Assert.True(File.Exists(verifierPath), $"Expected manifest verifier at {verifierPath}.");
+    }
+
     [GeneratedRegex(@"uses:\s+[^\s@]+@(?!(?:[0-9a-f]{40})(?:\s|$))[^\s]+", RegexOptions.IgnoreCase)]
     private static partial Regex UnpinnedActionRegex();
 

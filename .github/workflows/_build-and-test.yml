@@ -153,3 +153,19 @@ jobs:
           working-directory: Legacy.Maliev.AppHost
           solution: Legacy.Maliev.AppHost.slnx
           use-local-maliev-dependencies: 'true'
+      - name: Generate Aspire manifest
+        working-directory: Legacy.Maliev.AppHost
+        run: >-
+          dotnet run
+          --project Legacy.Maliev.AppHost/Legacy.Maliev.AppHost.csproj
+          --configuration Release
+          --no-build
+          --
+          --publisher manifest
+          --output-path "${{ runner.temp }}/legacy-apphost-manifest.json"
+      - name: Verify Intranet BFF manifest contract
+        shell: pwsh
+        working-directory: Legacy.Maliev.AppHost
+        run: >-
+          ./scripts/verify-intranet-bff-manifest.ps1
+          -ManifestPath "${{ runner.temp }}/legacy-apphost-manifest.json"
