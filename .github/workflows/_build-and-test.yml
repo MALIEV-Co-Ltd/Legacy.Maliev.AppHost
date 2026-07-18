@@ -60,15 +60,29 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.OrderService
-          ref: 08eaef2e7c8de366f3e5a57282e1ebea446b43be
+          ref: f7738da61223f824592e6aa6b65442da93a78dce
           path: Legacy.Maliev.OrderService
           persist-credentials: false
       - name: Check out Quotation service
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.QuotationService
-          ref: f37e32592b4ce43ec4c327481b6062c2b6f1a28a
+          ref: ff12cf8bf782f2808450cbfe162d1ca5c4056766
           path: Legacy.Maliev.QuotationService
+          persist-credentials: false
+      - name: Check out legacy service defaults
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          repository: MALIEV-Co-Ltd/Legacy.Maliev.ServiceDefaults
+          ref: 67cd84ccd47be656383b0025e9f2b8d1d3f0eb36
+          path: Legacy.Maliev.ServiceDefaults
+          persist-credentials: false
+      - name: Check out compatibility contracts
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          repository: MALIEV-Co-Ltd/Legacy.Maliev.CompatibilityContracts
+          ref: 95c62eb6209411f5aada443b315447a2f76ca0cd
+          path: Legacy.Maliev.CompatibilityContracts
           persist-credentials: false
       - name: Check out Web BFF
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0

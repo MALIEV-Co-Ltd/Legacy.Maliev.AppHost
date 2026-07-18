@@ -10,6 +10,7 @@ var redisPassword = builder.AddParameter("legacy-redis-password", secret: true);
 var jwt = LocalJwtKeyMaterial.Create();
 var webCredential = LocalServiceCredential.Create();
 var intranetCredential = LocalServiceCredential.Create();
+var quotationCredential = LocalServiceCredential.Create();
 var dataProtectionCertificate = LocalDataProtectionCertificate.Create();
 
 var postgres = builder.AddPostgres("legacy-postgres-main", postgresUsername, postgresPassword)
@@ -159,6 +160,8 @@ var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>("legacy-ma
     .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__17", "legacy-file.uploads.create")
     .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__18", "legacy-file.uploads.delete")
     .WithEnvironment("ServiceClients__Clients__legacy-intranet__SecretSha256", intranetCredential.SecretSha256)
+    .WithEnvironment("ServiceClients__Clients__legacy-quotation__SecretSha256", quotationCredential.SecretSha256)
+    .WithEnvironment("ServiceClients__Clients__legacy-quotation__Permissions__0", "legacy.order-status.write")
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithHttpHealthCheck("/auth/liveness", endpointName: "http")
@@ -442,6 +445,10 @@ var quotation = builder.AddProject<Projects.Legacy_Maliev_QuotationService_Api>(
     .WithEnvironment("ConnectionStrings__QuotationDbContext", CreatePooledDatabaseConnectionString("Quotation"))
     .WithEnvironment("ConnectionStrings__QuotationRequestDbContext", CreatePooledDatabaseConnectionString("QuotationRequest"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
+    .WithEnvironment("ServiceAuthentication__ClientId", "legacy-quotation")
+    .WithEnvironment("ServiceAuthentication__ClientSecret", quotationCredential.Secret)
+    .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
+    .WithEnvironment("Services__Order", order.GetEndpoint("http"))
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
     .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
@@ -458,9 +465,12 @@ var quotation = builder.AddProject<Projects.Legacy_Maliev_QuotationService_Api>(
     })
     .WaitForCompletion(quotationMigrations)
     .WaitForCompletion(quotationRequestMigrations)
+    .WithReference(auth)
+    .WithReference(order)
     .WaitFor(pgbouncer)
     .WaitFor(redis)
-    .WaitFor(auth);
+    .WaitFor(auth)
+    .WaitFor(order);
 
 var careerDatabase = databases["JobOffers"];
 var careerMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-career-migrations")
