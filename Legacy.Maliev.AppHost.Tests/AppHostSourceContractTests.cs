@@ -79,10 +79,30 @@ public sealed class AppHostSourceContractTests
             "var notification = builder.AddProject<Projects.Legacy_Maliev_NotificationService_Api>");
 
         Assert.Contains(
-            "WithEnvironment(\"ConnectionStrings__redis\", redis.Resource.ConnectionStringExpression)",
+            "WithEnvironment(\"ConnectionStrings__redis\", redisResp3ConnectionString)",
             file,
             StringComparison.Ordinal);
         Assert.Contains(".WaitFor(redis)", file, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AppHost_UsesExplicitResp3ForEveryRedisConsumer()
+    {
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
+
+        Assert.Contains(
+            "var redisResp3ConnectionString = ReferenceExpression.Create($\"{redis.Resource.ConnectionStringExpression},protocol=resp3\")",
+            source,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            14,
+            source.Split(
+                "WithEnvironment(\"ConnectionStrings__redis\", redisResp3ConnectionString)",
+                StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain(
+            "WithEnvironment(\"ConnectionStrings__redis\", redis.Resource.ConnectionStringExpression)",
+            source,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -308,7 +328,7 @@ public sealed class AppHostSourceContractTests
             Assert.Contains("WithEnvironment(\"Jwt__Issuer\", LegacyTopology.JwtIssuer)", resource, StringComparison.Ordinal);
             Assert.Contains("WithEnvironment(\"Jwt__Audience\", LegacyTopology.JwtAudience)", resource, StringComparison.Ordinal);
             Assert.Contains("WithEnvironment(\"Jwt__KeyId\", LegacyTopology.JwtKeyId)", resource, StringComparison.Ordinal);
-            Assert.Contains("WithEnvironment(\"ConnectionStrings__redis\", redis.Resource.ConnectionStringExpression)", resource, StringComparison.Ordinal);
+            Assert.Contains("WithEnvironment(\"ConnectionStrings__redis\", redisResp3ConnectionString)", resource, StringComparison.Ordinal);
             Assert.Contains("WithEnvironment(\"Services__Auth\", auth.GetEndpoint(\"http\"))", resource, StringComparison.Ordinal);
             Assert.Contains(".WithReference(redis)", resource, StringComparison.Ordinal);
             Assert.Contains(".WithReference(auth)", resource, StringComparison.Ordinal);
