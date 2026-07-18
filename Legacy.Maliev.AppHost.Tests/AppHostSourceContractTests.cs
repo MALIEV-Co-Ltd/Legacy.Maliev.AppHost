@@ -3,6 +3,60 @@ namespace Legacy.Maliev.AppHost.Tests;
 public sealed class AppHostSourceContractTests
 {
     [Fact]
+    public void LocalVerifier_ValidatesTheCustomerSafeQuotationFileName()
+    {
+        var verifier = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "scripts",
+            "verify-local-stack.ps1"));
+
+        Assert.Contains(
+            "$quotationContent -notmatch 'local-cnc-quotation.pdf'",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "$quotationContent -notmatch 'quotations/local-cnc-quotation.pdf'",
+            verifier,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LocalVerifier_ValidatesTheCustomerSafeOrderFileName()
+    {
+        var verifier = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "scripts",
+            "verify-local-stack.ps1"));
+
+        Assert.Contains(
+            "$orderContent -notmatch 'local-cnc-part.step'",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "$orderContent -notmatch 'orders/local-cnc-part.step'",
+            verifier,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LocalVerifier_DistinguishesTheIntranetCompatibilityHostFromItsBff()
+    {
+        var verifier = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "scripts",
+            "verify-local-stack.ps1"));
+
+        Assert.Contains(
+            "$_.metadata.name -notlike 'legacy-maliev-intranet-bff-*'",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "'legacy-maliev-intranet-bff-*'",
+            verifier,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void WebServiceIdentity_HasExactLeastPrivilegeMemberAddressPermissions()
     {
         var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
