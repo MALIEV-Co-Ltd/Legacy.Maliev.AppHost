@@ -88,7 +88,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.Web
-          ref: e0e3c9f55af74b226635269ec525a759f6c48e77
+          ref: b7174be9e3f9dbcce35d61c50248cff23e110196
           path: Legacy.Maliev.Web
           persist-credentials: false
       - name: Check out Employee service
@@ -170,7 +170,7 @@ jobs:
       - name: Generate Aspire manifest
         working-directory: Legacy.Maliev.AppHost
         env:
-          LEGACY_WEB_BRANCH: codex/issue-154-build-identity
+          LEGACY_WEB_BRANCH: main
           LEGACY_WEB_PORT: '59154'
         shell: bash
         run: >-
