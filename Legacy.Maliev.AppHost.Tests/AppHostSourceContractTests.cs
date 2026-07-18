@@ -367,7 +367,7 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
-    public void AccountingServiceIdentity_IsRuntimeOnlyAndHasExactlySevenPermissions()
+    public void AccountingServiceIdentity_IsRuntimeOnlyAndHasExactlyFourteenPermissions()
     {
         var source = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
@@ -382,6 +382,10 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("ServiceClients__Clients__legacy-accounting__SecretSha256", source, StringComparison.Ordinal);
         Assert.Contains("LegacyTopology.AccountingPermissions", source, StringComparison.Ordinal);
         Assert.Equal(1, permissions);
+        Assert.DoesNotContain(
+            "ServiceClients__Clients__legacy-accounting__Permissions__14",
+            source,
+            StringComparison.Ordinal);
         Assert.Contains(
             "WithEnvironment(\"ServiceAuthentication__ClientId\", \"legacy-accounting\")",
             source,

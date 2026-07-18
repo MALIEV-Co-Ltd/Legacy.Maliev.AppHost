@@ -170,7 +170,7 @@ public sealed class LegacyTopologyTests
     }
 
     [Fact]
-    public void AccountingPermissions_AreExactlyTheSevenServerOwnedDownstreamCapabilities()
+    public void AccountingPermissions_AreExactlyTheFourteenServerOwnedDownstreamCapabilities()
     {
         Assert.Equal(
             [
@@ -181,9 +181,16 @@ public sealed class LegacyTopologyTests
                 "legacy.notifications.send",
                 "legacy-customer.customers.read",
                 "legacy-employee.signatures.read",
+                "legacy.quotations.read",
+                "legacy.customer-quotations.read",
+                "legacy.quotation-lines.read",
+                "legacy.quotations.update",
+                "legacy-employee.employees.read",
+                "legacy-catalog.currencies.read",
+                "legacy-catalog.countries.read",
             ],
             LegacyTopology.AccountingPermissions);
-        Assert.Equal(7, LegacyTopology.AccountingPermissions.Count);
+        Assert.Equal(14, LegacyTopology.AccountingPermissions.Count);
         Assert.DoesNotContain(
             LegacyTopology.AccountingPermissions,
             permission => permission.Contains('*', StringComparison.Ordinal));

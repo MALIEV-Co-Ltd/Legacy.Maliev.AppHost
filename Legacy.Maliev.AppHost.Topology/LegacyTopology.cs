@@ -144,7 +144,7 @@ public static class LegacyTopology
         "legacy.quotation-orders.write",
     ];
 
-    /// <summary>Gets the exact server-owned downstream permissions required by receipt orchestration.</summary>
+    /// <summary>Gets the exact server-owned downstream permissions required by receipt and quotation orchestration.</summary>
     public static IReadOnlyList<string> AccountingPermissions { get; } =
     [
         "legacy.documents.render",
@@ -154,5 +154,12 @@ public static class LegacyTopology
         "legacy.notifications.send",
         "legacy-customer.customers.read",
         "legacy-employee.signatures.read",
+        "legacy.quotations.read",
+        "legacy.customer-quotations.read",
+        "legacy.quotation-lines.read",
+        "legacy.quotations.update",
+        "legacy-employee.employees.read",
+        "legacy-catalog.currencies.read",
+        "legacy-catalog.countries.read",
     ];
 }
