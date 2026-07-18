@@ -135,5 +135,6 @@ public static class LegacyTopology
         "legacy.quotation-requests.read",
         "legacy.quotation-requests.update",
         "legacy.quotation-files.read",
+        "legacy.quotations.read",
     ];
 }
