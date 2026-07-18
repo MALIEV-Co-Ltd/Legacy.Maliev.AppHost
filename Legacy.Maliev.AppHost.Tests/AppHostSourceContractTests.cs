@@ -630,6 +630,15 @@ public sealed class AppHostSourceContractTests
         Assert.DoesNotContain("argocd", source, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void VerificationScript_AllowsOnlyTheAspireGeneratedRedisPasswordName()
+    {
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "verify-local-stack.ps1"));
+
+        Assert.Contains("'LEGACY_REDIS_PASSWORD'", source, StringComparison.Ordinal);
+        Assert.Contains("$_ -match '(TOKEN|API.?KEY|PASSWORD|SECRET|CREDENTIAL|BW_SESSION|NUGET_PASSWORD)'", source, StringComparison.Ordinal);
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
