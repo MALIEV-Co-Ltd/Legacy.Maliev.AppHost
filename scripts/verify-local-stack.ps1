@@ -795,6 +795,7 @@ try {
                 $_ -notlike 'Parameters__legacy-*' -and
                 $_ -notin @(
                     'POSTGRES_PASSWORD',
+                    'DB_PASSWORD',
                     'REDIS_PASSWORD',
                     'LEGACY_REDIS_PASSWORD',
                     'DASHBOARD__API__PRIMARYAPIKEY',
@@ -1103,6 +1104,15 @@ try {
     )
     if ($LASTEXITCODE -ne 0) {
         throw 'PostgreSQL database topology could not be queried.'
+    }
+
+    $poolerContainer = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-postgres-pooler-rw-*'
+    $pooledDatabase = @(
+        & docker exec $poolerContainer.metadata.name sh -lc `
+            'PGPASSWORD="$DB_PASSWORD" psql -h 127.0.0.1 -p 5432 -U "$DB_USER" -d Country -Atc "select current_database();"'
+    )
+    if ($LASTEXITCODE -ne 0 -or $pooledDatabase.Count -ne 1 -or $pooledDatabase[0] -ne 'Country') {
+        throw 'PgBouncer did not route the Country application connection to PostgreSQL.'
     }
 
     $requiredDatabases = @([Legacy.Maliev.AppHost.Topology.LegacyTopology]::DatabaseNames) + 'Auth'

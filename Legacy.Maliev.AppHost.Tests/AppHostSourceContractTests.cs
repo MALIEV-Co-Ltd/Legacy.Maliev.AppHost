@@ -124,6 +124,45 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
+    public void ApplicationDatabaseTraffic_UsesTheBoundedPgBouncerContractWhileMigrationsStayDirect()
+    {
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
+
+        Assert.Contains(
+            "AddContainer(\"legacy-postgres-pooler-rw\", \"edoburu/pgbouncer\", \"v1.25.2-p0\")",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"POOL_MODE\", \"transaction\")", source, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"DEFAULT_POOL_SIZE\", \"3\")", source, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"MAX_CLIENT_CONN\", \"200\")", source, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"MIN_POOL_SIZE\", \"0\")", source, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"RESERVE_POOL_SIZE\", \"1\")", source, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"SERVER_IDLE_TIMEOUT\", \"60\")", source, StringComparison.Ordinal);
+        Assert.Contains("ReferenceExpression CreatePooledDatabaseConnectionString", source, StringComparison.Ordinal);
+        Assert.Contains("pgbouncer.GetEndpoint(\"tcp\").Property(EndpointProperty.Host)", source, StringComparison.Ordinal);
+        Assert.Contains("pgbouncer.GetEndpoint(\"tcp\").Property(EndpointProperty.Port)", source, StringComparison.Ordinal);
+        Assert.Contains("Maximum Pool Size=10", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Maximum Pool Size=20", source, StringComparison.Ordinal);
+
+        var directMigrationConnectionCount = System.Text.RegularExpressions.Regex.Matches(
+            source,
+            "WithEnvironment\\(\"ConnectionStrings__[A-Za-z]+\", [a-zA-Z]+Database\\.Resource\\.ConnectionStringExpression\\)")
+            .Count;
+        var pooledApplicationConnectionCount = System.Text.RegularExpressions.Regex.Matches(
+            source,
+            "CreatePooledDatabaseConnectionString\\(\"[A-Za-z]+\"\\)")
+            .Count;
+
+        Assert.Equal(19, directMigrationConnectionCount);
+        Assert.Equal(19, pooledApplicationConnectionCount);
+
+        var verifier = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "verify-local-stack.ps1"));
+        Assert.Contains("'DB_PASSWORD'", verifier, StringComparison.Ordinal);
+        Assert.Contains("legacy-postgres-pooler-rw-*", verifier, StringComparison.Ordinal);
+        Assert.Contains("select current_database()", verifier, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AppHost_WiresExistingRedisIntoTheFileServiceRuntime()
     {
         var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
