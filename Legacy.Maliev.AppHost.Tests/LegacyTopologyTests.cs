@@ -165,6 +165,29 @@ public sealed class LegacyTopologyTests
     }
 
     [Fact]
+    public void AccountingPermissions_AreExactlyTheSevenServerOwnedDownstreamCapabilities()
+    {
+        Assert.Equal(
+            [
+                "legacy.documents.render",
+                "legacy-file.uploads.create",
+                "legacy-file.uploads.read",
+                "legacy-file.uploads.delete",
+                "legacy.notifications.send",
+                "legacy-customer.customers.read",
+                "legacy-employee.signatures.read",
+            ],
+            LegacyTopology.AccountingPermissions);
+        Assert.Equal(7, LegacyTopology.AccountingPermissions.Count);
+        Assert.DoesNotContain(
+            LegacyTopology.AccountingPermissions,
+            permission => permission.Contains('*', StringComparison.Ordinal));
+        Assert.Equal(
+            LegacyTopology.AccountingPermissions.Count,
+            LegacyTopology.AccountingPermissions.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
     public void LocalIdentitySeed_IsExplicitlyNonProduction()
     {
         Assert.Equal("local.customer@maliev.test", LegacyTopology.LocalCustomerEmail);

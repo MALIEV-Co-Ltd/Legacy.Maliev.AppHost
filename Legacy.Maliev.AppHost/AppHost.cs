@@ -11,6 +11,7 @@ var jwt = LocalJwtKeyMaterial.Create();
 var webCredential = LocalServiceCredential.Create();
 var intranetCredential = LocalServiceCredential.Create();
 var quotationCredential = LocalServiceCredential.Create();
+var accountingCredential = LocalServiceCredential.Create();
 var dataProtectionCertificate = LocalDataProtectionCertificate.Create();
 
 var postgres = builder.AddPostgres("legacy-postgres-main", postgresUsername, postgresPassword)
@@ -162,6 +163,7 @@ var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>("legacy-ma
     .WithEnvironment("ServiceClients__Clients__legacy-intranet__SecretSha256", intranetCredential.SecretSha256)
     .WithEnvironment("ServiceClients__Clients__legacy-quotation__SecretSha256", quotationCredential.SecretSha256)
     .WithEnvironment("ServiceClients__Clients__legacy-quotation__Permissions__0", "legacy.order-status.write")
+    .WithEnvironment("ServiceClients__Clients__legacy-accounting__SecretSha256", accountingCredential.SecretSha256)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithHttpHealthCheck("/auth/liveness", endpointName: "http")
@@ -181,6 +183,13 @@ for (var permissionIndex = 0; permissionIndex < LegacyTopology.IntranetPermissio
     auth.WithEnvironment(
         $"ServiceClients__Clients__legacy-intranet__Permissions__{permissionIndex}",
         LegacyTopology.IntranetPermissions[permissionIndex]);
+}
+
+for (var permissionIndex = 0; permissionIndex < LegacyTopology.AccountingPermissions.Count; permissionIndex++)
+{
+    auth.WithEnvironment(
+        $"ServiceClients__Clients__legacy-accounting__Permissions__{permissionIndex}",
+        LegacyTopology.AccountingPermissions[permissionIndex]);
 }
 
 var customerDatabase = databases["Customer"];
@@ -563,6 +572,14 @@ var accounting = builder.AddProject<Projects.Legacy_Maliev_AccountingService_Api
     .WithEnvironment("ConnectionStrings__InvoiceDbContext", CreatePooledDatabaseConnectionString("Invoice"))
     .WithEnvironment("ConnectionStrings__ReceiptDbContext", CreatePooledDatabaseConnectionString("Receipt"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
+    .WithEnvironment("ServiceAuthentication__ClientId", "legacy-accounting")
+    .WithEnvironment("ServiceAuthentication__ClientSecret", accountingCredential.Secret)
+    .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
+    .WithEnvironment("Services__Document", document.GetEndpoint("http"))
+    .WithEnvironment("Services__File", file.GetEndpoint("http"))
+    .WithEnvironment("Services__Notification", notification.GetEndpoint("http"))
+    .WithEnvironment("Services__Customer", customer.GetEndpoint("http"))
+    .WithEnvironment("Services__Employee", employee.GetEndpoint("http"))
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
     .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
@@ -581,7 +598,19 @@ var accounting = builder.AddProject<Projects.Legacy_Maliev_AccountingService_Api
     .WaitForCompletion(invoiceMigrations)
     .WaitForCompletion(receiptMigrations)
     .WaitFor(pgbouncer)
-    .WaitFor(redis);
+    .WaitFor(redis)
+    .WithReference(auth)
+    .WithReference(document)
+    .WithReference(file)
+    .WithReference(notification)
+    .WithReference(customer)
+    .WithReference(employee)
+    .WaitFor(auth)
+    .WaitFor(document)
+    .WaitFor(file)
+    .WaitFor(notification)
+    .WaitFor(customer)
+    .WaitFor(employee);
 
 builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WithHttpEndpoint(name: "http")

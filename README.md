@@ -40,8 +40,10 @@ cloud resource.
   bounded heaps. Career reads stay public; Contact message reads require permission and Web has
   create-only access.
 - `Legacy.Maliev.AccountingService` wired as a standalone protected historical-record API over the
-  separate `Payment`, `Invoice`, and `Receipt` databases. It is intentionally not connected to Web,
-  Intranet, Omise/Opn, or any payment-execution workflow.
+  separate `Payment`, `Invoice`, and `Receipt` databases. Its independent ephemeral machine identity
+  receives exactly seven wildcard-free permissions for Document, File, Notification, Customer, and
+  Employee receipt-orchestration boundaries. It remains disconnected from Web, Intranet, Omise/Opn,
+  and every payment-execution workflow.
 - `Legacy.Maliev.Web` wired to Auth, Customer, Notification, Country, Career, Contact, Document, Redis, encrypted
   server-side sessions, and the ephemeral `legacy-web` credential. Public account surfaces can be
   exercised locally; reCAPTCHA-protected signup submission remains fail closed without local ADC.
