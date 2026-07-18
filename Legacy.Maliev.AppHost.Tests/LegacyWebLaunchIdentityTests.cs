@@ -12,7 +12,7 @@ public sealed class LegacyWebLaunchIdentityTests
         var identity = Capture(
             new Dictionary<string, string?>
             {
-                ["LEGACY_WEB_PROJECT"] = @"B:\maliev\Legacy.Maliev.Web\Legacy.Maliev.Web\Legacy.Maliev.Web.csproj",
+                ["LEGACY_WEB_PROJECT"] = SourceProjectPath,
                 ["LEGACY_WEB_REPOSITORY"] = "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web.git",
                 ["LEGACY_WEB_BRANCH"] = "main",
                 ["LEGACY_WEB_COMMIT"] = "6e00796d263c45be73080fa292929a99dbb9af1d",
@@ -73,10 +73,33 @@ public sealed class LegacyWebLaunchIdentityTests
 
     private static Dictionary<string, string?> ValidEnvironment() => new()
     {
-        ["LEGACY_WEB_PROJECT"] = @"B:\maliev\Legacy.Maliev.Web\Legacy.Maliev.Web\Legacy.Maliev.Web.csproj",
+        ["LEGACY_WEB_PROJECT"] = SourceProjectPath,
         ["LEGACY_WEB_REPOSITORY"] = "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web.git",
         ["LEGACY_WEB_BRANCH"] = "main",
         ["LEGACY_WEB_COMMIT"] = "6e00796d263c45be73080fa292929a99dbb9af1d",
         ["LEGACY_WEB_PORT"] = "5088"
     };
+
+    private static string SourceProjectPath
+    {
+        get
+        {
+            var directory = new DirectoryInfo(AppContext.BaseDirectory);
+            while (directory is not null)
+            {
+                var projectPath = Path.Combine(
+                    directory.FullName,
+                    "Legacy.Maliev.AppHost.Topology",
+                    "Legacy.Maliev.AppHost.Topology.csproj");
+                if (File.Exists(projectPath))
+                {
+                    return projectPath;
+                }
+
+                directory = directory.Parent;
+            }
+
+            throw new DirectoryNotFoundException("Could not locate a repository-local source project for the test.");
+        }
+    }
 }
