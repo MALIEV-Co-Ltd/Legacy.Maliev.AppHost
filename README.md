@@ -162,3 +162,32 @@ modify, publish, or deploy anything in GKE.
 This repository contains no deployment workflow, cloud identity permission, `gcloud` operation,
 Argo synchronization, or cluster mutation. Nothing here creates a node pool, Cloud SQL instance,
 load balancer, disk, or any other billable Google Cloud resource.
+
+## Deterministic Legacy Web Aspire review
+
+Start Legacy Web through the guarded script so Aspire builds an exact clean source checkout, records the
+repository, branch, and commit in the dashboard environment and Web response headers, and refuses to reuse
+an occupied port. For a non-disruptive replacement review while the existing listener remains on `5088`, use:
+
+```powershell
+.\scripts\start-current-web.ps1 `
+  -WebRepositoryRoot B:\maliev\Legacy.Maliev.Web\.worktrees\issue-154-build-identity `
+  -WebPort 5188
+```
+
+Verify `/web/liveness`, `/web/readiness`, `/web/build-identity`, `/about?culture=en`,
+`/about?culture=th`, and `/InstantQuotation/3D-Printing` against the Aspire Web resource URL. The identity
+response and `X-Maliev-Build-Commit` header must equal the exact commit printed before startup.
+
+For the owner-coordinated `5088` cutover, first compile and inspect the current owner without changing it:
+
+```powershell
+.\scripts\start-current-web.ps1 `
+  -WebRepositoryRoot B:\maliev\Legacy.Maliev.Web `
+  -WebPort 5088 `
+  -PreflightOnly
+```
+
+If the port is occupied, the script reports PID, parent PID, executable, command line, and creation time only
+after the replacement has compiled. It does not terminate the process. Once the owner has coordinated the
+handoff and the port is free, rerun without `-PreflightOnly`. Production and GKE are not changed by this flow.
