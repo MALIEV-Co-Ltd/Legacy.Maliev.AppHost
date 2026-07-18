@@ -163,6 +163,14 @@ This repository contains no deployment workflow, cloud identity permission, `gcl
 Argo synchronization, or cluster mutation. Nothing here creates a node pool, Cloud SQL instance,
 load balancer, disk, or any other billable Google Cloud resource.
 
+## Owner review release gate
+
+Use the [fail-closed owner review checklist](docs/owner-review-checklist.md) before any production
+release decision. Its machine-readable evidence package freezes completed migration evidence and
+keeps Instant Quotation, FileService, Google malware/measurement/search, CloudNativePG capacity and
+recovery, rollback, and explicit owner approval as unresolved gates. Cutover remains 0% until every
+gate has direct evidence and the owner records approval in AppHost issue #33.
+
 ## Deterministic Legacy Web Aspire review
 
 Start Legacy Web through the guarded script so Aspire builds an exact clean source checkout, records the
