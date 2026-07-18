@@ -183,3 +183,9 @@ jobs:
         run: >-
           ./scripts/verify-intranet-bff-manifest.ps1
           -ManifestPath "${{ runner.temp }}/legacy-apphost-manifest.json"
+      - name: Verify Accounting identity manifest contract
+        shell: pwsh
+        working-directory: Legacy.Maliev.AppHost
+        run: >-
+          ./scripts/verify-accounting-identity-manifest.ps1
+          -ManifestPath "${{ runner.temp }}/legacy-apphost-manifest.json"

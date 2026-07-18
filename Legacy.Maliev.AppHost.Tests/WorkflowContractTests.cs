@@ -123,6 +123,42 @@ public sealed partial class WorkflowContractTests
         Assert.True(File.Exists(verifierPath), $"Expected manifest verifier at {verifierPath}.");
     }
 
+    [Fact]
+    public void ReusableWorkflow_VerifiesTheAccountingIdentityManifestContract()
+    {
+        var root = FindRepositoryRoot();
+        var workflow = File.ReadAllText(Path.Combine(root, ".github", "workflows", "_build-and-test.yml"));
+        var verifierPath = Path.Combine(root, "scripts", "verify-accounting-identity-manifest.ps1");
+
+        Assert.Contains("verify-accounting-identity-manifest.ps1", workflow, StringComparison.Ordinal);
+        Assert.True(File.Exists(verifierPath), $"Expected manifest verifier at {verifierPath}.");
+
+        var verifier = File.ReadAllText(verifierPath);
+        foreach (var permission in new[]
+        {
+            "legacy.documents.render",
+            "legacy-file.uploads.create",
+            "legacy-file.uploads.read",
+            "legacy-file.uploads.delete",
+            "legacy.notifications.send",
+            "legacy-customer.customers.read",
+            "legacy-employee.signatures.read",
+            "legacy.quotations.read",
+            "legacy.customer-quotations.read",
+            "legacy.quotation-lines.read",
+            "legacy.quotations.update",
+            "legacy-employee.employees.read",
+            "legacy-catalog.currencies.read",
+            "legacy-catalog.countries.read",
+        })
+        {
+            Assert.Contains(permission, verifier, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("${permissionPrefix}14", verifier, StringComparison.Ordinal);
+        Assert.Contains("must not receive a fifteenth permission", verifier, StringComparison.Ordinal);
+    }
+
     [GeneratedRegex(@"uses:\s+[^\s@]+@(?!(?:[0-9a-f]{40})(?:\s|$))[^\s]+", RegexOptions.IgnoreCase)]
     private static partial Regex UnpinnedActionRegex();
 
