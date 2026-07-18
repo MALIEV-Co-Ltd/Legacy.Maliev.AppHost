@@ -504,6 +504,30 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
+    public void AppHost_WiresQuotationDiscoveryIntoTheIntranetBff()
+    {
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var bff = ExtractResource(
+            source,
+            "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>",
+            "builder.Build().Run()");
+
+        Assert.Contains(
+            "WithEnvironment(\"Services__Quotation\", quotation.GetEndpoint(\"http\"))",
+            bff,
+            StringComparison.Ordinal);
+        Assert.Contains(".WithReference(quotation)", bff, StringComparison.Ordinal);
+        Assert.Contains(".WaitFor(quotation)", bff, StringComparison.Ordinal);
+        Assert.Contains(
+            "\"legacy.quotations.read\"",
+            File.ReadAllText(Path.Combine(
+                FindRepositoryRoot(),
+                "Legacy.Maliev.AppHost.Topology",
+                "LegacyTopology.cs")),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AppHost_WiresOrderAndEmployeeDiscoveryIntoTheIntranetBff()
     {
         var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
