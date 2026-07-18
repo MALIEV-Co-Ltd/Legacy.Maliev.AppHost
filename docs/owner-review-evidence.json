@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "generatedDate": "2026-07-18",
+  "baseline": {
+    "appHostCommit": "7bf160457cc984b753609f9f7a43e45a23d7168f",
+    "ciUrl": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.AppHost/actions/runs/29647507804",
+    "servicePinsIssue": 56,
+    "servicePinsChanged": false,
+    "reviewIssueUrl": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.AppHost/issues/33"
+  },
+  "completedEvidence": {
+    "intranet": {
+      "commit": "dfb99b3b3af5b7fd6ed2d6d8bf93379495df68e1",
+      "testsPassed": 486,
+      "ciUrl": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Intranet/actions/runs/29643178549",
+      "productionPublished": false
+    },
+    "documentService": {
+      "commit": "a56a2cadb55aba93026cb5b7dbb8bb0e94597df5",
+      "testsPassed": 83,
+      "rasterFixtures": 22,
+      "rasterDpi": 150,
+      "thaiToneMarkCropsPassed": true,
+      "ciUrl": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.DocumentService/actions/runs/29651958706",
+      "productionPublished": false
+    },
+    "gitOpsReadiness": {
+      "commit": "a7eb1c48a320669eceaf92011d3a08b06a17be23",
+      "contractTestsPassed": 26,
+      "ciUrl": "https://github.com/MALIEV-Co-Ltd/maliev-gitops/actions/runs/29650766400",
+      "syncedToCluster": false
+    },
+    "repositories": {
+      "legacyRepositoryCount": 20,
+      "allPublic": true,
+      "allMainBranchesProtected": true,
+      "requiredCheck": "validate / validate",
+      "requiredApprovals": 0,
+      "evidenceUrl": "https://github.com/MALIEV-Co-Ltd/maliev-web/issues/14#issuecomment-5011696569"
+    }
+  },
+  "pendingGates": {
+    "instantQuotation": [
+      {
+        "repository": "Legacy.Maliev.Web",
+        "number": 148,
+        "state": "open",
+        "complete": false,
+        "url": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web/issues/148"
+      },
+      {
+        "repository": "Legacy.Maliev.Web",
+        "number": 149,
+        "state": "open",
+        "complete": false,
+        "url": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web/issues/149"
+      },
+      {
+        "repository": "Legacy.Maliev.Web",
+        "number": 150,
+        "state": "open",
+        "complete": false,
+        "url": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web/issues/150"
+      },
+      {
+        "repository": "Legacy.Maliev.Web",
+        "number": 151,
+        "state": "open",
+        "complete": false,
+        "url": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web/issues/151"
+      },
+      {
+        "repository": "Legacy.Maliev.Web",
+        "number": 152,
+        "state": "open",
+        "complete": false,
+        "url": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web/issues/152"
+      },
+      {
+        "repository": "Legacy.Maliev.Web",
+        "number": 153,
+        "state": "open",
+        "complete": false,
+        "url": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web/issues/153"
+      }
+    ],
+    "fileService": [
+      {
+        "repository": "Legacy.Maliev.FileService",
+        "number": 7,
+        "state": "open",
+        "complete": false,
+        "url": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.FileService/issues/7"
+      }
+    ],
+    "analyticsAndSeo": [
+      {
+        "repository": "Legacy.Maliev.Web",
+        "number": 23,
+        "state": "open",
+        "complete": false,
+        "url": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web/issues/23"
+      },
+      {
+        "repository": "Legacy.Maliev.Web",
+        "number": 152,
+        "state": "open",
+        "complete": false,
+        "url": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web/issues/152"
+      },
+      {
+        "repository": "maliev-web",
+        "number": 12,
+        "state": "open",
+        "complete": false,
+        "url": "https://github.com/MALIEV-Co-Ltd/maliev-web/issues/12"
+      }
+    ],
+    "googleReleaseChecks": {
+      "containerAndDestinationMalwareScanClean": false,
+      "safeBrowsingClean": false,
+      "searchConsoleSecurityIssuesClean": false,
+      "gtmPreviewValidated": false,
+      "ga4DebugViewValidated": false,
+      "googleAdsConversionValidated": false,
+      "evidenceRequired": "Owner screenshots or exported diagnostics must show the reviewed host, timestamp, property or container, and clean or expected event result. No production settings or conversions may be changed during Aspire review."
+    },
+    "cloudNativePostgres": {
+      "existingClusterCapacityRecorded": false,
+      "backupAndWalRecoveryDrilled": false,
+      "shadowAndFinalParityRecorded": false,
+      "rollbackRehearsed": false,
+      "aspireOwnerReviewCompleted": false,
+      "recoveryManifestDormant": true,
+      "requireCutoverFailsClosed": true,
+      "readinessEvidenceUrl": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.AppHost/issues/33#issuecomment-5011909310"
+    }
+  },
+  "constraints": {
+    "existingGkeClusterOnly": true,
+    "namespace": "maliev-legacy",
+    "newNodePoolAllowed": false,
+    "cloudSqlAllowed": false,
+    "additionalInfrastructureCostAllowed": false,
+    "productionDatabaseMutationAllowed": false,
+    "port5088MayBeStoppedByThisPackage": false
+  },
+  "releaseDecision": {
+    "cutoverPercent": 0,
+    "ownerApproved": false,
+    "productionDeploymentAllowed": false,
+    "ingressOrDnsChangeAllowed": false,
+    "productionSiteReplacementAllowed": false,
+    "rollbackPlan": {
+      "serviceRollbackRehearsed": false,
+      "databaseRollbackRehearsed": false,
+      "webIngressRollbackRehearsed": false,
+      "analyticsRollbackRehearsed": false
+    }
+  }
+}
