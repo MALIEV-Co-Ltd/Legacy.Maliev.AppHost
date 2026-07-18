@@ -156,6 +156,7 @@ public sealed class LegacyTopologyTests
             "legacy.quotation-requests.update",
             "legacy.quotation-files.read",
             "legacy.quotations.read",
+            "legacy.quotation-orders.read",
         ];
 
         Assert.Equal(expected, LegacyTopology.IntranetPermissions);
