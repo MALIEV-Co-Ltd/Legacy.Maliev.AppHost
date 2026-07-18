@@ -779,6 +779,7 @@ try {
                 $_ -notin @(
                     'POSTGRES_PASSWORD',
                     'REDIS_PASSWORD',
+                    'LEGACY_REDIS_PASSWORD',
                     'DASHBOARD__API__PRIMARYAPIKEY',
                     'DASHBOARD__OTLP__PRIMARYAPIKEY',
                     'DASHBOARD__RESOURCESERVICECLIENT__APIKEY',
