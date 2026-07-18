@@ -88,7 +88,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.Web
-          ref: 838b6e337261753847ae9b263b3c740a3e5453a5
+          ref: e0e3c9f55af74b226635269ec525a759f6c48e77
           path: Legacy.Maliev.Web
           persist-credentials: false
       - name: Check out Employee service
@@ -169,7 +169,17 @@ jobs:
           use-local-maliev-dependencies: 'true'
       - name: Generate Aspire manifest
         working-directory: Legacy.Maliev.AppHost
+        env:
+          LEGACY_WEB_BRANCH: codex/issue-154-build-identity
+          LEGACY_WEB_PORT: '59154'
+        shell: bash
         run: >-
+          export LEGACY_WEB_PROJECT="${GITHUB_WORKSPACE}/Legacy.Maliev.Web/Legacy.Maliev.Web/Legacy.Maliev.Web.csproj" &&
+          export LEGACY_WEB_REPOSITORY="$(git -C "${GITHUB_WORKSPACE}/Legacy.Maliev.Web" remote get-url origin)" &&
+          export LEGACY_WEB_COMMIT="$(git -C "${GITHUB_WORKSPACE}/Legacy.Maliev.Web" rev-parse HEAD)" &&
+          test -f "${LEGACY_WEB_PROJECT}" &&
+          test -z "$(git -C "${GITHUB_WORKSPACE}/Legacy.Maliev.Web" status --porcelain)" &&
+          [[ "${LEGACY_WEB_COMMIT}" =~ ^[0-9a-f]{40}$ ]] &&
           dotnet run
           --project Legacy.Maliev.AppHost/Legacy.Maliev.AppHost.csproj
           --configuration Release

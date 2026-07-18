@@ -60,6 +60,23 @@ public sealed class LegacyWebOrchestrationSourceTests
         Assert.Contains("/InstantQuotation/3D-Printing", readme, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ManifestWorkflow_UsesTheExactVerifiedWebCheckoutIdentity()
+    {
+        var workflow = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            ".github",
+            "workflows",
+            "_build-and-test.yml"));
+
+        Assert.Contains("ref: e0e3c9f55af74b226635269ec525a759f6c48e77", workflow, StringComparison.Ordinal);
+        Assert.Contains("export LEGACY_WEB_PROJECT=", workflow, StringComparison.Ordinal);
+        Assert.Contains("export LEGACY_WEB_REPOSITORY=", workflow, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_WEB_BRANCH:", workflow, StringComparison.Ordinal);
+        Assert.Contains("export LEGACY_WEB_COMMIT=", workflow, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_WEB_PORT:", workflow, StringComparison.Ordinal);
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
