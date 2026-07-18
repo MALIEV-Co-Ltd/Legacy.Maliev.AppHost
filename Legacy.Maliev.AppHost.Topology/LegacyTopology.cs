@@ -125,5 +125,6 @@ public static class LegacyTopology
         "legacy-file.uploads.read",
         "legacy-file.uploads.delete",
         "legacy.notifications.send",
+        "legacy.accounting.read",
     ];
 }
