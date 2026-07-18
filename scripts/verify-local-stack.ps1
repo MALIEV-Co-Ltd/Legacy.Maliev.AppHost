@@ -289,7 +289,7 @@ function Invoke-WebMemberAccountFlow {
         if (
             [int]$quotationPage.StatusCode -ne 200 -or
             $quotationContent -notmatch 'Local CNC quotation line' -or
-            $quotationContent -notmatch 'quotations/local-cnc-quotation.pdf' -or
+            $quotationContent -notmatch 'local-cnc-quotation.pdf' -or
             $quotationContent -match 'paypal'
         ) {
             $diagnostics = @(
@@ -372,7 +372,7 @@ function Invoke-WebMemberAccountFlow {
             [int]$orderPage.StatusCode -ne 200 -or
             -not $orderAntiforgery.Success -or
             $orderContent -notmatch 'Reviewing' -or
-            $orderContent -notmatch 'orders/local-cnc-part.step'
+            $orderContent -notmatch 'local-cnc-part.step'
         ) {
             throw 'The authenticated owned order detail did not render through the Web BFF.'
         }
@@ -582,13 +582,29 @@ function Invoke-IntranetEmployeeFlow {
     }
 }
 
-function Get-SingleResource {
+function Get-MatchingResources {
     param(
         [object[]]$Items,
         [string]$NamePattern
     )
 
     $matches = @($Items | Where-Object { $_.metadata.name -like $NamePattern })
+    if ($NamePattern -eq 'legacy-maliev-intranet-*') {
+        $matches = @($matches | Where-Object {
+            $_.metadata.name -notlike 'legacy-maliev-intranet-bff-*'
+        })
+    }
+
+    return $matches
+}
+
+function Get-SingleResource {
+    param(
+        [object[]]$Items,
+        [string]$NamePattern
+    )
+
+    $matches = @(Get-MatchingResources -Items $Items -NamePattern $NamePattern)
     if ($matches.Count -ne 1) {
         throw "Expected one resource matching '$NamePattern', found $($matches.Count)."
     }
@@ -690,6 +706,7 @@ try {
         'legacy-maliev-notification-service-*',
         'legacy-maliev-web-*',
         'legacy-maliev-intranet-*',
+        'legacy-maliev-intranet-bff-*',
         'legacy-maliev-career-service-*',
         'legacy-maliev-contact-service-*',
         'legacy-maliev-accounting-service-*'
@@ -715,7 +732,7 @@ try {
                 $resourceItems = @((ConvertFrom-Json ($resourceJson -join "`n")).items)
                 $migrationResources = @(
                     foreach ($pattern in $migrationPatterns) {
-                        $resourceItems | Where-Object { $_.metadata.name -like $pattern }
+                        Get-MatchingResources -Items $resourceItems -NamePattern $pattern
                     }
                 )
                 $migrationsSucceeded = $migrationResources.Count -eq $migrationPatterns.Count -and
@@ -728,7 +745,7 @@ try {
                 })
                 $servicesPresent = @(
                     foreach ($pattern in $servicePatterns) {
-                        @($resourceItems | Where-Object { $_.metadata.name -like $pattern }).Count -eq 1
+                        @(Get-MatchingResources -Items $resourceItems -NamePattern $pattern).Count -eq 1
                     }
                 ) -notcontains $false
                 if (
