@@ -353,8 +353,44 @@ public sealed class AppHostSourceContractTests
         var accountingEnd = source.IndexOf("builder.AddProject<Projects.Legacy_Maliev_Web>", accountingStart, StringComparison.Ordinal);
         var accountingResource = source[accountingStart..accountingEnd];
         Assert.DoesNotContain("Services__Accounting", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("ServiceAuthentication__", accountingResource, StringComparison.Ordinal);
+        Assert.Contains("ServiceAuthentication__ClientId", accountingResource, StringComparison.Ordinal);
+        Assert.Contains("ServiceAuthentication__ClientSecret", accountingResource, StringComparison.Ordinal);
+        Assert.Contains("Services__Auth", accountingResource, StringComparison.Ordinal);
+        Assert.Contains("Services__Document", accountingResource, StringComparison.Ordinal);
+        Assert.Contains("Services__File", accountingResource, StringComparison.Ordinal);
+        Assert.Contains("Services__Notification", accountingResource, StringComparison.Ordinal);
+        Assert.Contains("Services__Customer", accountingResource, StringComparison.Ordinal);
+        Assert.Contains("Services__Employee", accountingResource, StringComparison.Ordinal);
+        Assert.Contains("WithReference(auth)", accountingResource, StringComparison.Ordinal);
+        Assert.Contains("WaitFor(auth)", accountingResource, StringComparison.Ordinal);
         Assert.Contains("Jwt__PublicKey", accountingResource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AccountingServiceIdentity_IsRuntimeOnlyAndHasExactlySevenPermissions()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "Legacy.Maliev.AppHost",
+            "AppHost.cs"));
+        var permissions = System.Text.RegularExpressions.Regex.Matches(
+                source,
+                "ServiceClients__Clients__legacy-accounting__Permissions__\\{permissionIndex\\}")
+            .Count;
+
+        Assert.Contains("var accountingCredential = LocalServiceCredential.Create();", source, StringComparison.Ordinal);
+        Assert.Contains("ServiceClients__Clients__legacy-accounting__SecretSha256", source, StringComparison.Ordinal);
+        Assert.Contains("LegacyTopology.AccountingPermissions", source, StringComparison.Ordinal);
+        Assert.Equal(1, permissions);
+        Assert.Contains(
+            "WithEnvironment(\"ServiceAuthentication__ClientId\", \"legacy-accounting\")",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WithEnvironment(\"ServiceAuthentication__ClientSecret\", accountingCredential.Secret)",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("legacy-accounting-secret", source, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
