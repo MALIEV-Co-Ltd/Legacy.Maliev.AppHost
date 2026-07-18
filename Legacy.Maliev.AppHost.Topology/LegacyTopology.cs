@@ -132,5 +132,8 @@ public static class LegacyTopology
         "legacy.accounting-files.read",
         "legacy.accounting-files.write",
         "legacy.accounting-files.delete",
+        "legacy.quotation-requests.read",
+        "legacy.quotation-requests.update",
+        "legacy.quotation-files.read",
     ];
 }
