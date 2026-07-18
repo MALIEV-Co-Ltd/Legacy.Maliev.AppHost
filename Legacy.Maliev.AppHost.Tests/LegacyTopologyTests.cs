@@ -134,6 +134,7 @@ public sealed class LegacyTopologyTests
             "legacy.orders.read",
             "legacy.orders.create",
             "legacy.orders.update",
+            "legacy.customer-orders.read",
             "legacy.order-catalog.read",
             "legacy.order-files.read",
             "legacy.order-files.write",
@@ -155,8 +156,12 @@ public sealed class LegacyTopologyTests
             "legacy.quotation-requests.read",
             "legacy.quotation-requests.update",
             "legacy.quotation-files.read",
+            "legacy.quotation-files.write",
             "legacy.quotations.read",
+            "legacy.quotations.create",
+            "legacy.quotation-lines.write",
             "legacy.quotation-orders.read",
+            "legacy.quotation-orders.write",
         ];
 
         Assert.Equal(expected, LegacyTopology.IntranetPermissions);

@@ -114,6 +114,7 @@ public static class LegacyTopology
         "legacy.orders.read",
         "legacy.orders.create",
         "legacy.orders.update",
+        "legacy.customer-orders.read",
         "legacy.order-catalog.read",
         "legacy.order-files.read",
         "legacy.order-files.write",
@@ -135,8 +136,12 @@ public static class LegacyTopology
         "legacy.quotation-requests.read",
         "legacy.quotation-requests.update",
         "legacy.quotation-files.read",
+        "legacy.quotation-files.write",
         "legacy.quotations.read",
+        "legacy.quotations.create",
+        "legacy.quotation-lines.write",
         "legacy.quotation-orders.read",
+        "legacy.quotation-orders.write",
     ];
 
     /// <summary>Gets the exact server-owned downstream permissions required by receipt orchestration.</summary>
