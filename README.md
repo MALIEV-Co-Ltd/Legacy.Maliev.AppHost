@@ -7,7 +7,9 @@ cloud resource.
 ## Current topology
 
 - PostgreSQL 18 with the 21 legacy database names preserved exactly and a separate `Auth` database
-  for refresh sessions and single-use account-action tokens.
+  for refresh sessions and single-use account-action tokens. Application traffic passes through a
+  resource-bounded PgBouncer 1.25.2 container using the same transaction-pool limits as the dormant
+  CloudNativePG Pooler; migration and bootstrap jobs keep direct PostgreSQL connections.
 - Authenticated Redis 8.4.
 - Ephemeral RSA-3072 service-auth key material, independent random `legacy-web` and
   `legacy-intranet` credentials, and a short-lived
@@ -97,7 +99,8 @@ the create-only Web identity, keeps Accounting frontend-disconnected, validates 
 service-token permissions, signs into the
 Intranet, exercises Dashboard plus Customer/Employee/Material/Supplier/Order/PurchaseOrder pages,
 checks all 21
-preserved database names plus the isolated Auth runtime database, rejects ambient credential
+preserved database names plus the isolated Auth runtime database, proves a real Country query
+through PgBouncer, rejects ambient credential
 leakage, and removes the local containers in `finally` even when validation fails.
 
 For interactive development, set the three `Parameters__legacy-*` environment variables to
@@ -109,6 +112,17 @@ dotnet run --project .\Legacy.Maliev.AppHost\Legacy.Maliev.AppHost.csproj --laun
 
 The dashboard is served at `http://localhost:15888`. Do not reuse production credentials for
 local parameters.
+
+### PostgreSQL connection boundary
+
+The local resource `legacy-postgres-pooler-rw` mirrors the prepared CloudNativePG Pooler name and
+uses transaction pooling with `default_pool_size=3`, `max_client_conn=200`, `min_pool_size=0`,
+`reserve_pool_size=1`, and `server_idle_timeout=60`. Retained APIs receive pooled connection strings;
+each Npgsql client pool is capped at ten connections so the nineteen application connection strings
+cannot exceed the pooler's 200-client ceiling in aggregate. All nineteen migration connection strings
+still reference the direct disposable PostgreSQL resource.
+The verifier executes `select current_database()` through PgBouncer after the service workflows.
+This local topology does not apply the dormant manifests or change GKE.
 
 ### Redis protocol compatibility
 

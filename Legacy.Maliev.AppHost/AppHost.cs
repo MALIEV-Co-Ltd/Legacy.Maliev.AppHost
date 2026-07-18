@@ -24,6 +24,25 @@ var postgres = builder.AddPostgres("legacy-postgres-main", postgresUsername, pos
     .WithEnvironment("PGGSSENCMODE", "disable")
     .WithContainerRuntimeArgs("--cpus", "0.75", "--memory", "1024m");
 
+var pgbouncer = builder.AddContainer("legacy-postgres-pooler-rw", "edoburu/pgbouncer", "v1.25.2-p0")
+    .WithEndpoint(targetPort: 5432, name: "tcp")
+    .WithEnvironment("DB_HOST", postgres.GetEndpoint("tcp").Property(EndpointProperty.Host))
+    .WithEnvironment("DB_PORT", postgres.GetEndpoint("tcp").Property(EndpointProperty.Port))
+    .WithEnvironment("DB_USER", postgresUsername)
+    .WithEnvironment("DB_PASSWORD", postgresPassword)
+    .WithEnvironment("AUTH_TYPE", "scram-sha-256")
+    .WithEnvironment("POOL_MODE", "transaction")
+    .WithEnvironment("DEFAULT_POOL_SIZE", "3")
+    .WithEnvironment("MAX_CLIENT_CONN", "200")
+    .WithEnvironment("MIN_POOL_SIZE", "0")
+    .WithEnvironment("RESERVE_POOL_SIZE", "1")
+    .WithEnvironment("SERVER_IDLE_TIMEOUT", "60")
+    .WithContainerRuntimeArgs("--cpus", "0.10", "--memory", "96m")
+    .WaitFor(postgres);
+
+ReferenceExpression CreatePooledDatabaseConnectionString(string databaseName) => ReferenceExpression.Create(
+    $"Host={pgbouncer.GetEndpoint("tcp").Property(EndpointProperty.Host)};Port={pgbouncer.GetEndpoint("tcp").Property(EndpointProperty.Port)};Database={databaseName};Username={postgresUsername};Password={postgresPassword};SSL Mode=Disable;Maximum Pool Size=10;Connection Idle Lifetime=60;Timeout=15;Command Timeout=30");
+
 var databases = new Dictionary<string, IResourceBuilder<PostgresDatabaseResource>>(StringComparer.Ordinal);
 foreach (var databaseName in LegacyTopology.DatabaseNames)
 {
@@ -49,7 +68,7 @@ var countryMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_Migrat
     .WaitFor(countryDatabase);
 
 var country = builder.AddProject<Projects.Legacy_Maliev_CountryService_Api>("legacy-maliev-country-service")
-    .WithEnvironment("ConnectionStrings__CountryDbContext", countryDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__CountryDbContext", CreatePooledDatabaseConnectionString("Country"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
@@ -66,6 +85,7 @@ var country = builder.AddProject<Projects.Legacy_Maliev_CountryService_Api>("leg
         url.DisplayText = "Country Scalar";
     })
     .WaitForCompletion(countryMigrations)
+    .WaitFor(pgbouncer)
     .WaitFor(redis);
 
 var document = builder.AddProject<Projects.Legacy_Maliev_DocumentService_Api>("legacy-maliev-document-service")
@@ -111,9 +131,9 @@ var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>("legacy-ma
     .WithHttpEndpoint(name: "http")
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
     .WithEnvironment("IdentityStorage__Provider", "PostgreSql")
-    .WithEnvironment("ConnectionStrings__CustomerIdentity", customerIdentityDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("ConnectionStrings__EmployeeIdentity", employeeIdentityDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("ConnectionStrings__RefreshSessions", authDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__CustomerIdentity", CreatePooledDatabaseConnectionString("CustomerIdentity"))
+    .WithEnvironment("ConnectionStrings__EmployeeIdentity", CreatePooledDatabaseConnectionString("EmployeeIdentity"))
+    .WithEnvironment("ConnectionStrings__RefreshSessions", CreatePooledDatabaseConnectionString("Auth"))
     .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
     .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
     .WithEnvironment("Jwt__PrivateKeyPem", jwt.PrivateKeyPem)
@@ -150,7 +170,8 @@ var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>("legacy-ma
     })
     .WaitForCompletion(authMigrations)
     .WaitForCompletion(customerIdentityMigrations)
-    .WaitForCompletion(employeeIdentityMigrations);
+    .WaitForCompletion(employeeIdentityMigrations)
+    .WaitFor(pgbouncer);
 
 for (var permissionIndex = 0; permissionIndex < LegacyTopology.IntranetPermissions.Count; permissionIndex++)
 {
@@ -171,7 +192,7 @@ var customer = builder.AddProject<Projects.Legacy_Maliev_CustomerService_Api>(
         "legacy-maliev-customer-service",
         launchProfileName: "http")
     .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__CustomerDbContext", customerDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__CustomerDbContext", CreatePooledDatabaseConnectionString("Customer"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("AuthService__LegacyCustomerIdentityBaseUrl", ReferenceExpression.Create($"{auth.GetEndpoint("http")}/auth/v1/legacy/customers/"))
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
@@ -189,6 +210,7 @@ var customer = builder.AddProject<Projects.Legacy_Maliev_CustomerService_Api>(
         url.DisplayText = "Customer Scalar";
     })
     .WaitForCompletion(customerMigrations)
+    .WaitFor(pgbouncer)
     .WaitFor(redis)
     .WaitFor(auth);
 
@@ -204,7 +226,7 @@ var employee = builder.AddProject<Projects.Legacy_Maliev_EmployeeService_Api>(
         "legacy-maliev-employee-service",
         launchProfileName: "http")
     .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__EmployeeDbContext", employeeDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__EmployeeDbContext", CreatePooledDatabaseConnectionString("Employee"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("AuthService__LegacyEmployeeIdentityBaseUrl", ReferenceExpression.Create($"{auth.GetEndpoint("http")}/auth/v1/legacy/employees/"))
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
@@ -222,6 +244,7 @@ var employee = builder.AddProject<Projects.Legacy_Maliev_EmployeeService_Api>(
         url.DisplayText = "Employee Scalar";
     })
     .WaitForCompletion(employeeMigrations)
+    .WaitFor(pgbouncer)
     .WaitFor(redis)
     .WaitFor(auth);
 
@@ -237,7 +260,7 @@ var catalog = builder.AddProject<Projects.Legacy_Maliev_CatalogService_Api>(
         "legacy-maliev-catalog-service",
         launchProfileName: "http")
     .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__CatalogDbContext", catalogDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__CatalogDbContext", CreatePooledDatabaseConnectionString("Material"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
@@ -254,6 +277,7 @@ var catalog = builder.AddProject<Projects.Legacy_Maliev_CatalogService_Api>(
         url.DisplayText = "Catalog Scalar";
     })
     .WaitForCompletion(catalogMigrations)
+    .WaitFor(pgbouncer)
     .WaitFor(redis)
     .WaitFor(auth);
 
@@ -276,8 +300,8 @@ var procurement = builder.AddProject<Projects.Legacy_Maliev_ProcurementService_A
         "legacy-maliev-procurement-service",
         launchProfileName: "http")
     .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__SupplierDbContext", supplierDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("ConnectionStrings__PurchaseOrderDbContext", purchaseOrderDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__SupplierDbContext", CreatePooledDatabaseConnectionString("Supplier"))
+    .WithEnvironment("ConnectionStrings__PurchaseOrderDbContext", CreatePooledDatabaseConnectionString("PurchaseOrder"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
@@ -295,6 +319,7 @@ var procurement = builder.AddProject<Projects.Legacy_Maliev_ProcurementService_A
     })
     .WaitForCompletion(supplierMigrations)
     .WaitForCompletion(purchaseOrderMigrations)
+    .WaitFor(pgbouncer)
     .WaitFor(redis)
     .WaitFor(auth);
 
@@ -310,7 +335,7 @@ var file = builder.AddProject<Projects.Legacy_Maliev_FileService_Api>(
         "legacy-maliev-file-service",
         launchProfileName: "http")
     .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__FileDbContext", fileDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__FileDbContext", CreatePooledDatabaseConnectionString("Upload"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
@@ -327,6 +352,7 @@ var file = builder.AddProject<Projects.Legacy_Maliev_FileService_Api>(
         url.DisplayText = "File Scalar";
     })
     .WaitForCompletion(fileMigrations)
+    .WaitFor(pgbouncer)
     .WaitFor(redis)
     .WaitFor(auth);
 
@@ -369,8 +395,8 @@ var order = builder.AddProject<Projects.Legacy_Maliev_OrderService_Api>(
         "legacy-maliev-order-service",
         launchProfileName: "http")
     .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__OrderDbContext", orderDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("ConnectionStrings__OrderStatusDbContext", orderStatusDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__OrderDbContext", CreatePooledDatabaseConnectionString("Order"))
+    .WithEnvironment("ConnectionStrings__OrderStatusDbContext", CreatePooledDatabaseConnectionString("OrderStatus"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
@@ -388,6 +414,7 @@ var order = builder.AddProject<Projects.Legacy_Maliev_OrderService_Api>(
     })
     .WaitForCompletion(orderMigrations)
     .WaitForCompletion(orderStatusMigrations)
+    .WaitFor(pgbouncer)
     .WaitFor(redis)
     .WaitFor(auth);
 
@@ -412,8 +439,8 @@ var quotation = builder.AddProject<Projects.Legacy_Maliev_QuotationService_Api>(
         "legacy-maliev-quotation-service",
         launchProfileName: "http")
     .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__QuotationDbContext", quotationDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("ConnectionStrings__QuotationRequestDbContext", quotationRequestDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__QuotationDbContext", CreatePooledDatabaseConnectionString("Quotation"))
+    .WithEnvironment("ConnectionStrings__QuotationRequestDbContext", CreatePooledDatabaseConnectionString("QuotationRequest"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
@@ -431,6 +458,7 @@ var quotation = builder.AddProject<Projects.Legacy_Maliev_QuotationService_Api>(
     })
     .WaitForCompletion(quotationMigrations)
     .WaitForCompletion(quotationRequestMigrations)
+    .WaitFor(pgbouncer)
     .WaitFor(redis)
     .WaitFor(auth);
 
@@ -445,7 +473,7 @@ var career = builder.AddProject<Projects.Legacy_Maliev_CareerService_Api>(
         "legacy-maliev-career-service",
         launchProfileName: "http")
     .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__CareerDbContext", careerDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__CareerDbContext", CreatePooledDatabaseConnectionString("JobOffers"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
@@ -462,6 +490,7 @@ var career = builder.AddProject<Projects.Legacy_Maliev_CareerService_Api>(
         url.DisplayText = "Career Scalar";
     })
     .WaitForCompletion(careerMigrations)
+    .WaitFor(pgbouncer)
     .WaitFor(redis);
 
 var contactDatabase = databases["Message"];
@@ -475,7 +504,7 @@ var contact = builder.AddProject<Projects.Legacy_Maliev_ContactService_Api>(
         "legacy-maliev-contact-service",
         launchProfileName: "http")
     .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__ContactRequestDbContext", contactDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__ContactRequestDbContext", CreatePooledDatabaseConnectionString("Message"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
@@ -492,6 +521,7 @@ var contact = builder.AddProject<Projects.Legacy_Maliev_ContactService_Api>(
         url.DisplayText = "Contact Scalar";
     })
     .WaitForCompletion(contactMigrations)
+    .WaitFor(pgbouncer)
     .WaitFor(redis);
 
 var paymentDatabase = databases["Payment"];
@@ -519,9 +549,9 @@ var accounting = builder.AddProject<Projects.Legacy_Maliev_AccountingService_Api
         "legacy-maliev-accounting-service",
         launchProfileName: "http")
     .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__PaymentDbContext", paymentDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("ConnectionStrings__InvoiceDbContext", invoiceDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("ConnectionStrings__ReceiptDbContext", receiptDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("ConnectionStrings__PaymentDbContext", CreatePooledDatabaseConnectionString("Payment"))
+    .WithEnvironment("ConnectionStrings__InvoiceDbContext", CreatePooledDatabaseConnectionString("Invoice"))
+    .WithEnvironment("ConnectionStrings__ReceiptDbContext", CreatePooledDatabaseConnectionString("Receipt"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
@@ -540,6 +570,7 @@ var accounting = builder.AddProject<Projects.Legacy_Maliev_AccountingService_Api
     .WaitForCompletion(paymentMigrations)
     .WaitForCompletion(invoiceMigrations)
     .WaitForCompletion(receiptMigrations)
+    .WaitFor(pgbouncer)
     .WaitFor(redis);
 
 builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
