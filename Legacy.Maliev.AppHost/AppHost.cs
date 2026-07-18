@@ -1,6 +1,14 @@
 using Legacy.Maliev.AppHost.Topology;
 
+var legacyWebIdentity = LegacyWebLaunchIdentity.Capture();
 LocalEnvironmentPolicy.SanitizeCurrentProcess();
+Console.WriteLine(
+    "Legacy Web source identity: repository={0}; branch={1}; commit={2}; project={3}; port={4}",
+    legacyWebIdentity.Repository,
+    legacyWebIdentity.Branch,
+    legacyWebIdentity.Commit,
+    legacyWebIdentity.ProjectPath,
+    legacyWebIdentity.Port);
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -613,8 +621,11 @@ var accounting = builder.AddProject<Projects.Legacy_Maliev_AccountingService_Api
     .WaitFor(employee);
 
 builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
-    .WithHttpEndpoint(name: "http")
+    .WithHttpEndpoint(port: legacyWebIdentity.Port, name: "http")
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+    .WithEnvironment("BuildIdentity__Repository", legacyWebIdentity.Repository)
+    .WithEnvironment("BuildIdentity__Branch", legacyWebIdentity.Branch)
+    .WithEnvironment("BuildIdentity__Commit", legacyWebIdentity.Commit)
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("DataProtection__CertificatePfxBase64", dataProtectionCertificate.PfxBase64)
     .WithEnvironment("DataProtection__CertificatePassword", dataProtectionCertificate.Password)

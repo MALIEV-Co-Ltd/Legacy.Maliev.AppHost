@@ -3,6 +3,7 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <UserSecretsId>legacy-maliev-apphost</UserSecretsId>
+    <LegacyMalievWebProject Condition="'$(LegacyMalievWebProject)' == ''">$(MalievWorkspaceRoot)\Legacy.Maliev.Web\Legacy.Maliev.Web\Legacy.Maliev.Web.csproj</LegacyMalievWebProject>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.4.6" />
@@ -22,7 +23,7 @@
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.NotificationService\Legacy.Maliev.NotificationService.Api\Legacy.Maliev.NotificationService.Api.csproj" AdditionalProperties="Configuration=$(Configuration)" SetConfiguration="Configuration=$(Configuration)" />
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.OrderService\Legacy.Maliev.OrderService.Api\Legacy.Maliev.OrderService.Api.csproj" AdditionalProperties="Configuration=$(Configuration)" SetConfiguration="Configuration=$(Configuration)" />
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.QuotationService\Legacy.Maliev.QuotationService.Api\Legacy.Maliev.QuotationService.Api.csproj" AdditionalProperties="Configuration=$(Configuration)" SetConfiguration="Configuration=$(Configuration)" />
-    <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.Web\Legacy.Maliev.Web\Legacy.Maliev.Web.csproj" AdditionalProperties="Configuration=$(Configuration)" SetConfiguration="Configuration=$(Configuration)" />
+    <ProjectReference Include="$(LegacyMalievWebProject)" AdditionalProperties="Configuration=$(Configuration)" SetConfiguration="Configuration=$(Configuration)" />
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.Intranet\Legacy.Maliev.Intranet\Legacy.Maliev.Intranet.csproj" AdditionalProperties="Configuration=$(Configuration)" SetConfiguration="Configuration=$(Configuration)" />
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.Intranet\Legacy.Maliev.Intranet.Bff\Legacy.Maliev.Intranet.Bff.csproj" AdditionalProperties="Configuration=$(Configuration)" SetConfiguration="Configuration=$(Configuration)" />
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.CareerService\Legacy.Maliev.CareerService.Api\Legacy.Maliev.CareerService.Api.csproj" AdditionalProperties="Configuration=$(Configuration)" SetConfiguration="Configuration=$(Configuration)" />
