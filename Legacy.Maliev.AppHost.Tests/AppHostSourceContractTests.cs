@@ -386,6 +386,35 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
+    public void AppHost_WiresLeastPrivilegeQuotationWorkloadIdentityToOrderService()
+    {
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
+        Assert.Contains("var quotationCredential = LocalServiceCredential.Create();", source, StringComparison.Ordinal);
+        Assert.Contains(
+            "ServiceClients__Clients__legacy-quotation__SecretSha256\", quotationCredential.SecretSha256",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ServiceClients__Clients__legacy-quotation__Permissions__0\", \"legacy.order-status.write\"",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("ServiceClients__Clients__legacy-quotation__Permissions__1", source, StringComparison.Ordinal);
+
+        var quotation = ExtractResource(
+            source,
+            "var quotation = builder.AddProject<Projects.Legacy_Maliev_QuotationService_Api>",
+            "var careerDatabase = databases[\"JobOffers\"];");
+        Assert.Contains("WithEnvironment(\"ServiceAuthentication__ClientId\", \"legacy-quotation\")", quotation, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"ServiceAuthentication__ClientSecret\", quotationCredential.Secret)", quotation, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"Services__Auth\", auth.GetEndpoint(\"http\"))", quotation, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"Services__Order\", order.GetEndpoint(\"http\"))", quotation, StringComparison.Ordinal);
+        Assert.Contains(".WithReference(auth)", quotation, StringComparison.Ordinal);
+        Assert.Contains(".WithReference(order)", quotation, StringComparison.Ordinal);
+        Assert.Contains(".WaitFor(auth)", quotation, StringComparison.Ordinal);
+        Assert.Contains(".WaitFor(order)", quotation, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AppHost_WiresTheLegacyIntranetAsAnIndependentServiceBoundary()
     {
         var root = FindRepositoryRoot();
