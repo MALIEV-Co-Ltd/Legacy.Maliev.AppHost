@@ -3,6 +3,34 @@ namespace Legacy.Maliev.AppHost.Tests;
 public sealed class AppHostSourceContractTests
 {
     [Fact]
+    public void PoolingBenchmark_IsDisposableComparableAndFailClosed()
+    {
+        var scriptPath = Path.Combine(FindRepositoryRoot(), "scripts", "benchmark-postgres-pooling.ps1");
+
+        Assert.True(File.Exists(scriptPath), $"Expected pooling benchmark at {scriptPath}.");
+        var source = File.ReadAllText(scriptPath);
+
+        Assert.Contains("postgres:18-alpine", source, StringComparison.Ordinal);
+        Assert.Contains("edoburu/pgbouncer:v1.25.2-p0", source, StringComparison.Ordinal);
+        Assert.Contains("[int]$Clients = 8", source, StringComparison.Ordinal);
+        Assert.Contains("POOL_MODE=session", source, StringComparison.Ordinal);
+        Assert.Contains("POOL_MODE=transaction", source, StringComparison.Ordinal);
+        Assert.Contains("pgbench", source, StringComparison.Ordinal);
+        Assert.Contains("pg_stat_activity", source, StringComparison.Ordinal);
+        Assert.Contains("latency_average_ms", source, StringComparison.Ordinal);
+        Assert.Contains("transactions_per_second", source, StringComparison.Ordinal);
+        Assert.Contains("peak_postgres_backends", source, StringComparison.Ordinal);
+        Assert.Contains("post_run_backend_states", source, StringComparison.Ordinal);
+        Assert.Contains("restart_recovery_seconds", source, StringComparison.Ordinal);
+        Assert.Contains("finally", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("docker rm -f", source, StringComparison.Ordinal);
+        Assert.Contains("docker network rm", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("kubectl", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("gcloud", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("argocd", source, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void LocalVerifier_ValidatesTheCustomerSafeQuotationFileName()
     {
         var verifier = File.ReadAllText(Path.Combine(
