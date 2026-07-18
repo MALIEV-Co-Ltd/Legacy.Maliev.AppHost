@@ -124,6 +124,18 @@ still reference the direct disposable PostgreSQL resource.
 The verifier executes `select current_database()` through PgBouncer after the service workflows.
 This local topology does not apply the dormant manifests or change GKE.
 
+Run the disposable direct/session/transaction comparison with:
+
+```powershell
+.\scripts\benchmark-postgres-pooling.ps1
+```
+
+The script rotates target order across three rounds, attributes PostgreSQL backends to the target
+container address, validates transaction-scoped operations, measures pooler restart recovery, writes
+machine-readable output under the ignored `temp` directory, and always removes its containers and
+network. See [the recorded local baseline](docs/postgres-pooling-baseline.md) for results, the observed
+20-client saturation boundary, and the remaining CloudNativePG validation gates.
+
 ### Redis protocol compatibility
 
 The local Redis resource is Redis 8.4 with password authentication. AppHost explicitly appends
