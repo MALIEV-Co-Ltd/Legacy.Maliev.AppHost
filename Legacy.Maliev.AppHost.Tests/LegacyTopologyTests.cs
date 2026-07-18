@@ -98,6 +98,7 @@ public sealed class LegacyTopologyTests
         [
             "legacy-auth.customer-identities.create",
             "legacy-auth.employee-identities.create",
+            "legacy-auth.employee-self-service",
             "legacy-customer.customers.read",
             "legacy-customer.customers.list",
             "legacy-customer.customers.create",
