@@ -126,5 +126,11 @@ public static class LegacyTopology
         "legacy-file.uploads.delete",
         "legacy.notifications.send",
         "legacy.accounting.read",
+        "legacy.accounting.create",
+        "legacy.accounting.update",
+        "legacy.accounting.delete",
+        "legacy.accounting-files.read",
+        "legacy.accounting-files.write",
+        "legacy.accounting-files.delete",
     ];
 }
