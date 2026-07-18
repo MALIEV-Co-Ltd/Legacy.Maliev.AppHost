@@ -57,6 +57,22 @@ public static class LegacyTopology
         "Jwt__Audience"
     ];
 
+    /// <summary>Gets retained API names whose shared cache contract is validated over RESP3.</summary>
+    public static IReadOnlyList<string> Resp3CacheServiceNames { get; } =
+    [
+        "accounting",
+        "career",
+        "catalog",
+        "contact",
+        "country",
+        "customer",
+        "employee",
+        "file",
+        "order",
+        "procurement",
+        "quotation",
+    ];
+
     /// <summary>Gets the exact permissions required by currently migrated Intranet workflows.</summary>
     public static IReadOnlyList<string> IntranetPermissions { get; } =
     [

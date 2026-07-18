@@ -110,6 +110,25 @@ dotnet run --project .\Legacy.Maliev.AppHost\Legacy.Maliev.AppHost.csproj --laun
 The dashboard is served at `http://localhost:15888`. Do not reuse production credentials for
 local parameters.
 
+### Redis protocol compatibility
+
+The local Redis resource is Redis 8.4 with password authentication. AppHost explicitly appends
+`protocol=resp3` to every retained API, Intranet compatibility host, and Intranet BFF connection.
+`Legacy.Maliev.Web` receives the same discovery connection but deliberately overrides it to RESP2 in
+its own startup configuration until the owner approves that separate compatibility cutover.
+
+Run the focused authenticated protocol, shared-cache, Lua lease, encrypted session, and data-protection
+key-reload suite with:
+
+```powershell
+dotnet test .\Legacy.Maliev.AppHost.Tests\Legacy.Maliev.AppHost.Tests.csproj `
+  -c Release `
+  --filter FullyQualifiedName~RedisResp3CompatibilityTests
+```
+
+The suite uses a disposable password-protected `redis:8.4-alpine` Testcontainer. It does not connect to,
+modify, publish, or deploy anything in GKE.
+
 ## Zero-cost boundary
 
 This repository contains no deployment workflow, cloud identity permission, `gcloud` operation,

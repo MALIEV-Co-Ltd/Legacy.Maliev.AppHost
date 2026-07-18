@@ -71,6 +71,27 @@ public sealed class LegacyTopologyTests
     }
 
     [Fact]
+    public void Resp3CacheServiceNames_MatchEveryRetainedRedisApi()
+    {
+        string[] expected =
+        [
+            "accounting",
+            "career",
+            "catalog",
+            "contact",
+            "country",
+            "customer",
+            "employee",
+            "file",
+            "order",
+            "procurement",
+            "quotation",
+        ];
+
+        Assert.Equal(expected, LegacyTopology.Resp3CacheServiceNames);
+    }
+
+    [Fact]
     public void IntranetPermissions_AreExactAndNeverUseWildcards()
     {
         string[] expected =
