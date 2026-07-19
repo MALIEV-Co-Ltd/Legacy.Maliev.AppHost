@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [ValidateRange(30, 600)]
-    [int]$TimeoutSeconds = 180
+    [int]$TimeoutSeconds = 180,
+
+    [string]$EvidencePath = (Join-Path $env:TEMP "legacy-maliev-apphost-evidence-$PID.json")
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,6 +15,43 @@ $stdoutPath = Join-Path $env:TEMP "legacy-maliev-apphost-$PID.stdout.log"
 $stderrPath = Join-Path $env:TEMP "legacy-maliev-apphost-$PID.stderr.log"
 $appHostRunner = $null
 $localContainerNames = @()
+$evidenceWriter = Join-Path $PSScriptRoot 'write-local-verification-evidence.ps1'
+$verificationStartedAtUtc = [DateTimeOffset]::UtcNow
+$verificationCompletedStages = [System.Collections.Generic.List[string]]::new()
+$verificationCurrentStage = 'preflight'
+$verificationFailureCategory = ''
+$verificationPassed = $false
+$verificationFailedBeforeCleanup = $false
+$cleanupCompleted = $false
+$appHostCommit = '0000000000000000000000000000000000000000'
+
+function Complete-VerificationStage {
+    param([Parameter(Mandatory)][string]$Stage)
+
+    if (-not $verificationCompletedStages.Contains($Stage)) {
+        $verificationCompletedStages.Add($Stage)
+    }
+}
+
+function Write-VerificationEvidence {
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('running', 'passed', 'failed')]
+        [string]$Result,
+        [DateTimeOffset]$FinishedAtUtc = [DateTimeOffset]::MinValue
+    )
+
+    & $evidenceWriter `
+        -OutputPath $EvidencePath `
+        -Result $Result `
+        -CurrentStage $verificationCurrentStage `
+        -CompletedStages @($verificationCompletedStages) `
+        -FailureCategory $verificationFailureCategory `
+        -StartedAtUtc $verificationStartedAtUtc `
+        -FinishedAtUtc $FinishedAtUtc `
+        -AppHostCommit $appHostCommit `
+        -CleanupCompleted:$cleanupCompleted
+}
 
 $parameterNames = @(
     'Parameters__legacy-postgres-username',
@@ -626,11 +665,26 @@ function Get-ResourceUrl {
 }
 
 try {
-    foreach ($commandName in @('docker', 'dotnet', 'kubectl')) {
+    foreach ($commandName in @('docker', 'dotnet', 'git', 'kubectl')) {
         if (-not (Get-Command $commandName -ErrorAction SilentlyContinue)) {
             throw "Required command '$commandName' was not found."
         }
     }
+
+    $appHostCommit = (& git -C $repositoryRoot rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or $appHostCommit -notmatch '^[0-9a-f]{40}$') {
+        throw 'The exact AppHost source commit could not be resolved.'
+    }
+
+    $sourceStatus = @(& git -C $repositoryRoot status --porcelain=v1 --untracked-files=all)
+    if ($LASTEXITCODE -ne 0) {
+        throw 'The AppHost source tree cleanliness could not be verified.'
+    }
+    if ($sourceStatus.Count -ne 0) {
+        throw 'The AppHost source tree must be clean before local verification evidence is created.'
+    }
+
+    Write-VerificationEvidence -Result running
 
     if (Get-NetTCPConnection -LocalPort 15888 -State Listen -ErrorAction SilentlyContinue) {
         throw 'Local port 15888 is already in use. Stop the existing Aspire dashboard first.'
@@ -640,7 +694,9 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw 'Docker is not available.'
     }
+    Complete-VerificationStage -Stage 'preflight'
 
+    $verificationCurrentStage = 'build'
     $env:GITHUB_ACTIONS = 'false'
     & dotnet build $appHostProject --configuration Release
     if ($LASTEXITCODE -ne 0) {
@@ -649,11 +705,13 @@ try {
     $topologyAssembly = Join-Path $repositoryRoot `
         'Legacy.Maliev.AppHost.Topology\bin\Release\net10.0\Legacy.Maliev.AppHost.Topology.dll'
     [System.Reflection.Assembly]::LoadFrom($topologyAssembly) | Out-Null
+    Complete-VerificationStage -Stage 'build'
 
     [Environment]::SetEnvironmentVariable('Parameters__legacy-postgres-username', 'legacy_local')
     [Environment]::SetEnvironmentVariable('Parameters__legacy-postgres-password', [guid]::NewGuid().ToString('N'))
     [Environment]::SetEnvironmentVariable('Parameters__legacy-redis-password', [guid]::NewGuid().ToString('N'))
 
+    $verificationCurrentStage = 'orchestration'
     $appHostRunner = Start-Process -FilePath 'dotnet' `
         -ArgumentList @(
             'run',
@@ -667,6 +725,8 @@ try {
         -RedirectStandardError $stderrPath `
         -WindowStyle Hidden `
         -PassThru
+    Complete-VerificationStage -Stage 'orchestration'
+    $verificationCurrentStage = 'verification'
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $resourceItems = @()
@@ -1124,21 +1184,93 @@ try {
         throw "Missing legacy databases: $($missingDatabases -join ', ')."
     }
 
-    Write-Host 'PASS: PostgreSQL, Redis, 16 services, 19 migrations, 21 preserved databases plus Auth runtime state, public Career and Contact boundaries, standalone Accounting protection, public instant quotation, recorded local security notifications, customer/employee login, authenticated Member and Intranet flows, and environment isolation are healthy.'
+    Complete-VerificationStage -Stage 'verification'
+    $verificationCurrentStage = 'complete'
+    $verificationPassed = $true
+    Write-Host "PASS: PostgreSQL, Redis, 16 services, 19 migrations, 21 preserved databases plus Auth runtime state, public Career and Contact boundaries, standalone Accounting protection, public instant quotation, recorded local security notifications, customer/employee login, authenticated Member and Intranet flows, and environment isolation are healthy. Evidence: $EvidencePath"
+}
+catch {
+    $verificationFailedBeforeCleanup = $true
+    $verificationFailureCategory = switch ($verificationCurrentStage) {
+        'preflight' { 'preflight' }
+        'build' { 'build' }
+        'orchestration' { 'orchestration' }
+        'verification' { 'verification' }
+        default { 'unexpected' }
+    }
+    throw
 }
 finally {
+    $cleanupFailures = [System.Collections.Generic.List[string]]::new()
     if ($appHostRunner -and -not $appHostRunner.HasExited) {
-        Stop-Process -Id $appHostRunner.Id -Force -ErrorAction SilentlyContinue
+        try {
+            Stop-Process -Id $appHostRunner.Id -Force -ErrorAction Stop
+            if (-not $appHostRunner.WaitForExit(5000)) {
+                $cleanupFailures.Add('apphost-process')
+            }
+        }
+        catch {
+            $cleanupFailures.Add('apphost-process')
+        }
     }
 
     Start-Sleep -Milliseconds 500
+    $previousNativeErrorPreference = $PSNativeCommandUseErrorActionPreference
+    $PSNativeCommandUseErrorActionPreference = $false
     foreach ($containerName in $localContainerNames) {
-        & docker rm -f $containerName 2>$null | Out-Null
+        try {
+            & docker rm -f $containerName 2>$null | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                $remainingContainers = @(& docker ps -a --format '{{.Names}}' 2>$null)
+                if ($LASTEXITCODE -ne 0 -or $containerName -in $remainingContainers) {
+                    $cleanupFailures.Add('container')
+                }
+            }
+        }
+        catch {
+            $cleanupFailures.Add('container')
+        }
     }
+    $PSNativeCommandUseErrorActionPreference = $previousNativeErrorPreference
 
     foreach ($parameterName in $parameterNames) {
-        [Environment]::SetEnvironmentVariable($parameterName, $previousEnvironment[$parameterName])
+        try {
+            [Environment]::SetEnvironmentVariable($parameterName, $previousEnvironment[$parameterName])
+        }
+        catch {
+            $cleanupFailures.Add('environment')
+        }
     }
 
-    Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+    foreach ($logPath in @($stdoutPath, $stderrPath)) {
+        try {
+            Remove-Item -LiteralPath $logPath -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $logPath) {
+                $cleanupFailures.Add('log')
+            }
+        }
+        catch {
+            $cleanupFailures.Add('log')
+        }
+    }
+
+    $cleanupCompleted = $cleanupFailures.Count -eq 0
+    if (-not $cleanupCompleted) {
+        $verificationPassed = $false
+        $verificationFailureCategory = 'cleanup'
+    }
+
+    if ($verificationPassed) {
+        Write-VerificationEvidence -Result passed -FinishedAtUtc ([DateTimeOffset]::UtcNow)
+    }
+    else {
+        if (-not $verificationFailureCategory) {
+            $verificationFailureCategory = 'unexpected'
+        }
+        Write-VerificationEvidence -Result failed -FinishedAtUtc ([DateTimeOffset]::UtcNow)
+    }
+
+    if (-not $cleanupCompleted -and -not $verificationFailedBeforeCleanup) {
+        throw 'The local verifier could not complete disposable cleanup.'
+    }
 }

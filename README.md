@@ -90,8 +90,15 @@ cluster and `maliev-legacy` namespace.
 From PowerShell:
 
 ```powershell
-.\scripts\verify-local-stack.ps1
+$evidence = Join-Path $PWD 'temp\owner-review\local-stack.json'
+$commit = (git rev-parse HEAD).Trim()
+.\scripts\verify-local-stack.ps1 -EvidencePath $evidence
+.\scripts\test-local-verification-evidence.ps1 -EvidencePath $evidence -ExpectedCommit $commit
 ```
+
+Run the verifier from a committed, clean AppHost worktree. It fails before the build when
+tracked, staged, or untracked source changes are present; the controlled owner-review JSON
+path above is ignored so the evidence artifact itself does not invalidate a later rerun.
 
 The command builds the solution, creates fresh local-only passwords, starts the Aspire stack,
 polls resource health, verifies all nineteen migrations and all sixteen services, proves synthetic
@@ -104,6 +111,14 @@ checks all 21
 preserved database names plus the isolated Auth runtime database, proves a real Country query
 through PgBouncer, rejects ambient credential
 leakage, and removes the local containers in `finally` even when validation fails.
+
+The verifier writes the evidence path at startup and replaces it atomically with a terminal
+`passed` or `failed` artifact after cleanup. The artifact records only controlled stage/category
+values, the exact AppHost commit, timestamps, completed stages, cleanup disposition, and the
+fail-closed local/no-cost constraints. It never retains exception text, credentials, tokens,
+cookies, connection strings, provider responses, or temporary runtime paths. Attach the terminal
+JSON artifact to AppHost issue #33 and link it from Project #2; an absent, `running`, malformed, or
+failed artifact is rejected by the validation script and is not release evidence.
 
 For interactive development, set the three `Parameters__legacy-*` environment variables to
 local-only values and run:
