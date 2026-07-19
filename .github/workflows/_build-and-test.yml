@@ -95,7 +95,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.EmployeeService
-          ref: a66005e189eb50ee71f3b961a66380339b9eae3e
+          ref: f901f601f661d54d394d263191a9180d0c37182a
           path: Legacy.Maliev.EmployeeService
           persist-credentials: false
       - name: Check out Catalog service
@@ -123,7 +123,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.Intranet
-          ref: ca02bb37765d77846862650cba9986be4c673939
+          ref: 9d23f25cc965d98876e20aabed480560d0b653a4
           path: Legacy.Maliev.Intranet
           persist-credentials: false
       - name: Check out Career service
