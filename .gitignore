@@ -10,3 +10,4 @@ TestResults/
 *.key
 *.pem
 .env
+temp/owner-review/*.json
