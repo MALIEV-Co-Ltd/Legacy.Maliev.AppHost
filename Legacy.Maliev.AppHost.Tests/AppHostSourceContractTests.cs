@@ -152,6 +152,36 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
+    public void MigrationRunner_PinsTheHighestLegacyEfCorePatchForMultiContextBuilds()
+    {
+        var project = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "Legacy.Maliev.AppHost.MigrationRunner",
+            "Legacy.Maliev.AppHost.MigrationRunner.csproj"));
+
+        Assert.Contains(
+            "<PackageReference Include=\"Microsoft.EntityFrameworkCore\" Version=\"10.0.10\" />",
+            project,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "<PackageReference Include=\"Microsoft.EntityFrameworkCore.Relational\" Version=\"10.0.10\" />",
+            project,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "<PackageReference Include=\"Npgsql\" Version=\"10.0.3\" />",
+            project,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "<PackageReference Include=\"StackExchange.Redis\" Version=\"3.0.17\" />",
+            project,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "<TreatWarningsAsErrors>true</TreatWarningsAsErrors>",
+            project,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ApplicationDatabaseTraffic_UsesTheBoundedPgBouncerContractWhileMigrationsStayDirect()
     {
         var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
