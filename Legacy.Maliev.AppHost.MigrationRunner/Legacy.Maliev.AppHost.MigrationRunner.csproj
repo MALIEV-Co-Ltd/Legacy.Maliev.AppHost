@@ -2,7 +2,20 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
+  <ItemGroup>
+    <!--
+      The migration runner loads every legacy DbContext in one process. Keep
+      its EF Core runtime at the highest version used by the pinned public
+      service set so a newer service cannot fail the AppHost build with
+      CS1705 when another legacy service still references an older patch.
+    -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.10" />
+    <PackageReference Include="Npgsql" Version="10.0.3" />
+    <PackageReference Include="StackExchange.Redis" Version="3.0.17" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Legacy.Maliev.AppHost.Topology\Legacy.Maliev.AppHost.Topology.csproj" />
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.CountryService\Legacy.Maliev.CountryService.Data\Legacy.Maliev.CountryService.Data.csproj" />

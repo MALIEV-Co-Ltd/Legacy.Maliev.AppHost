@@ -46,19 +46,19 @@ public sealed partial class WorkflowContractTests
 
         Assert.Contains("Legacy.Maliev.CountryService", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.DocumentService", source, StringComparison.Ordinal);
-        Assert.Contains("ref: c0b999745ef45b708e61786df14eae8b95ee0031", source, StringComparison.Ordinal);
+        Assert.Contains("ref: a56a2cadb55aba93026cb5b7dbb8bb0e94597df5", source, StringComparison.Ordinal);
         Assert.Contains("path: Legacy.Maliev.DocumentService", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.AuthService", source, StringComparison.Ordinal);
         Assert.Contains("ref: abbe40e494ee77ba10c82331847073f97f2ab6e7", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.CustomerService", source, StringComparison.Ordinal);
-        Assert.Contains("ref: 6868ec0ed6b87bca399cf1c7883c0de2836e22f9", source, StringComparison.Ordinal);
+        Assert.Contains("ref: bd7ae25ac47ac107a641f5ff06c0f9041a306c82", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.NotificationService", source, StringComparison.Ordinal);
-        Assert.Contains("ref: 8dc20b7f72cbd96d83736543c7fb69c0aec2a125", source, StringComparison.Ordinal);
+        Assert.Contains("ref: c573988b97c9099c5148bf038c518ee263ecdef3", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.OrderService", source, StringComparison.Ordinal);
-        Assert.Contains("ref: f7738da61223f824592e6aa6b65442da93a78dce", source, StringComparison.Ordinal);
+        Assert.Contains("ref: 37749e2e12016864376b3df7a6da2cd09905cf3d", source, StringComparison.Ordinal);
         Assert.Contains("path: Legacy.Maliev.OrderService", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.QuotationService", source, StringComparison.Ordinal);
-        Assert.Contains("ref: 86d786b4751c31ed274890a4aaa475465b872d4f", source, StringComparison.Ordinal);
+        Assert.Contains("ref: 3074be18147a120a7ada06a252a11171c2731667", source, StringComparison.Ordinal);
         Assert.Contains("path: Legacy.Maliev.QuotationService", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.ServiceDefaults", source, StringComparison.Ordinal);
         Assert.Contains("ref: 67cd84ccd47be656383b0025e9f2b8d1d3f0eb36", source, StringComparison.Ordinal);
@@ -67,25 +67,29 @@ public sealed partial class WorkflowContractTests
         Assert.Contains("ref: 95c62eb6209411f5aada443b315447a2f76ca0cd", source, StringComparison.Ordinal);
         Assert.Contains("path: Legacy.Maliev.CompatibilityContracts", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.Web", source, StringComparison.Ordinal);
-        Assert.Contains("ref: b7174be9e3f9dbcce35d61c50248cff23e110196", source, StringComparison.Ordinal);
+        Assert.Contains("ref: 345176b3e6d977e1428afc227eddad7267b147aa", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.EmployeeService", source, StringComparison.Ordinal);
         Assert.Contains("ref: f901f601f661d54d394d263191a9180d0c37182a", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.CatalogService", source, StringComparison.Ordinal);
-        Assert.Contains("ref: 7d7f7609bfd644259649fb05b4ba5c882769b7e9", source, StringComparison.Ordinal);
+        Assert.Contains("ref: 97572d02ba6d1341338e749c215444fdf13868e8", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.ProcurementService", source, StringComparison.Ordinal);
-        Assert.Contains("ref: 9780a28f1172b418df067be090c2b1cfb48e0977", source, StringComparison.Ordinal);
+        Assert.Contains("ref: 7a3cd802b1b35994c4bb59d29d46ac07450794a3", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.FileService", source, StringComparison.Ordinal);
-        Assert.Contains("ref: cf27388398fc7845cbfb9c04917ba1def2e6bb20", source, StringComparison.Ordinal);
+        Assert.Contains("ref: bd7cd339647f06363ff2e66d87214cf50cae1bd9", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.Intranet", source, StringComparison.Ordinal);
         Assert.Contains("ref: 9d23f25cc965d98876e20aabed480560d0b653a4", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.CareerService", source, StringComparison.Ordinal);
-        Assert.Contains("ref: 1e026db743d2105e226ae5e97ce5a50ac425da89", source, StringComparison.Ordinal);
+        Assert.Contains("ref: 174fce682c7809706174bcc2fb5b80d8e6b04da1", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.ContactService", source, StringComparison.Ordinal);
-        Assert.Contains("ref: ac8e641a6ee2136574fedc797748ffbcc70440eb", source, StringComparison.Ordinal);
+        Assert.Contains("ref: 20c7705a0fdec20436f27913a8939d6cd8f94b5e", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.AccountingService", source, StringComparison.Ordinal);
-        Assert.Contains("ref: c0f38c0a5a0505abd13b9250b25c326a833105fe", source, StringComparison.Ordinal);
+        Assert.Contains("ref: 12a5d74a13dbe72ff72bb704f3ac09547aca6920", source, StringComparison.Ordinal);
         Assert.Contains("Maliev.Aspire", source, StringComparison.Ordinal);
         Assert.Contains("Maliev.MessagingContracts", source, StringComparison.Ordinal);
+        Assert.Contains(
+            "ref: 9c41d6524a485bf03ba022b8170f47366ab1a77a",
+            source,
+            StringComparison.Ordinal);
         Assert.Contains(
             "MALIEV-Co-Ltd/Legacy.Maliev.Workflows/actions/dotnet-validate@6017816fa67f369d785ed30794f002cfd6299af7",
             source,

@@ -85,6 +85,23 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
+    public void LocalVerifier_PreparesLegacyWebIdentityOnADisposablePort()
+    {
+        var verifier = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "scripts",
+            "verify-local-stack.ps1"));
+
+        Assert.Contains("[int]$LegacyWebPort = 15088", verifier, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_WEB_PROJECT", verifier, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_WEB_REPOSITORY", verifier, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_WEB_BRANCH", verifier, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_WEB_COMMIT", verifier, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_WEB_PORT", verifier, StringComparison.Ordinal);
+        Assert.DoesNotContain("[int]$LegacyWebPort = 5088", verifier, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void WebServiceIdentity_HasExactLeastPrivilegeMemberAddressPermissions()
     {
         var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
@@ -149,6 +166,36 @@ public sealed class AppHostSourceContractTests
         Assert.DoesNotContain("gcloud", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("kubectl", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("argocd", source, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void MigrationRunner_PinsTheHighestLegacyEfCorePatchForMultiContextBuilds()
+    {
+        var project = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "Legacy.Maliev.AppHost.MigrationRunner",
+            "Legacy.Maliev.AppHost.MigrationRunner.csproj"));
+
+        Assert.Contains(
+            "<PackageReference Include=\"Microsoft.EntityFrameworkCore\" Version=\"10.0.10\" />",
+            project,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "<PackageReference Include=\"Microsoft.EntityFrameworkCore.Relational\" Version=\"10.0.10\" />",
+            project,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "<PackageReference Include=\"Npgsql\" Version=\"10.0.3\" />",
+            project,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "<PackageReference Include=\"StackExchange.Redis\" Version=\"3.0.17\" />",
+            project,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "<TreatWarningsAsErrors>true</TreatWarningsAsErrors>",
+            project,
+            StringComparison.Ordinal);
     }
 
     [Fact]

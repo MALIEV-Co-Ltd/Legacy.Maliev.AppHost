@@ -100,6 +100,12 @@ Run the verifier from a committed, clean AppHost worktree. It fails before the b
 tracked, staged, or untracked source changes are present; the controlled owner-review JSON
 path above is ignored so the evidence artifact itself does not invalidate a later rerun.
 
+The verifier also requires a clean, named-branch `Legacy.Maliev.Web` checkout. Set
+`$env:MalievWorkspaceRoot` when reviewing isolated sibling worktrees; otherwise it resolves the
+normal `B:\maliev` sibling layout. Legacy Web is assigned disposable port `15088` by default so
+the existing `5088` listener is never stopped, reused, or replaced during review. Override it only
+with another free local port via `-LegacyWebPort`.
+
 The command builds the solution, creates fresh local-only passwords, starts the Aspire stack,
 polls resource health, verifies all nineteen migrations and all sixteen services, proves synthetic
 customer and employee PostgreSQL login, confirms the anonymous Country/Web surfaces and protected
