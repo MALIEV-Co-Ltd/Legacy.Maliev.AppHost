@@ -85,6 +85,23 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
+    public void LocalVerifier_PreparesLegacyWebIdentityOnADisposablePort()
+    {
+        var verifier = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "scripts",
+            "verify-local-stack.ps1"));
+
+        Assert.Contains("[int]$LegacyWebPort = 15088", verifier, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_WEB_PROJECT", verifier, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_WEB_REPOSITORY", verifier, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_WEB_BRANCH", verifier, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_WEB_COMMIT", verifier, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_WEB_PORT", verifier, StringComparison.Ordinal);
+        Assert.DoesNotContain("[int]$LegacyWebPort = 5088", verifier, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void WebServiceIdentity_HasExactLeastPrivilegeMemberAddressPermissions()
     {
         var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));

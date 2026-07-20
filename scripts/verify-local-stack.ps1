@@ -3,6 +3,9 @@ param(
     [ValidateRange(30, 600)]
     [int]$TimeoutSeconds = 180,
 
+    [ValidateRange(1, 65535)]
+    [int]$LegacyWebPort = 15088,
+
     [string]$EvidencePath = (Join-Path $env:TEMP "legacy-maliev-apphost-evidence-$PID.json")
 )
 
@@ -57,7 +60,12 @@ $parameterNames = @(
     'Parameters__legacy-postgres-username',
     'Parameters__legacy-postgres-password',
     'Parameters__legacy-redis-password',
-    'GITHUB_ACTIONS'
+    'GITHUB_ACTIONS',
+    'LEGACY_WEB_PROJECT',
+    'LEGACY_WEB_REPOSITORY',
+    'LEGACY_WEB_BRANCH',
+    'LEGACY_WEB_COMMIT',
+    'LEGACY_WEB_PORT'
 )
 $previousEnvironment = @{}
 foreach ($parameterName in $parameterNames) {
@@ -683,6 +691,57 @@ try {
     if ($sourceStatus.Count -ne 0) {
         throw 'The AppHost source tree must be clean before local verification evidence is created.'
     }
+
+    $workspaceRoot = [Environment]::GetEnvironmentVariable('MalievWorkspaceRoot')
+    if (-not $workspaceRoot) {
+        $gitCommonDirectory = (& git -C $repositoryRoot rev-parse --path-format=absolute --git-common-dir).Trim()
+        if ($LASTEXITCODE -ne 0 -or -not $gitCommonDirectory) {
+            throw 'The workspace root could not be resolved for Legacy Web identity verification.'
+        }
+
+        $workspaceRoot = Split-Path -Parent (Split-Path -Parent $gitCommonDirectory)
+    }
+
+    $legacyWebRepositoryRoot = Join-Path $workspaceRoot 'Legacy.Maliev.Web'
+    $legacyWebProject = Join-Path $legacyWebRepositoryRoot 'Legacy.Maliev.Web\Legacy.Maliev.Web.csproj'
+    if (-not (Test-Path -LiteralPath $legacyWebProject -PathType Leaf)) {
+        throw "The Legacy Web source project was not found at $legacyWebProject."
+    }
+
+    $legacyWebStatus = @(& git -C $legacyWebRepositoryRoot status --porcelain=v1 --untracked-files=all)
+    if ($LASTEXITCODE -ne 0) {
+        throw 'The Legacy Web source tree cleanliness could not be verified.'
+    }
+    if ($legacyWebStatus.Count -ne 0) {
+        throw 'The Legacy Web source tree must be clean before local verification evidence is created.'
+    }
+
+    $legacyWebBranch = (& git -C $legacyWebRepositoryRoot branch --show-current).Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $legacyWebBranch) {
+        throw 'The Legacy Web source must be checked out on a named branch before local verification.'
+    }
+
+    $legacyWebCommit = (& git -C $legacyWebRepositoryRoot rev-parse HEAD).Trim()
+    $legacyWebRepository = (& git -C $legacyWebRepositoryRoot remote get-url origin).Trim()
+    if (
+        $LASTEXITCODE -ne 0 -or
+        $legacyWebCommit -notmatch '^[0-9a-f]{40}$' -or
+        -not $legacyWebRepository
+    ) {
+        throw 'The exact Legacy Web source identity could not be resolved.'
+    }
+
+    if (Get-NetTCPConnection -LocalPort $LegacyWebPort -State Listen -ErrorAction SilentlyContinue) {
+        throw "Local verification Web port $LegacyWebPort is already in use. The verifier will not terminate its owner."
+    }
+
+    [Environment]::SetEnvironmentVariable('LEGACY_WEB_PROJECT', $legacyWebProject)
+    [Environment]::SetEnvironmentVariable('LEGACY_WEB_REPOSITORY', $legacyWebRepository)
+    [Environment]::SetEnvironmentVariable('LEGACY_WEB_BRANCH', $legacyWebBranch)
+    [Environment]::SetEnvironmentVariable('LEGACY_WEB_COMMIT', $legacyWebCommit)
+    [Environment]::SetEnvironmentVariable(
+        'LEGACY_WEB_PORT',
+        $LegacyWebPort.ToString([Globalization.CultureInfo]::InvariantCulture))
 
     Write-VerificationEvidence -Result running
 
