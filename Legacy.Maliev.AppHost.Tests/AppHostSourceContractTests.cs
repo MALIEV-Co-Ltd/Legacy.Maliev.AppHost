@@ -898,6 +898,8 @@ public sealed class AppHostSourceContractTests
 
         Assert.Contains("'LEGACY_REDIS_PASSWORD'", source, StringComparison.Ordinal);
         Assert.Contains("$_ -match '(TOKEN|API.?KEY|PASSWORD|SECRET|CREDENTIAL|BW_SESSION|NUGET_PASSWORD)'", source, StringComparison.Ordinal);
+        Assert.Contains("'ServiceClients__Clients__legacy-accounting__SecretSha256'", source, StringComparison.Ordinal);
+        Assert.Contains("'ServiceClients__Clients__legacy-quotation__SecretSha256'", source, StringComparison.Ordinal);
     }
 
     private static string FindRepositoryRoot()

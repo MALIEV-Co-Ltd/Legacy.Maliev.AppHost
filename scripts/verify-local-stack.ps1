@@ -925,6 +925,8 @@ try {
                     'ServiceAuthentication__ClientSecret',
                     'ServiceClients__Clients__legacy-web__SecretSha256',
                     'ServiceClients__Clients__legacy-intranet__SecretSha256',
+                    'ServiceClients__Clients__legacy-accounting__SecretSha256',
+                    'ServiceClients__Clients__legacy-quotation__SecretSha256',
                     'DataProtection__CertificatePassword',
                     'Brevo__ApiKey'
                 )
