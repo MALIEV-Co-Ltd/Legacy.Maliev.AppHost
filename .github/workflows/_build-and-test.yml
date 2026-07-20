@@ -158,14 +158,9 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: MALIEV-Co-Ltd/Maliev.MessagingContracts
-          ref: main
+          ref: 9c41d6524a485bf03ba022b8170f47366ab1a77a
           path: Maliev.MessagingContracts
           persist-credentials: false
-      - name: Verify messaging contracts pin
-        working-directory: Maliev.MessagingContracts
-        shell: bash
-        run: |
-          test "$(git rev-parse HEAD)" = "9c41d6524a485bf03ba022b8170f47366ab1a77"
       - name: Validate .NET solution
         uses: MALIEV-Co-Ltd/Legacy.Maliev.Workflows/actions/dotnet-validate@6017816fa67f369d785ed30794f002cfd6299af7
         with:
