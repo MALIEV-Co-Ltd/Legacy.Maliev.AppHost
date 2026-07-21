@@ -163,9 +163,28 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("WaitFor(redis)", source, StringComparison.Ordinal);
         Assert.Contains("Legacy_Maliev_AppHost_MigrationRunner", source, StringComparison.Ordinal);
         Assert.Contains("WaitForCompletion", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("gcloud", source, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("kubectl", source, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("argocd", source, StringComparison.OrdinalIgnoreCase);
+
+        // Cloud tooling is permitted only inside the explicitly opt-in, off-by-default
+        // LEGACY_GKE_VALIDATION region (owner manual QA against real GKE data; maliev-web#15).
+        // Outside that marked region the runtime must stay fully local/dormant.
+        Assert.Contains("LEGACY_GKE_VALIDATION", source, StringComparison.Ordinal);
+        AssertOnlyWithinGkeValidationRegion(source, "kubectl");
+        AssertOnlyWithinGkeValidationRegion(source, "gcloud");
+        AssertOnlyWithinGkeValidationRegion(source, "argocd");
+    }
+
+    private static void AssertOnlyWithinGkeValidationRegion(string source, string term)
+    {
+        const string beginMarker = "=== BEGIN LEGACY_GKE_VALIDATION";
+        const string endMarker = "=== END LEGACY_GKE_VALIDATION ===";
+        var beginIndex = source.IndexOf(beginMarker, StringComparison.Ordinal);
+        var endIndex = source.IndexOf(endMarker, StringComparison.Ordinal);
+        Assert.True(beginIndex >= 0 && endIndex > beginIndex, "Expected a marked LEGACY_GKE_VALIDATION region.");
+
+        var before = source[..beginIndex];
+        var after = source[(endIndex + endMarker.Length)..];
+        Assert.DoesNotContain(term, before, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(term, after, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -372,7 +391,7 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.Web", project, StringComparison.Ordinal);
         Assert.Equal(17, project.Split("AdditionalProperties=\"Configuration=$(Configuration)\"", StringSplitOptions.None).Length - 1);
         Assert.Equal(17, project.Split("SetConfiguration=\"Configuration=$(Configuration)\"", StringSplitOptions.None).Length - 1);
-        Assert.DoesNotContain("maliev-legacy-secrets", source, StringComparison.OrdinalIgnoreCase);
+        AssertOnlyWithinGkeValidationRegion(source, "maliev-legacy-secrets");
         Assert.DoesNotContain("LEGACY_DEPLOY_ENABLED", source, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -945,6 +964,30 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("$_ -match '(TOKEN|API.?KEY|PASSWORD|SECRET|CREDENTIAL|BW_SESSION|NUGET_PASSWORD)'", source, StringComparison.Ordinal);
         Assert.Contains("'ServiceClients__Clients__legacy-accounting__SecretSha256'", source, StringComparison.Ordinal);
         Assert.Contains("'ServiceClients__Clients__legacy-quotation__SecretSha256'", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MigrationRunner_SkipsMigrationAndSeedingBeforeTouchingAnyDatabaseWhenGkeValidationIsActive()
+    {
+        var root = FindRepositoryRoot();
+        var appHostSource = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var runnerSource = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost.MigrationRunner", "Program.cs"));
+
+        // Every migration-runner resource is told to skip in GKE validation mode...
+        Assert.Contains(
+            ".WithEnvironment(\"LEGACY_SKIP_MIGRATE\", gkeValidationMode ? \"true\" : \"false\")",
+            appHostSource,
+            StringComparison.Ordinal);
+
+        // ...and the runner itself must check that guard and return before the workload
+        // switch (and its Seed*Async calls, which Add()+SaveChanges() real rows) ever runs.
+        // Several seed methods commit before validating an assumed ID and throwing, so the
+        // guard must gate everything, not just MigrateAsync.
+        var guardIndex = runnerSource.IndexOf("LEGACY_SKIP_MIGRATE", StringComparison.Ordinal);
+        var workloadIndex = runnerSource.IndexOf("var workload = args.SingleOrDefault()", StringComparison.Ordinal);
+        Assert.True(guardIndex >= 0, "Expected a LEGACY_SKIP_MIGRATE guard in MigrationRunner/Program.cs.");
+        Assert.True(workloadIndex > guardIndex, "The LEGACY_SKIP_MIGRATE guard must run before workload/seed logic.");
+        Assert.Contains("return;", runnerSource[guardIndex..workloadIndex], StringComparison.Ordinal);
     }
 
     private static string FindRepositoryRoot()

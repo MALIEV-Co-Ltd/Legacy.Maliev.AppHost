@@ -1,6 +1,12 @@
+using System.Text.Json;
+using Google.Cloud.SecretManager.V1;
 using Legacy.Maliev.AppHost.Topology;
 
 var legacyWebIdentity = LegacyWebLaunchIdentity.Capture();
+// Captured before sanitization strips it (LocalEnvironmentPolicy.SanitizeCurrentProcess only
+// preserves a small allowlist — LEGACY_GKE_VALIDATION isn't in it, same reason
+// LegacyWebLaunchIdentity.Capture() above must also run first).
+var gkeValidationModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_GKE_VALIDATION"), "true", StringComparison.OrdinalIgnoreCase);
 LocalEnvironmentPolicy.SanitizeCurrentProcess();
 Console.WriteLine(
     "Legacy Web source identity: repository={0}; branch={1}; commit={2}; project={3}; port={4}",
@@ -11,6 +17,37 @@ Console.WriteLine(
     legacyWebIdentity.Port);
 
 var builder = DistributedApplication.CreateBuilder(args);
+
+// === BEGIN LEGACY_GKE_VALIDATION (opt-in owner manual QA against real GKE-migrated data,
+// see maliev-web#15; entirely dormant unless LEGACY_GKE_VALIDATION=true is set explicitly).
+// Local containers still start (unused in this mode) to keep this a single additive toggle
+// rather than a second resource graph; only connection strings and migration runners are
+// redirected. Cloud tooling (kubectl) and the production secret name are confined to this
+// region — AppHostSourceContractTests asserts that.
+var gkeValidationMode = gkeValidationModeRequested;
+var gkeSecrets = gkeValidationMode ? LoadGkeValidationSecrets() : null;
+if (gkeValidationMode)
+{
+    // Auto-starts with the app host; no other resource WaitFor()s it so the local
+    // resource graph is unchanged. Npgsql/Polly connection retries in ServiceDefaults
+    // absorb the few seconds before the tunnel is up.
+    builder.AddExecutable(
+        "legacy-gke-postgres-port-forward",
+        "kubectl",
+        Directory.GetCurrentDirectory(),
+        "port-forward", "-n", "maliev-legacy", "svc/legacy-postgres-pooler-rw", "15432:5432");
+}
+
+static Dictionary<string, string> LoadGkeValidationSecrets()
+{
+    var client = SecretManagerServiceClient.Create();
+    var name = SecretVersionName.FromProjectSecretSecretVersion("maliev-website", "maliev-legacy-secrets", "latest");
+    var response = client.AccessSecretVersion(name);
+    var json = response.Payload.Data.ToStringUtf8();
+    return JsonSerializer.Deserialize<Dictionary<string, string>>(json)
+        ?? throw new InvalidOperationException("maliev-legacy-secrets payload did not parse as a flat JSON object.");
+}
+// === END LEGACY_GKE_VALIDATION ===
 
 var postgresUsername = builder.AddParameter("legacy-postgres-username");
 var postgresPassword = builder.AddParameter("legacy-postgres-password", secret: true);
@@ -50,8 +87,28 @@ var pgbouncer = builder.AddContainer("legacy-postgres-pooler-rw", "edoburu/pgbou
     .WithContainerRuntimeArgs("--cpus", "0.10", "--memory", "96m")
     .WaitFor(postgres);
 
-ReferenceExpression CreatePooledDatabaseConnectionString(string databaseName) => ReferenceExpression.Create(
-    $"Host={pgbouncer.GetEndpoint("tcp").Property(EndpointProperty.Host)};Port={pgbouncer.GetEndpoint("tcp").Property(EndpointProperty.Port)};Database={databaseName};Username={postgresUsername};Password={postgresPassword};SSL Mode=Disable;Maximum Pool Size=10;Connection Idle Lifetime=60;Timeout=15;Command Timeout=30");
+ReferenceExpression CreatePooledDatabaseConnectionString(string databaseName)
+{
+    // "Auth" (RefreshSessions) is new infrastructure for the rotating-refresh-token design,
+    // not part of the legacy SQL Server migration — it has no GKE database or secret entry,
+    // unlike every name in LegacyTopology.DatabaseNames. Always run it locally.
+    if (gkeValidationMode && databaseName != "Auth")
+    {
+        var key = ToKebabCase(databaseName);
+        if (!gkeSecrets!.TryGetValue($"legacy-postgres-{key}-username", out var gkeUsername)
+            || !gkeSecrets.TryGetValue($"legacy-postgres-{key}-password", out var gkePassword))
+        {
+            throw new InvalidOperationException(
+                $"LEGACY_GKE_VALIDATION is set but the loaded GKE secret bundle has no credentials for database '{databaseName}' (expected keys legacy-postgres-{key}-username/-password).");
+        }
+
+        return ReferenceExpression.Create(
+            $"Host=127.0.0.1;Port=15432;Database={databaseName};Username={gkeUsername};Password={gkePassword};SSL Mode=Disable;Maximum Pool Size=10;Connection Idle Lifetime=60;Timeout=15;Command Timeout=30");
+    }
+
+    return ReferenceExpression.Create(
+        $"Host={pgbouncer.GetEndpoint("tcp").Property(EndpointProperty.Host)};Port={pgbouncer.GetEndpoint("tcp").Property(EndpointProperty.Port)};Database={databaseName};Username={postgresUsername};Password={postgresPassword};SSL Mode=Disable;Maximum Pool Size=10;Connection Idle Lifetime=60;Timeout=15;Command Timeout=30");
+}
 
 var databases = new Dictionary<string, IResourceBuilder<PostgresDatabaseResource>>(StringComparer.Ordinal);
 foreach (var databaseName in LegacyTopology.DatabaseNames)
@@ -72,6 +129,7 @@ var redisResp3ConnectionString = ReferenceExpression.Create($"{redis.Resource.Co
 var countryDatabase = databases["Country"];
 var countryMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-country-migrations")
     .WithArgs("country")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__CountryDbContext", countryDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -116,6 +174,7 @@ var document = builder.AddProject<Projects.Legacy_Maliev_DocumentService_Api>("l
 
 var authMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-auth-migrations")
     .WithArgs("auth")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__RefreshSessions", authDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -124,6 +183,7 @@ var authMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_Migration
 var customerIdentityMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
         "legacy-customer-identity-migrations")
     .WithArgs("customer-identity")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__CustomerIdentity", customerIdentityDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -132,6 +192,7 @@ var customerIdentityMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHo
 var employeeIdentityMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
         "legacy-employee-identity-migrations")
     .WithArgs("employee-identity")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__EmployeeIdentity", employeeIdentityDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -203,6 +264,7 @@ for (var permissionIndex = 0; permissionIndex < LegacyTopology.AccountingPermiss
 var customerDatabase = databases["Customer"];
 var customerMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-customer-migrations")
     .WithArgs("customer")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__CustomerDbContext", customerDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -237,6 +299,7 @@ var customer = builder.AddProject<Projects.Legacy_Maliev_CustomerService_Api>(
 var employeeDatabase = databases["Employee"];
 var employeeMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-employee-migrations")
     .WithArgs("employee")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__EmployeeDbContext", employeeDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -271,6 +334,7 @@ var employee = builder.AddProject<Projects.Legacy_Maliev_EmployeeService_Api>(
 var catalogDatabase = databases["Material"];
 var catalogMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-catalog-migrations")
     .WithArgs("catalog")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__CatalogDbContext", catalogDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -305,12 +369,14 @@ var supplierDatabase = databases["Supplier"];
 var purchaseOrderDatabase = databases["PurchaseOrder"];
 var supplierMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-supplier-migrations")
     .WithArgs("supplier")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__SupplierDbContext", supplierDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
     .WaitFor(supplierDatabase);
 var purchaseOrderMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-purchase-order-migrations")
     .WithArgs("purchase-order")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__PurchaseOrderDbContext", purchaseOrderDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -346,6 +412,7 @@ var procurement = builder.AddProject<Projects.Legacy_Maliev_ProcurementService_A
 var fileDatabase = databases["Upload"];
 var fileMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-file-migrations")
     .WithArgs("file")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__FileDbContext", fileDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -399,6 +466,7 @@ var orderDatabase = databases["Order"];
 var orderStatusDatabase = databases["OrderStatus"];
 var orderMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-order-migrations")
     .WithArgs("order")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__OrderDbContext", orderDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -406,6 +474,7 @@ var orderMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_Migratio
 var orderStatusMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
         "legacy-order-status-migrations")
     .WithArgs("order-status")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__OrderStatusDbContext", orderStatusDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -443,6 +512,7 @@ var quotationRequestDatabase = databases["QuotationRequest"];
 var quotationMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
         "legacy-quotation-migrations")
     .WithArgs("quotation")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__QuotationDbContext", quotationDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -450,6 +520,7 @@ var quotationMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_Migr
 var quotationRequestMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
         "legacy-quotation-request-migrations")
     .WithArgs("quotation-request")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__QuotationRequestDbContext", quotationRequestDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -492,6 +563,7 @@ var quotation = builder.AddProject<Projects.Legacy_Maliev_QuotationService_Api>(
 var careerDatabase = databases["JobOffers"];
 var careerMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-career-migrations")
     .WithArgs("career")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__CareerDbContext", careerDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -523,6 +595,7 @@ var career = builder.AddProject<Projects.Legacy_Maliev_CareerService_Api>(
 var contactDatabase = databases["Message"];
 var contactMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-contact-migrations")
     .WithArgs("contact")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__ContactRequestDbContext", contactDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -556,18 +629,21 @@ var invoiceDatabase = databases["Invoice"];
 var receiptDatabase = databases["Receipt"];
 var paymentMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-payment-migrations")
     .WithArgs("payment")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__PaymentDbContext", paymentDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
     .WaitFor(paymentDatabase);
 var invoiceMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-invoice-migrations")
     .WithArgs("invoice")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__InvoiceDbContext", invoiceDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
     .WaitFor(invoiceDatabase);
 var receiptMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-receipt-migrations")
     .WithArgs("receipt")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__ReceiptDbContext", receiptDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
