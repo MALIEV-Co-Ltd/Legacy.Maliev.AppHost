@@ -18,6 +18,15 @@ using Legacy.Maliev.AccountingService.Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
+if (string.Equals(Environment.GetEnvironmentVariable("LEGACY_SKIP_MIGRATE"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    // GKE validation mode: the target database already has the real migrated schema and
+    // data. Never touch it here — beyond MigrateAsync, several workloads below also seed
+    // rows (SeedQuotationAsync, SeedOrderAsync, etc.), which must not run against real data.
+    Console.WriteLine("LEGACY_SKIP_MIGRATE=true; skipping migration and seeding.");
+    return;
+}
+
 var workload = args.SingleOrDefault()
     ?? throw new InvalidOperationException("A migration workload is required.");
 var connectionName = workload switch
