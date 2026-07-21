@@ -658,51 +658,21 @@ builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WaitFor(career)
     .WaitFor(contact);
 
-var intranetCompatibility = builder.AddProject<Projects.Legacy_Maliev_Intranet>("legacy-maliev-intranet")
-    .WithHttpEndpoint(name: "http")
-    .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
-    .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
-    .WithEnvironment("DataProtection__CertificatePfxBase64", dataProtectionCertificate.PfxBase64)
-    .WithEnvironment("DataProtection__CertificatePassword", dataProtectionCertificate.Password)
-    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
-    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
-    .WithEnvironment("Jwt__KeyId", LegacyTopology.JwtKeyId)
-    .WithEnvironment("ServiceAuthentication__ClientId", "legacy-intranet")
-    .WithEnvironment("ServiceAuthentication__ClientSecret", intranetCredential.Secret)
-    .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
-    .WithEnvironment("Services__Catalog", catalog.GetEndpoint("http"))
-    .WithEnvironment("Services__Customer", customer.GetEndpoint("http"))
-    .WithEnvironment("Services__Employee", employee.GetEndpoint("http"))
-    .WithEnvironment("Services__Procurement", procurement.GetEndpoint("http"))
-    .WithEnvironment("Services__Document", document.GetEndpoint("http"))
-    .WithEnvironment("Services__File", file.GetEndpoint("http"))
-    .WithEnvironment("Services__Order", order.GetEndpoint("http"))
-    .WithEnvironment("Services__Notification", notification.GetEndpoint("http"))
-    .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
-    .WithEnvironment("DOTNET_GCConserveMemory", "3")
-    .WithHttpHealthCheck("/intranet/liveness", endpointName: "http")
-    .WithHttpHealthCheck("/intranet/readiness", endpointName: "http")
-    .WithUrlForEndpoint("http", url =>
-    {
-        url.Url = "/Login";
-        url.DisplayText = "Legacy Intranet";
-    })
-    .WithReference(redis)
-    .WithReference(auth)
-    .WaitFor(redis)
-    .WaitFor(auth)
-    .WaitFor(catalog)
-    .WaitFor(customer)
-    .WaitFor(employee)
-    .WaitFor(procurement)
-    .WaitFor(document)
-    .WaitFor(file)
-    .WaitFor(order)
-    .WaitFor(notification);
+// NOTE: The Legacy.Maliev.Intranet Razor Pages compatibility host is intentionally not launched
+// here. Every original route (Customers, Employees, Materials, Suppliers, Orders, Purchase Orders,
+// Quotations, Quotation Requests, Invoices, Finances, Dashboard, Server/ErrorReport) already has a
+// Legacy.Maliev.Intranet.Client (Blazor WASM) + Legacy.Maliev.Intranet.Bff equivalent, so local
+// Aspire now surfaces a single employee login instead of two. The Razor Pages project itself still
+// exists in the solution (Legacy.Maliev.Intranet.slnx) for the formal GKE parity/cutover process —
+// only its local AppHost registration was removed. Re-add the block below if you need to run it
+// standalone again for a specific route comparison:
+//
+// var intranetCompatibility = builder.AddProject<Projects.Legacy_Maliev_Intranet>("legacy-maliev-intranet")
+//     .WithHttpsEndpoint(name: "https")
+//     ...(see git history for the full resource definition)...
 
 var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legacy-maliev-intranet-bff")
-    .WithHttpEndpoint(name: "http")
+    .WithHttpsEndpoint(name: "https")
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("DataProtection__CertificatePfxBase64", dataProtectionCertificate.PfxBase64)
@@ -718,11 +688,17 @@ var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legac
     .WithEnvironment("Services__Order", order.GetEndpoint("http"))
     .WithEnvironment("Services__Employee", employee.GetEndpoint("http"))
     .WithEnvironment("Services__Quotation", quotation.GetEndpoint("http"))
+    .WithEnvironment("Services__Customer", customer.GetEndpoint("http"))
+    .WithEnvironment("Services__Procurement", procurement.GetEndpoint("http"))
+    .WithEnvironment("Services__Document", document.GetEndpoint("http"))
+    .WithEnvironment("Services__File", file.GetEndpoint("http"))
+    .WithEnvironment("Services__Notification", notification.GetEndpoint("http"))
+    .WithEnvironment("Services__Accounting", accounting.GetEndpoint("http"))
     .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
-    .WithHttpHealthCheck("/intranet-bff/liveness", endpointName: "http")
-    .WithHttpHealthCheck("/intranet-bff/readiness", endpointName: "http")
-    .WithUrlForEndpoint("http", url =>
+    .WithHttpHealthCheck("/intranet-bff/liveness", endpointName: "https")
+    .WithHttpHealthCheck("/intranet-bff/readiness", endpointName: "https")
+    .WithUrlForEndpoint("https", url =>
     {
         url.Url = "/Login";
         url.DisplayText = "Legacy Intranet BFF";
@@ -733,12 +709,24 @@ var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legac
     .WithReference(order)
     .WithReference(employee)
     .WithReference(quotation)
+    .WithReference(customer)
+    .WithReference(procurement)
+    .WithReference(document)
+    .WithReference(file)
+    .WithReference(notification)
+    .WithReference(accounting)
     .WaitFor(redis)
     .WaitFor(auth)
     .WaitFor(catalog)
     .WaitFor(order)
     .WaitFor(employee)
     .WaitFor(quotation);
+// Customer/Procurement/Document/File/Notification/Accounting are intentionally not
+// WaitFor'd: login only needs Auth. Hard-waiting the Bff on every downstream page's
+// service would reintroduce "login doesn't work locally" whenever any one of those six
+// is slow to start, which is the exact class of bug this AppHost is meant to avoid.
+// WithReference above still gives the Bff their URLs; slow/late services just mean
+// Customers/Suppliers/Purchase Orders/Finances/Invoices load late, not that login blocks.
 
 builder.Build().Run();
 

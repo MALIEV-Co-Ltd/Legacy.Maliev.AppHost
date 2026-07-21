@@ -262,8 +262,23 @@ public sealed class AppHostSourceContractTests
             "var redisResp3ConnectionString = ReferenceExpression.Create($\"{redis.Resource.ConnectionStringExpression},protocol=resp3\")",
             source,
             StringComparison.Ordinal);
+
+        // The Legacy.Maliev.Intranet Razor Pages compatibility host used to be a 14th redis
+        // consumer; it is intentionally dormant locally (see the NOTE above the Bff resource),
+        // so only 13 live resources wire the resp3 connection string today. These two guards
+        // keep that host dormant-not-deleted: if it's ever re-added as live code without
+        // updating this count, this test should fail rather than silently drift.
+        Assert.Contains(
+            "// var intranetCompatibility = builder.AddProject<Projects.Legacy_Maliev_Intranet>",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "\nvar intranetCompatibility = builder.AddProject<Projects.Legacy_Maliev_Intranet>",
+            source,
+            StringComparison.Ordinal);
+
         Assert.Equal(
-            14,
+            13,
             source.Split(
                 "WithEnvironment(\"ConnectionStrings__redis\", redisResp3ConnectionString)",
                 StringSplitOptions.None).Length - 1);
@@ -362,7 +377,7 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
-    public void AppHost_WiresCareerContactAndStandaloneAccountingBoundaries()
+    public void AppHost_WiresCareerContactAndAccountingBoundaries()
     {
         var root = FindRepositoryRoot();
         var source = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
@@ -399,7 +414,12 @@ public sealed class AppHostSourceContractTests
         var accountingStart = source.IndexOf("Legacy_Maliev_AccountingService_Api", StringComparison.Ordinal);
         var accountingEnd = source.IndexOf("builder.AddProject<Projects.Legacy_Maliev_Web>", accountingStart, StringComparison.Ordinal);
         var accountingResource = source[accountingStart..accountingEnd];
-        Assert.DoesNotContain("Services__Accounting", source, StringComparison.Ordinal);
+        // Accounting is consumed via Aspire service discovery by the Intranet Bff (Finances and
+        // Invoices proxies require Services:Accounting), so it is no longer a standalone leaf.
+        Assert.Contains(
+            "WithEnvironment(\"Services__Accounting\", accounting.GetEndpoint(\"http\"))",
+            source,
+            StringComparison.Ordinal);
         Assert.Contains("ServiceAuthentication__ClientId", accountingResource, StringComparison.Ordinal);
         Assert.Contains("ServiceAuthentication__ClientSecret", accountingResource, StringComparison.Ordinal);
         Assert.Contains("Services__Auth", accountingResource, StringComparison.Ordinal);
@@ -502,7 +522,7 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
-    public void AppHost_WiresTheLegacyIntranetAsAnIndependentServiceBoundary()
+    public void AppHost_WiresTheLegacyIntranetBffAsAnIndependentServiceBoundary()
     {
         var root = FindRepositoryRoot();
         var source = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
@@ -520,8 +540,10 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("Services__Employee", source, StringComparison.Ordinal);
         Assert.Contains("Services__Procurement", source, StringComparison.Ordinal);
         Assert.Contains("Services__File", source, StringComparison.Ordinal);
-        Assert.Contains("/intranet/liveness", source, StringComparison.Ordinal);
-        Assert.Contains("/intranet/readiness", source, StringComparison.Ordinal);
+        // The Razor Pages compatibility host's own "/intranet/*" health checks are dormant
+        // locally; the Bff (the sole live host) answers on "/intranet-bff/*" instead.
+        Assert.Contains("/intranet-bff/liveness", source, StringComparison.Ordinal);
+        Assert.Contains("/intranet-bff/readiness", source, StringComparison.Ordinal);
         Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.Intranet", project, StringComparison.Ordinal);
         Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.CatalogService", project, StringComparison.Ordinal);
         Assert.Contains("$(MalievWorkspaceRoot)\\Legacy.Maliev.EmployeeService", project, StringComparison.Ordinal);
@@ -537,7 +559,7 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
-    public void AppHost_RunsCompatibilityAndBffWithTheSamePublicJwtTrust()
+    public void AppHost_RunsTheIntranetBffWithThePublicJwtTrust()
     {
         var root = FindRepositoryRoot();
         var source = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
@@ -548,33 +570,26 @@ public sealed class AppHostSourceContractTests
             project,
             StringComparison.Ordinal);
 
-        var compatibility = ExtractResource(
-            source,
-            "var intranetCompatibility = builder.AddProject<Projects.Legacy_Maliev_Intranet>",
-            "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>");
+        // The Razor Pages compatibility host (formerly compared here for JWT-trust parity) is
+        // dormant locally, so the Bff is the sole live resource carrying the public JWT trust.
         var bff = ExtractResource(
             source,
             "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>",
             "builder.Build().Run()");
 
-        Assert.Contains("\"legacy-maliev-intranet\"", compatibility, StringComparison.Ordinal);
         Assert.Contains("\"legacy-maliev-intranet-bff\"", bff, StringComparison.Ordinal);
-        foreach (var resource in new[] { compatibility, bff })
-        {
-            Assert.Contains("WithEnvironment(\"Jwt__PublicKey\", jwt.PublicKeyBase64)", resource, StringComparison.Ordinal);
-            Assert.Contains("WithEnvironment(\"Jwt__Issuer\", LegacyTopology.JwtIssuer)", resource, StringComparison.Ordinal);
-            Assert.Contains("WithEnvironment(\"Jwt__Audience\", LegacyTopology.JwtAudience)", resource, StringComparison.Ordinal);
-            Assert.Contains("WithEnvironment(\"Jwt__KeyId\", LegacyTopology.JwtKeyId)", resource, StringComparison.Ordinal);
-            Assert.Contains("WithEnvironment(\"ConnectionStrings__redis\", redisResp3ConnectionString)", resource, StringComparison.Ordinal);
-            Assert.Contains("WithEnvironment(\"Services__Auth\", auth.GetEndpoint(\"http\"))", resource, StringComparison.Ordinal);
-            Assert.Contains(".WithReference(redis)", resource, StringComparison.Ordinal);
-            Assert.Contains(".WithReference(auth)", resource, StringComparison.Ordinal);
-            Assert.Contains(".WaitFor(redis)", resource, StringComparison.Ordinal);
-            Assert.Contains(".WaitFor(auth)", resource, StringComparison.Ordinal);
-            Assert.DoesNotContain("Jwt__PrivateKeyPem", resource, StringComparison.Ordinal);
-        }
+        Assert.Contains("WithEnvironment(\"Jwt__PublicKey\", jwt.PublicKeyBase64)", bff, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"Jwt__Issuer\", LegacyTopology.JwtIssuer)", bff, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"Jwt__Audience\", LegacyTopology.JwtAudience)", bff, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"Jwt__KeyId\", LegacyTopology.JwtKeyId)", bff, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"ConnectionStrings__redis\", redisResp3ConnectionString)", bff, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"Services__Auth\", auth.GetEndpoint(\"http\"))", bff, StringComparison.Ordinal);
+        Assert.Contains(".WithReference(redis)", bff, StringComparison.Ordinal);
+        Assert.Contains(".WithReference(auth)", bff, StringComparison.Ordinal);
+        Assert.Contains(".WaitFor(redis)", bff, StringComparison.Ordinal);
+        Assert.Contains(".WaitFor(auth)", bff, StringComparison.Ordinal);
+        Assert.DoesNotContain("Jwt__PrivateKeyPem", bff, StringComparison.Ordinal);
 
-        Assert.Contains("/intranet/liveness", compatibility, StringComparison.Ordinal);
         Assert.Contains("/intranet-bff/liveness", bff, StringComparison.Ordinal);
     }
 
@@ -667,23 +682,54 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
-    public void AppHost_ProjectsExistingDataProtectionCertificateOnlyToWebAndBothIntranetHosts()
+    public void AppHost_WiresCustomerProcurementDocumentFileNotificationAndAccountingIntoTheIntranetBff()
+    {
+        // Regression guard: the Bff's Program.cs requires Services:Customer, Services:Procurement,
+        // Services:Document, Services:File, Services:Notification, and Services:Accounting to
+        // resolve its Customers/Suppliers/PurchaseOrders/Finances/Invoices proxies. The
+        // now-dormant Razor Pages compatibility host used to carry most of that traffic, which
+        // masked the Bff never having been wired to reach these services on its own. Without this
+        // wiring, those pages 500 at first use once the compatibility host stops running locally.
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var bff = ExtractResource(
+            source,
+            "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>",
+            "builder.Build().Run()");
+
+        foreach (var service in new[] { "Customer", "Procurement", "Document", "File", "Notification", "Accounting" })
+        {
+            Assert.Contains(
+                $"WithEnvironment(\"Services__{service}\", {service.ToLowerInvariant()}.GetEndpoint(\"http\"))",
+                bff,
+                StringComparison.Ordinal);
+        }
+
+        // These six are intentionally WithReference-only, not WaitFor: login only needs Auth,
+        // and hard-waiting the Bff on every downstream page's service would reintroduce
+        // "login doesn't work locally" whenever any one of them is slow to start.
+        foreach (var resourceVariable in new[] { "customer", "procurement", "document", "file", "notification", "accounting" })
+        {
+            Assert.Contains($".WithReference({resourceVariable})", bff, StringComparison.Ordinal);
+            Assert.DoesNotContain($".WaitFor({resourceVariable})", bff, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void AppHost_ProjectsExistingDataProtectionCertificateOnlyToWebAndTheIntranetBff()
     {
         var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
         var web = ExtractResource(
             source,
             "builder.AddProject<Projects.Legacy_Maliev_Web>",
-            "var intranetCompatibility = builder.AddProject<Projects.Legacy_Maliev_Intranet>");
-        var compatibility = ExtractResource(
-            source,
-            "var intranetCompatibility = builder.AddProject<Projects.Legacy_Maliev_Intranet>",
             "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>");
         var bff = ExtractResource(
             source,
             "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>",
             "builder.Build().Run()");
 
-        foreach (var resource in new[] { web, compatibility, bff })
+        // The Razor Pages compatibility host (formerly a 3rd DataProtection cert consumer) is
+        // dormant locally, so only Web and the Bff project the cert today.
+        foreach (var resource in new[] { web, bff })
         {
             Assert.Contains(
                 "WithEnvironment(\"DataProtection__CertificatePfxBase64\", dataProtectionCertificate.PfxBase64)",
@@ -695,9 +741,8 @@ public sealed class AppHostSourceContractTests
                 StringComparison.Ordinal);
         }
 
-        Assert.Equal(3, source.Split("WithEnvironment(\"DataProtection__CertificatePfxBase64\"", StringSplitOptions.None).Length - 1);
-        Assert.Equal(3, source.Split("WithEnvironment(\"DataProtection__CertificatePassword\"", StringSplitOptions.None).Length - 1);
-        Assert.Contains("WithReference(redis)", compatibility, StringComparison.Ordinal);
+        Assert.Equal(2, source.Split("WithEnvironment(\"DataProtection__CertificatePfxBase64\"", StringSplitOptions.None).Length - 1);
+        Assert.Equal(2, source.Split("WithEnvironment(\"DataProtection__CertificatePassword\"", StringSplitOptions.None).Length - 1);
         Assert.Contains("WithReference(redis)", bff, StringComparison.Ordinal);
     }
 

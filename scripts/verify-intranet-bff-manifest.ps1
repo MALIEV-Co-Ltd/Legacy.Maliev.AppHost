@@ -58,15 +58,20 @@ $bffName = 'legacy-maliev-intranet-bff'
 $compatibilityName = 'legacy-maliev-intranet'
 $authName = 'legacy-maliev-auth-service'
 $bff = Get-RequiredResource $manifest $bffName
-$compatibility = Get-RequiredResource $manifest $compatibilityName
 $auth = Get-RequiredResource $manifest $authName
+
+# The Razor Pages compatibility host is intentionally dormant locally (see the NOTE above the
+# Bff resource in AppHost.cs) and is no longer emitted into the generated manifest. If it's ever
+# re-added as a live resource, require it to keep reusing the shared legacy-intranet credential.
+if ($manifest.resources.ContainsKey($compatibilityName)) {
+    $compatibility = $manifest.resources[$compatibilityName]
+    $bffSecret = Get-RequiredEnvironmentValue $bff $bffName 'ServiceAuthentication__ClientSecret'
+    $compatibilitySecret = Get-RequiredEnvironmentValue $compatibility $compatibilityName 'ServiceAuthentication__ClientSecret'
+    Assert-Contract ($bffSecret -ceq $compatibilitySecret) 'The Intranet BFF must reuse the existing in-memory legacy-intranet credential.'
+}
 
 $clientId = Get-RequiredEnvironmentValue $bff $bffName 'ServiceAuthentication__ClientId'
 Assert-Contract ($clientId -ceq 'legacy-intranet') "The Intranet BFF service-auth client id must remain 'legacy-intranet'."
-
-$bffSecret = Get-RequiredEnvironmentValue $bff $bffName 'ServiceAuthentication__ClientSecret'
-$compatibilitySecret = Get-RequiredEnvironmentValue $compatibility $compatibilityName 'ServiceAuthentication__ClientSecret'
-Assert-Contract ($bffSecret -ceq $compatibilitySecret) 'The Intranet BFF must reuse the existing in-memory legacy-intranet credential.'
 
 $catalogBinding = '{legacy-maliev-catalog-service.bindings.http.url}'
 $catalogEndpoint = Get-RequiredEnvironmentValue $bff $bffName 'Services__Catalog'
