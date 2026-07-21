@@ -720,13 +720,13 @@ var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legac
     .WaitFor(catalog)
     .WaitFor(order)
     .WaitFor(employee)
-    .WaitFor(quotation)
-    .WaitFor(customer)
-    .WaitFor(procurement)
-    .WaitFor(document)
-    .WaitFor(file)
-    .WaitFor(notification)
-    .WaitFor(accounting);
+    .WaitFor(quotation);
+    // Customer/Procurement/Document/File/Notification/Accounting are intentionally not
+    // WaitFor'd: login only needs Auth. Hard-waiting the Bff on every downstream page's
+    // service would reintroduce "login doesn't work locally" whenever any one of those six
+    // is slow to start, which is the exact class of bug this AppHost is meant to avoid.
+    // WithReference above still gives the Bff their URLs; slow/late services just mean
+    // Customers/Suppliers/Purchase Orders/Finances/Invoices load late, not that login blocks.
 
 builder.Build().Run();
 

@@ -704,10 +704,13 @@ public sealed class AppHostSourceContractTests
                 StringComparison.Ordinal);
         }
 
+        // These six are intentionally WithReference-only, not WaitFor: login only needs Auth,
+        // and hard-waiting the Bff on every downstream page's service would reintroduce
+        // "login doesn't work locally" whenever any one of them is slow to start.
         foreach (var resourceVariable in new[] { "customer", "procurement", "document", "file", "notification", "accounting" })
         {
             Assert.Contains($".WithReference({resourceVariable})", bff, StringComparison.Ordinal);
-            Assert.Contains($".WaitFor({resourceVariable})", bff, StringComparison.Ordinal);
+            Assert.DoesNotContain($".WaitFor({resourceVariable})", bff, StringComparison.Ordinal);
         }
     }
 
