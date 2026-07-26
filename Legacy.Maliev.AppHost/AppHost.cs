@@ -182,11 +182,11 @@ var document = builder.AddProject<Projects.Legacy_Maliev_DocumentService_Api>("l
         url.DisplayText = "Document Scalar";
     });
 
+// Auth (RefreshSessions) is local-only infrastructure with no GKE counterpart (see the
+// comment on CreatePooledDatabaseConnectionString above) — it must always be migrated,
+// even in GKE validation mode, unlike every other workload here which targets real GKE data.
 var authMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-auth-migrations")
     .WithArgs("auth")
-    // Auth (RefreshSessions) is local-only infrastructure with no GKE counterpart (see the
-    // comment on CreatePooledDatabaseConnectionString above) — it must always be migrated,
-    // even in GKE validation mode, unlike every other workload here which targets real GKE data.
     .WithEnvironment("LEGACY_SKIP_MIGRATE", "false")
     .WithEnvironment("ConnectionStrings__RefreshSessions", authDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
