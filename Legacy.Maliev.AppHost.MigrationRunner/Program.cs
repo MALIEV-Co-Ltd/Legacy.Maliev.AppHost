@@ -227,7 +227,6 @@ static async Task MigrateAsync(string workload, string connectionString)
             await using (var context = new CareerDbContext(careerOptions))
             {
                 await context.Database.MigrateAsync();
-                await SeedCareerAsync(context);
             }
 
             break;
@@ -274,51 +273,21 @@ static async Task MigrateAsync(string workload, string connectionString)
     }
 }
 
-static async Task SeedCareerAsync(CareerDbContext context)
-{
-    var level = await context.Levels.SingleOrDefaultAsync(row => row.Name == "Experienced");
-    if (level is null)
-    {
-        level = new JobLevel
-        {
-            Name = "Experienced",
-            Description = "Local Aspire verification level",
-            CreatedDate = new DateTime(2026, 7, 15, 0, 0, 0, DateTimeKind.Utc),
-        };
-        context.Levels.Add(level);
-        await context.SaveChangesAsync();
-    }
-
-    if (!await context.Offers.AnyAsync(row => row.Title == "Local Manufacturing Engineer"))
-    {
-        context.Offers.Add(new JobOffer
-        {
-            LevelId = level.Id,
-            Title = "Local Manufacturing Engineer",
-            Introduction = "Local Aspire career boundary verification",
-            Description = "Support digital manufacturing projects.",
-            Prerequisites = "Manufacturing experience",
-            WhatWeOffer = "Independent engineering work",
-            Location = "Nonthaburi",
-            IsFilled = false,
-            CreatedDate = new DateTime(2026, 7, 15, 0, 0, 0, DateTimeKind.Utc),
-        });
-        await context.SaveChangesAsync();
-    }
-}
-
 static async Task SeedQuotationAsync(QuotationDbContext context)
 {
     var quotation = await context.Quotations.SingleOrDefaultAsync(row =>
         row.CustomerId == 1 && row.Comment == "Local CNC quotation");
     if (quotation is null)
     {
-        var timestamp = new DateTime(2026, 7, 15, 0, 0, 0, DateTimeKind.Utc);
+        // The legacy quotation schema intentionally retains timestamp without time zone.
+        // Npgsql rejects UTC DateTime values for that column type, so keep the seeded
+        // wall-clock value explicitly unspecified at this compatibility boundary.
+        var timestamp = new DateTime(2026, 7, 15, 0, 0, 0, DateTimeKind.Unspecified);
         quotation = new Quotation
         {
             CustomerId = 1,
             Period = 30,
-            ExpirationDate = new DateTime(2026, 12, 31, 0, 0, 0, DateTimeKind.Utc),
+            ExpirationDate = new DateTime(2026, 12, 31, 0, 0, 0, DateTimeKind.Unspecified),
             Subtotal = 100,
             Vat = 7,
             Total = 107,
