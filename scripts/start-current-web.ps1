@@ -46,11 +46,11 @@ function Get-PortOwner {
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $appHostProject = Join-Path $repositoryRoot 'Legacy.Maliev.AppHost\Legacy.Maliev.AppHost.csproj'
+$workspaceRoot = Split-Path -Parent $repositoryRoot
 if (-not $WebRepositoryRoot) {
     $gitCommonDirectory = Invoke-Git -RepositoryRoot $repositoryRoot -Arguments @(
         'rev-parse', '--path-format=absolute', '--git-common-dir')
     $appHostCheckoutRoot = Split-Path -Parent $gitCommonDirectory
-    $workspaceRoot = Split-Path -Parent $appHostCheckoutRoot
     $WebRepositoryRoot = Join-Path $workspaceRoot 'Legacy.Maliev.Web'
 }
 
@@ -83,6 +83,20 @@ $env:LEGACY_WEB_PORT = $WebPort.ToString([Globalization.CultureInfo]::InvariantC
 [Environment]::SetEnvironmentVariable('Parameters__legacy-postgres-username', 'legacy_local')
 [Environment]::SetEnvironmentVariable('Parameters__legacy-postgres-password', [guid]::NewGuid().ToString('N'))
 [Environment]::SetEnvironmentVariable('Parameters__legacy-redis-password', [guid]::NewGuid().ToString('N'))
+
+# The local Aspire review uses the browser-restricted Google Maps key already kept in
+# the workspace's untracked shared-secrets file.  Prefer an explicitly supplied process
+# value, then load only the key field from that file.  Never print or commit the value;
+# leaving it unresolved keeps the Web resource fail-closed when the local secret is absent.
+$googleMapsParameterName = 'Parameters__legacy-google-maps-api-key'
+$googleMapsApiKey = [Environment]::GetEnvironmentVariable($googleMapsParameterName)
+$googleMapsSecretPath = Join-Path $workspaceRoot 'Maliev.Aspire\Maliev.Aspire.AppHost\sharedsecrets.json'
+if ([string]::IsNullOrWhiteSpace($googleMapsApiKey) -and (Test-Path -LiteralPath $googleMapsSecretPath -PathType Leaf)) {
+    $googleMapsApiKey = (Get-Content -LiteralPath $googleMapsSecretPath -Raw | ConvertFrom-Json).GoogleMaps.BrowserApiKey
+}
+if (-not [string]::IsNullOrWhiteSpace($googleMapsApiKey)) {
+    [Environment]::SetEnvironmentVariable($googleMapsParameterName, $googleMapsApiKey)
+}
 
 Write-Host "Building Legacy Web source before port inspection: repo=$repository branch=$branch commit=$commitBeforeBuild project=$webProject"
 & dotnet build $appHostProject --configuration $Configuration --verbosity minimal `
