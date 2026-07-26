@@ -96,6 +96,7 @@ public sealed class LegacyTopologyTests
     {
         string[] expected =
         [
+            "legacy-auth.google-identity.exchange",
             "legacy-auth.customer-identities.create",
             "legacy-auth.employee-identities.create",
             "legacy-auth.employee-self-service",

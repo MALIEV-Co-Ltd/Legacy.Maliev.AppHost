@@ -3,6 +3,8 @@ using Google.Cloud.SecretManager.V1;
 using Legacy.Maliev.AppHost.Topology;
 
 var legacyWebIdentity = LegacyWebLaunchIdentity.Capture();
+var googleIdentityClientIdFromProcess = Environment.GetEnvironmentVariable("MALIEV_GOOGLE_IDENTITY_CLIENT_ID") ?? string.Empty;
+var googleIdentityHostedDomainFromProcess = Environment.GetEnvironmentVariable("MALIEV_GOOGLE_IDENTITY_HOSTED_DOMAIN") ?? "maliev.com";
 // Captured before sanitization strips it (LocalEnvironmentPolicy.SanitizeCurrentProcess only
 // preserves a small allowlist — LEGACY_GKE_VALIDATION isn't in it, same reason
 // LegacyWebLaunchIdentity.Capture() above must also run first).
@@ -53,6 +55,11 @@ var postgresUsername = builder.AddParameter("legacy-postgres-username");
 var postgresPassword = builder.AddParameter("legacy-postgres-password", secret: true);
 var redisPassword = builder.AddParameter("legacy-redis-password", secret: true);
 var googleMapsApiKey = builder.AddParameter("legacy-google-maps-api-key", secret: true);
+var googleIdentityClientId = builder.Configuration["Authentication:Google:ClientId"] ?? googleIdentityClientIdFromProcess;
+var googleIdentityHostedDomain = builder.Configuration["GoogleIdentity:Employee:HostedDomain"]
+    ?? googleIdentityHostedDomainFromProcess;
+var googleIdentityAudience = builder.Configuration["GoogleIdentity:Employee:Audiences:intranet"]
+    ?? googleIdentityClientId;
 var jwt = LocalJwtKeyMaterial.Create();
 var webCredential = LocalServiceCredential.Create();
 var intranetCredential = LocalServiceCredential.Create();
@@ -215,6 +222,8 @@ var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>("legacy-ma
     .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
     .WithEnvironment("Jwt__PrivateKeyPem", jwt.PrivateKeyPem)
     .WithEnvironment("Jwt__KeyId", LegacyTopology.JwtKeyId)
+    .WithEnvironment("GoogleIdentity__Employee__HostedDomain", googleIdentityHostedDomain)
+    .WithEnvironment("GoogleIdentity__Employee__Audiences__intranet", googleIdentityAudience)
     .WithEnvironment("ServiceClients__Clients__legacy-web__SecretSha256", webCredential.SecretSha256)
     .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__0", "legacy-auth.customer-self-service")
     .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__1", "legacy-customer.customers.create")
@@ -796,6 +805,7 @@ var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legac
     .WithEnvironment("Jwt__KeyId", LegacyTopology.JwtKeyId)
     .WithEnvironment("ServiceAuthentication__ClientId", "legacy-intranet")
     .WithEnvironment("ServiceAuthentication__ClientSecret", intranetCredential.Secret)
+    .WithEnvironment("Authentication__Google__ClientId", googleIdentityClientId)
     .WithEnvironment("GoogleMaps__BrowserApiKey", googleMapsApiKey)
     .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
     .WithEnvironment("Services__Catalog", catalog.GetEndpoint("http"))
