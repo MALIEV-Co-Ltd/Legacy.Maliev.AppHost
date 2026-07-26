@@ -796,6 +796,7 @@ var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legac
     .WithEnvironment("Jwt__KeyId", LegacyTopology.JwtKeyId)
     .WithEnvironment("ServiceAuthentication__ClientId", "legacy-intranet")
     .WithEnvironment("ServiceAuthentication__ClientSecret", intranetCredential.Secret)
+    .WithEnvironment("GoogleMaps__BrowserApiKey", googleMapsApiKey)
     .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
     .WithEnvironment("Services__Catalog", catalog.GetEndpoint("http"))
     .WithEnvironment("Services__Order", order.GetEndpoint("http"))
