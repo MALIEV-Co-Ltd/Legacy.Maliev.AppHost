@@ -52,6 +52,7 @@ static Dictionary<string, string> LoadGkeValidationSecrets()
 var postgresUsername = builder.AddParameter("legacy-postgres-username");
 var postgresPassword = builder.AddParameter("legacy-postgres-password", secret: true);
 var redisPassword = builder.AddParameter("legacy-redis-password", secret: true);
+var googleMapsApiKey = builder.AddParameter("legacy-google-maps-api-key", secret: true);
 var jwt = LocalJwtKeyMaterial.Create();
 var webCredential = LocalServiceCredential.Create();
 var intranetCredential = LocalServiceCredential.Create();
@@ -707,6 +708,7 @@ builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WithEnvironment("DataProtection__CertificatePassword", dataProtectionCertificate.Password)
     .WithEnvironment("ServiceAuthentication__ClientId", "legacy-web")
     .WithEnvironment("ServiceAuthentication__ClientSecret", webCredential.Secret)
+    .WithEnvironment("GoogleMaps__EmbedApiKey", googleMapsApiKey)
     .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
     .WithEnvironment("Services__Customer", customer.GetEndpoint("http"))
     .WithEnvironment("Services__Notification", notification.GetEndpoint("http"))

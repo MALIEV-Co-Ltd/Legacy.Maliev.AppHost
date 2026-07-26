@@ -374,6 +374,8 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("ConnectionStrings__redis", source, StringComparison.Ordinal);
         Assert.Contains("ServiceAuthentication__ClientId", source, StringComparison.Ordinal);
         Assert.Contains("ServiceAuthentication__ClientSecret", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-google-maps-api-key", source, StringComparison.Ordinal);
+        Assert.Contains("GoogleMaps__EmbedApiKey", source, StringComparison.Ordinal);
         Assert.Contains("ServiceClients__Clients__legacy-web__SecretSha256", source, StringComparison.Ordinal);
         Assert.Contains("DataProtection__CertificatePfxBase64", source, StringComparison.Ordinal);
         Assert.Contains("DataProtection__CertificatePassword", source, StringComparison.Ordinal);
