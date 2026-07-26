@@ -700,6 +700,7 @@ var accounting = builder.AddProject<Projects.Legacy_Maliev_AccountingService_Api
 builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WithHttpEndpoint(port: legacyWebIdentity.Port, name: "http")
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+    .WithEnvironment("DOTNET_ENVIRONMENT", "Development")
     .WithEnvironment("BuildIdentity__Repository", legacyWebIdentity.Repository)
     .WithEnvironment("BuildIdentity__Branch", legacyWebIdentity.Branch)
     .WithEnvironment("BuildIdentity__Commit", legacyWebIdentity.Commit)
