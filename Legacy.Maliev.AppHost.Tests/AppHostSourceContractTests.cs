@@ -992,6 +992,33 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("return;", runnerSource[guardIndex..workloadIndex], StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void AuthMigrationRunner_AlwaysMigratesRegardlessOfGkeValidationMode()
+    {
+        // Auth (RefreshSessions) is local-only infrastructure with no GKE counterpart — unlike
+        // every other migration runner, it must never be skipped, even when gkeValidationMode is
+        // true. Regression guard: this previously left the local Auth database permanently
+        // unmigrated in GKE validation mode, so every login succeeded at credential validation
+        // and then crashed with DbUpdateException writing the refresh session (missing table).
+        var root = FindRepositoryRoot();
+        var appHostSource = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
+
+        var authMigrationsIndex = appHostSource.IndexOf(
+            "\"legacy-auth-migrations\"", StringComparison.Ordinal);
+        Assert.True(authMigrationsIndex >= 0, "Expected the legacy-auth-migrations resource declaration.");
+
+        var nextResourceIndex = appHostSource.IndexOf(
+            "var customerIdentityMigrations", authMigrationsIndex, StringComparison.Ordinal);
+        Assert.True(nextResourceIndex > authMigrationsIndex, "Expected the next resource declaration after auth migrations.");
+
+        var authMigrationsBlock = appHostSource[authMigrationsIndex..nextResourceIndex];
+        Assert.Contains(
+            ".WithEnvironment(\"LEGACY_SKIP_MIGRATE\", \"false\")",
+            authMigrationsBlock,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("gkeValidationMode", authMigrationsBlock, StringComparison.Ordinal);
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

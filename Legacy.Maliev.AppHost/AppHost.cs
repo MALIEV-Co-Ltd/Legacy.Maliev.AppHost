@@ -157,6 +157,8 @@ var country = builder.AddProject<Projects.Legacy_Maliev_CountryService_Api>("leg
     .WaitFor(pgbouncer)
     .WaitFor(redis);
 
+countryMigrations.WithParentRelationship(country.Resource);
+
 var document = builder.AddProject<Projects.Legacy_Maliev_DocumentService_Api>("legacy-maliev-document-service")
     .WithHttpEndpoint(name: "http")
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
@@ -175,7 +177,10 @@ var document = builder.AddProject<Projects.Legacy_Maliev_DocumentService_Api>("l
 
 var authMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-auth-migrations")
     .WithArgs("auth")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
+    // Auth (RefreshSessions) is local-only infrastructure with no GKE counterpart (see the
+    // comment on CreatePooledDatabaseConnectionString above) — it must always be migrated,
+    // even in GKE validation mode, unlike every other workload here which targets real GKE data.
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", "false")
     .WithEnvironment("ConnectionStrings__RefreshSessions", authDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -261,6 +266,10 @@ for (var permissionIndex = 0; permissionIndex < LegacyTopology.AccountingPermiss
         $"ServiceClients__Clients__legacy-accounting__Permissions__{permissionIndex}",
         LegacyTopology.AccountingPermissions[permissionIndex]);
 }
+authMigrations.WithParentRelationship(auth.Resource);
+customerIdentityMigrations.WithParentRelationship(auth.Resource);
+employeeIdentityMigrations.WithParentRelationship(auth.Resource);
+
 
 var customerDatabase = databases["Customer"];
 var customerMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-customer-migrations")
@@ -297,6 +306,8 @@ var customer = builder.AddProject<Projects.Legacy_Maliev_CustomerService_Api>(
     .WaitFor(redis)
     .WaitFor(auth);
 
+customerMigrations.WithParentRelationship(customer.Resource);
+
 var employeeDatabase = databases["Employee"];
 var employeeMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-employee-migrations")
     .WithArgs("employee")
@@ -332,6 +343,8 @@ var employee = builder.AddProject<Projects.Legacy_Maliev_EmployeeService_Api>(
     .WaitFor(redis)
     .WaitFor(auth);
 
+employeeMigrations.WithParentRelationship(employee.Resource);
+
 var catalogDatabase = databases["Material"];
 var catalogMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-catalog-migrations")
     .WithArgs("catalog")
@@ -365,6 +378,8 @@ var catalog = builder.AddProject<Projects.Legacy_Maliev_CatalogService_Api>(
     .WaitFor(pgbouncer)
     .WaitFor(redis)
     .WaitFor(auth);
+
+catalogMigrations.WithParentRelationship(catalog.Resource);
 
 var supplierDatabase = databases["Supplier"];
 var purchaseOrderDatabase = databases["PurchaseOrder"];
@@ -410,6 +425,9 @@ var procurement = builder.AddProject<Projects.Legacy_Maliev_ProcurementService_A
     .WaitFor(redis)
     .WaitFor(auth);
 
+supplierMigrations.WithParentRelationship(procurement.Resource);
+purchaseOrderMigrations.WithParentRelationship(procurement.Resource);
+
 var fileDatabase = databases["Upload"];
 var fileMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-file-migrations")
     .WithArgs("file")
@@ -443,6 +461,8 @@ var file = builder.AddProject<Projects.Legacy_Maliev_FileService_Api>(
     .WaitFor(pgbouncer)
     .WaitFor(redis)
     .WaitFor(auth);
+
+fileMigrations.WithParentRelationship(file.Resource);
 
 var notification = builder.AddProject<Projects.Legacy_Maliev_NotificationService_Api>(
         "legacy-maliev-notification-service",
@@ -508,6 +528,9 @@ var order = builder.AddProject<Projects.Legacy_Maliev_OrderService_Api>(
     .WaitFor(redis)
     .WaitFor(auth);
 
+orderMigrations.WithParentRelationship(order.Resource);
+orderStatusMigrations.WithParentRelationship(order.Resource);
+
 var quotationDatabase = databases["Quotation"];
 var quotationRequestDatabase = databases["QuotationRequest"];
 var quotationMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
@@ -561,6 +584,9 @@ var quotation = builder.AddProject<Projects.Legacy_Maliev_QuotationService_Api>(
     .WaitFor(auth)
     .WaitFor(order);
 
+quotationMigrations.WithParentRelationship(quotation.Resource);
+quotationRequestMigrations.WithParentRelationship(quotation.Resource);
+
 var careerDatabase = databases["JobOffers"];
 var careerMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-career-migrations")
     .WithArgs("career")
@@ -593,6 +619,8 @@ var career = builder.AddProject<Projects.Legacy_Maliev_CareerService_Api>(
     .WaitFor(pgbouncer)
     .WaitFor(redis);
 
+careerMigrations.WithParentRelationship(career.Resource);
+
 var contactDatabase = databases["Message"];
 var contactMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-contact-migrations")
     .WithArgs("contact")
@@ -624,6 +652,8 @@ var contact = builder.AddProject<Projects.Legacy_Maliev_ContactService_Api>(
     .WaitForCompletion(contactMigrations)
     .WaitFor(pgbouncer)
     .WaitFor(redis);
+
+contactMigrations.WithParentRelationship(contact.Resource);
 
 var paymentDatabase = databases["Payment"];
 var invoiceDatabase = databases["Invoice"];
@@ -696,6 +726,10 @@ var accounting = builder.AddProject<Projects.Legacy_Maliev_AccountingService_Api
     .WaitFor(notification)
     .WaitFor(customer)
     .WaitFor(employee);
+
+paymentMigrations.WithParentRelationship(accounting.Resource);
+invoiceMigrations.WithParentRelationship(accounting.Resource);
+receiptMigrations.WithParentRelationship(accounting.Resource);
 
 builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WithHttpEndpoint(port: legacyWebIdentity.Port, name: "http")
