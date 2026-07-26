@@ -102,6 +102,7 @@ public sealed class LegacyTopologyTests
             "legacy-customer.customers.read",
             "legacy-customer.customers.list",
             "legacy-customer.customers.create",
+            "legacy-customer.customers.update",
             "legacy-customer.customers.delete",
             "legacy-employee.employees.read",
             "legacy-employee.employees.list",
