@@ -5,6 +5,8 @@ using Legacy.Maliev.AppHost.Topology;
 var legacyWebIdentity = LegacyWebLaunchIdentity.Capture();
 var googleIdentityClientIdFromProcess = Environment.GetEnvironmentVariable("MALIEV_GOOGLE_IDENTITY_CLIENT_ID") ?? string.Empty;
 var googleIdentityHostedDomainFromProcess = Environment.GetEnvironmentVariable("MALIEV_GOOGLE_IDENTITY_HOSTED_DOMAIN") ?? "maliev.com";
+var recaptchaSiteKeyFromProcess = Environment.GetEnvironmentVariable("MALIEV_RECAPTCHA_SITE_KEY") ?? string.Empty;
+var recaptchaProjectIdFromProcess = Environment.GetEnvironmentVariable("MALIEV_RECAPTCHA_PROJECT_ID") ?? "maliev-website";
 // Captured before sanitization strips it (LocalEnvironmentPolicy.SanitizeCurrentProcess only
 // preserves a small allowlist — LEGACY_GKE_VALIDATION isn't in it, same reason
 // LegacyWebLaunchIdentity.Capture() above must also run first).
@@ -80,6 +82,12 @@ if (gkeValidationMode)
 
 var webGoogleMapsEmbedApiKey = builder.AddParameter("legacy-web-google-maps-embed-api-key", secret: true);
 var intranetGoogleMapsBrowserApiKey = builder.AddParameter("legacy-intranet-google-maps-browser-api-key", secret: true);
+var webRecaptchaSiteKey = gkeValidationMode
+    ? RequireGkeSecret(gkeSecrets!, "legacy-web-recaptcha-site-key")
+    : recaptchaSiteKeyFromProcess;
+var webRecaptchaProjectId = gkeValidationMode
+    ? RequireGkeSecret(gkeSecrets!, "legacy-web-recaptcha-project-id")
+    : recaptchaProjectIdFromProcess;
 var googleIdentityClientId = gkeValidationMode
     ? RequireGkeSecret(gkeSecrets!, "legacy-google-identity-client-id")
     : builder.Configuration["Authentication:Google:ClientId"] ?? googleIdentityClientIdFromProcess;
@@ -104,6 +112,7 @@ var intranetCredential = LocalServiceCredential.Create();
 var quotationCredential = LocalServiceCredential.Create();
 var accountingCredential = LocalServiceCredential.Create();
 var dataProtectionCertificate = LocalDataProtectionCertificate.Create();
+var intranetDataProtectionCertificate = LocalDataProtectionCertificate.Create();
 
 if (gkeValidationMode)
 {
@@ -129,6 +138,9 @@ if (gkeValidationMode)
     dataProtectionCertificate = LocalDataProtectionCertificate.FromSecrets(
         RequireGkeSecret(gkeSecrets!, "legacy-web-data-protection-certificate-pfx-base64"),
         RequireGkeSecret(gkeSecrets!, "legacy-web-data-protection-certificate-password"));
+    intranetDataProtectionCertificate = LocalDataProtectionCertificate.FromSecrets(
+        RequireGkeSecret(gkeSecrets!, "legacy-intranet-data-protection-certificate-pfx-base64"),
+        RequireGkeSecret(gkeSecrets!, "legacy-intranet-data-protection-certificate-password"));
 }
 
 var postgres = builder.AddPostgres("legacy-postgres-main", postgresUsername, postgresPassword)
@@ -814,6 +826,8 @@ builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WithEnvironment("DataProtection__CertificatePassword", dataProtectionCertificate.Password)
     .WithEnvironment("ServiceAuthentication__ClientId", "legacy-web")
     .WithEnvironment("ServiceAuthentication__ClientSecret", webCredential.Secret)
+    .WithEnvironment("Recaptcha__SiteKey", webRecaptchaSiteKey)
+    .WithEnvironment("Recaptcha__ProjectId", webRecaptchaProjectId)
     .WithEnvironment("GoogleMaps__EmbedApiKey", webGoogleMapsEmbedApiKey)
     .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
     .WithEnvironment("Services__Customer", customer.GetEndpoint("http"))
@@ -859,8 +873,8 @@ var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legac
     .WithHttpsEndpoint(name: "https")
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
-    .WithEnvironment("DataProtection__CertificatePfxBase64", dataProtectionCertificate.PfxBase64)
-    .WithEnvironment("DataProtection__CertificatePassword", dataProtectionCertificate.Password)
+    .WithEnvironment("DataProtection__CertificatePfxBase64", intranetDataProtectionCertificate.PfxBase64)
+    .WithEnvironment("DataProtection__CertificatePassword", intranetDataProtectionCertificate.Password)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", jwtIssuer)
     .WithEnvironment("Jwt__Audience", jwtAudience)

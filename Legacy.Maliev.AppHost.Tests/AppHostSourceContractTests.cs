@@ -668,11 +668,11 @@ public sealed class AppHostSourceContractTests
         Assert.Contains(".WaitFor(catalog)", bff, StringComparison.Ordinal);
         Assert.DoesNotContain("Jwt__PrivateKeyPem", bff, StringComparison.Ordinal);
         Assert.Contains(
-            "WithEnvironment(\"DataProtection__CertificatePfxBase64\", dataProtectionCertificate.PfxBase64)",
+            "WithEnvironment(\"DataProtection__CertificatePfxBase64\", intranetDataProtectionCertificate.PfxBase64)",
             bff,
             StringComparison.Ordinal);
         Assert.Contains(
-            "WithEnvironment(\"DataProtection__CertificatePassword\", dataProtectionCertificate.Password)",
+            "WithEnvironment(\"DataProtection__CertificatePassword\", intranetDataProtectionCertificate.Password)",
             bff,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -765,7 +765,7 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
-    public void AppHost_ProjectsExistingDataProtectionCertificateOnlyToWebAndTheIntranetBff()
+    public void AppHost_ProjectsServiceSpecificDataProtectionCertificatesOnlyToWebAndTheIntranetBff()
     {
         var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
         var web = ExtractResource(
@@ -778,22 +778,55 @@ public sealed class AppHostSourceContractTests
             "builder.Build().Run()");
 
         // The Razor Pages compatibility host (formerly a 3rd DataProtection cert consumer) is
-        // dormant locally, so only Web and the Bff project the cert today.
-        foreach (var resource in new[] { web, bff })
-        {
-            Assert.Contains(
-                "WithEnvironment(\"DataProtection__CertificatePfxBase64\", dataProtectionCertificate.PfxBase64)",
-                resource,
-                StringComparison.Ordinal);
-            Assert.Contains(
-                "WithEnvironment(\"DataProtection__CertificatePassword\", dataProtectionCertificate.Password)",
-                resource,
-                StringComparison.Ordinal);
-        }
+        // dormant locally. Web and the BFF must still have isolated key material so a browser
+        // cookie minted for one boundary cannot be replayed at the other.
+        Assert.Contains(
+            "WithEnvironment(\"DataProtection__CertificatePfxBase64\", dataProtectionCertificate.PfxBase64)",
+            web,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WithEnvironment(\"DataProtection__CertificatePassword\", dataProtectionCertificate.Password)",
+            web,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WithEnvironment(\"DataProtection__CertificatePfxBase64\", intranetDataProtectionCertificate.PfxBase64)",
+            bff,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WithEnvironment(\"DataProtection__CertificatePassword\", intranetDataProtectionCertificate.Password)",
+            bff,
+            StringComparison.Ordinal);
 
         Assert.Equal(2, source.Split("WithEnvironment(\"DataProtection__CertificatePfxBase64\"", StringSplitOptions.None).Length - 1);
         Assert.Equal(2, source.Split("WithEnvironment(\"DataProtection__CertificatePassword\"", StringSplitOptions.None).Length - 1);
         Assert.Contains("WithReference(redis)", bff, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AppHost_ProjectsWebRecaptchaConfigurationOnlyToWeb()
+    {
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var web = ExtractResource(
+            source,
+            "builder.AddProject<Projects.Legacy_Maliev_Web>",
+            "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>");
+        var bff = ExtractResource(
+            source,
+            "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>",
+            "builder.Build().Run()");
+
+        Assert.Contains("legacy-web-recaptcha-site-key", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-web-recaptcha-project-id", source, StringComparison.Ordinal);
+        Assert.Contains(
+            "WithEnvironment(\"Recaptcha__SiteKey\", webRecaptchaSiteKey)",
+            web,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WithEnvironment(\"Recaptcha__ProjectId\", webRecaptchaProjectId)",
+            web,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Recaptcha__SiteKey", bff, StringComparison.Ordinal);
+        Assert.DoesNotContain("Recaptcha__ProjectId", bff, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1031,6 +1064,10 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("SetGkeAspireParameter", source, StringComparison.Ordinal);
         Assert.Contains("legacy-web-google-maps-embed-api-key", source, StringComparison.Ordinal);
         Assert.Contains("legacy-intranet-google-maps-browser-api-key", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-web-recaptcha-site-key", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-web-recaptcha-project-id", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-intranet-data-protection-certificate-pfx-base64", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-intranet-data-protection-certificate-password", source, StringComparison.Ordinal);
         Assert.Contains("legacy-jwt-private-key", source, StringComparison.Ordinal);
         Assert.Contains("legacy-jwt-public-key", source, StringComparison.Ordinal);
         Assert.Contains("legacy-jwt-key-id", source, StringComparison.Ordinal);
