@@ -147,20 +147,6 @@ jobs:
           ref: 12a5d74a13dbe72ff72bb704f3ac09547aca6920
           path: Legacy.Maliev.AccountingService
           persist-credentials: false
-      - name: Check out service defaults
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        with:
-          repository: MALIEV-Co-Ltd/Maliev.Aspire
-          ref: 979e1bcb3c3ed9c414f652c94b56297543c031b2
-          path: Maliev.Aspire
-          persist-credentials: false
-      - name: Check out messaging contracts
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        with:
-          repository: MALIEV-Co-Ltd/Maliev.MessagingContracts
-          ref: 9c41d6524a485bf03ba022b8170f47366ab1a77a
-          path: Maliev.MessagingContracts
-          persist-credentials: false
       - name: Validate .NET solution
         uses: MALIEV-Co-Ltd/Legacy.Maliev.Workflows/actions/dotnet-validate@6017816fa67f369d785ed30794f002cfd6299af7
         with:

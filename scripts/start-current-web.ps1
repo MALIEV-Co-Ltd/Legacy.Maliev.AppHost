@@ -101,7 +101,7 @@ foreach ($parameterName in $googleMapsParameterNames) {
         break
     }
 }
-$googleMapsSecretPath = Join-Path $workspaceRoot 'Maliev.Aspire\Maliev.Aspire.AppHost\sharedsecrets.json'
+$googleMapsSecretPath = Join-Path $workspaceRoot 'Legacy.Maliev.AppHost\sharedsecrets.json'
 if ([string]::IsNullOrWhiteSpace($googleMapsApiKey) -and (Test-Path -LiteralPath $googleMapsSecretPath -PathType Leaf)) {
     $googleMapsApiKey = (Get-Content -LiteralPath $googleMapsSecretPath -Raw | ConvertFrom-Json).GoogleMaps.BrowserApiKey
 }

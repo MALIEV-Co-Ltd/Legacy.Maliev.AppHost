@@ -82,8 +82,8 @@ cluster and `maliev-legacy` namespace.
   `B:\maliev\Legacy.Maliev.CareerService`, `B:\maliev\Legacy.Maliev.ContactService`,
   `B:\maliev\Legacy.Maliev.AccountingService`, `B:\maliev\Legacy.Maliev.Web`,
   `B:\maliev\Legacy.Maliev.Intranet`,
-  `B:\maliev\Maliev.Aspire`, and
-  `B:\maliev\Maliev.MessagingContracts`.
+  `B:\maliev\Legacy.Maliev.ServiceDefaults`, and
+  `B:\maliev\Legacy.Maliev.CompatibilityContracts`.
 
 ## Verify locally
 
