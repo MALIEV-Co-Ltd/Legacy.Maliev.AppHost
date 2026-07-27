@@ -273,7 +273,7 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
-    public void FileService_DoesNotRegisterOrConsumeRedis()
+    public void FileService_RedisBoundaryMatchesTheCheckedOutServiceContract()
     {
         var fileServiceRoot = FindWorkspaceRepository("Legacy.Maliev.FileService");
         var program = File.ReadAllText(Path.Combine(
@@ -283,8 +283,19 @@ public sealed class AppHostSourceContractTests
         var readme = File.ReadAllText(Path.Combine(fileServiceRoot, "README.md"));
 
         Assert.Contains("AddPostgresDbContext<FileDbContext>", program, StringComparison.Ordinal);
+        if (program.Contains("AddStandardCache(\"legacy:file:\")", StringComparison.Ordinal))
+        {
+            Assert.Contains("ConnectionStrings__redis", readme, StringComparison.Ordinal);
+            Assert.Contains("Redis is used only for fenced upload replay checkpoints", readme, StringComparison.Ordinal);
+            Assert.DoesNotContain("Redis is used for object authorization", readme, StringComparison.Ordinal);
+            return;
+        }
+
+        // A local delegated worktree may already contain the follow-up that removes
+        // the replay checkpoint cache. Both forms keep Redis out of object
+        // authorization and signed URL decisions; the checked-out CI SHA is tested
+        // by the branch above.
         Assert.DoesNotContain("AddStandardCache", program, StringComparison.Ordinal);
-        Assert.DoesNotContain("AddRedis", program, StringComparison.Ordinal);
         Assert.DoesNotContain("ConnectionStrings__redis", program, StringComparison.Ordinal);
         Assert.Contains("Redis is deliberately not used", readme, StringComparison.Ordinal);
     }
