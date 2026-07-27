@@ -31,11 +31,36 @@ public sealed record LocalJwtKeyMaterial(string PrivateKeyBase64, string PublicK
 
         try
         {
-            _ = Convert.FromBase64String(normalizedPublicKeyBase64);
+            var publicKeyPem = Encoding.UTF8.GetString(Convert.FromBase64String(normalizedPublicKeyBase64));
+            using var privateKey = RSA.Create();
+            using var publicKey = RSA.Create();
+            privateKey.ImportFromPem(normalizedPrivateKeyPem);
+            publicKey.ImportFromPem(publicKeyPem);
+            if (privateKey.KeySize != publicKey.KeySize)
+            {
+                throw new CryptographicException("JWT key sizes do not match.");
+            }
+
+            var proof = "legacy-gke-validation"u8.ToArray();
+            var signature = privateKey.SignData(
+                proof,
+                HashAlgorithmName.SHA256,
+                RSASignaturePadding.Pkcs1);
+            if (!publicKey.VerifyData(
+                    proof,
+                    signature,
+                    HashAlgorithmName.SHA256,
+                    RSASignaturePadding.Pkcs1))
+            {
+                throw new CryptographicException("JWT public and private keys do not match.");
+            }
         }
-        catch (FormatException exception)
+        catch (Exception exception) when (
+            exception is FormatException
+            or ArgumentException
+            or CryptographicException)
         {
-            throw new InvalidOperationException("The GKE validation JWT public key is not Base64 PEM.", exception);
+            throw new InvalidOperationException("The GKE validation JWT key material is invalid.", exception);
         }
 
         return new(

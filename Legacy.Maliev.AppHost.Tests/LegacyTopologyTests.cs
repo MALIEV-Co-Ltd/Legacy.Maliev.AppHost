@@ -243,6 +243,16 @@ public sealed class LegacyTopologyTests
     }
 
     [Fact]
+    public void GkeJwtSecretMaterial_RejectsMismatchedKeys()
+    {
+        var first = LocalJwtKeyMaterial.Create();
+        var second = LocalJwtKeyMaterial.Create();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            LocalJwtKeyMaterial.FromSecrets(first.PrivateKeyPem, second.PublicKeyBase64));
+    }
+
+    [Fact]
     public void GkeServiceCredential_HashesOnlyTheSuppliedSecret()
     {
         var material = LocalServiceCredential.FromSecret("gke-validation-test-secret");
@@ -266,6 +276,13 @@ public sealed class LegacyTopologyTests
             X509KeyStorageFlags.EphemeralKeySet);
 
         Assert.True(certificate.HasPrivateKey);
+    }
+
+    [Fact]
+    public void GkeDataProtectionSecretMaterial_RejectsInvalidPayloads()
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            LocalDataProtectionCertificate.FromSecrets("not-base64", "password"));
     }
 
     [Fact]

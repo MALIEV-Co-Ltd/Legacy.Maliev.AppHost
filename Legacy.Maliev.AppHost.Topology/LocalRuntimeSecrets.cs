@@ -46,11 +46,21 @@ public sealed record LocalDataProtectionCertificate(string PfxBase64, string Pas
 
         try
         {
-            _ = Convert.FromBase64String(pfxBase64.Trim());
+            using var certificate = X509CertificateLoader.LoadPkcs12(
+                Convert.FromBase64String(pfxBase64.Trim()),
+                password.Trim(),
+                X509KeyStorageFlags.EphemeralKeySet);
+            if (!certificate.HasPrivateKey)
+            {
+                throw new CryptographicException("The certificate does not contain a private key.");
+            }
         }
-        catch (FormatException exception)
+        catch (Exception exception) when (
+            exception is FormatException
+            or CryptographicException
+            or ArgumentException)
         {
-            throw new InvalidOperationException("The GKE validation data-protection certificate is not Base64.", exception);
+            throw new InvalidOperationException("The GKE validation data-protection certificate is invalid.", exception);
         }
 
         return new(pfxBase64.Trim(), password.Trim());
