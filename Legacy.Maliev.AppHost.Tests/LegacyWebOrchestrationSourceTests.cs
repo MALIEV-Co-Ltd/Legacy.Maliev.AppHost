@@ -69,11 +69,11 @@ public sealed class LegacyWebOrchestrationSourceTests
             "workflows",
             "_build-and-test.yml"));
 
-        Assert.Contains("ref: c9018fe673fcaa77e8253ecc2ed8f646602b2617", workflow, StringComparison.Ordinal);
+        Assert.Contains("ref: 2fc047ee4cb4bd349538190307fcb0eab641a4dd", workflow, StringComparison.Ordinal);
         Assert.Contains("export LEGACY_WEB_PROJECT=", workflow, StringComparison.Ordinal);
         Assert.Contains("export LEGACY_WEB_REPOSITORY=", workflow, StringComparison.Ordinal);
         Assert.Contains("LEGACY_WEB_BRANCH:", workflow, StringComparison.Ordinal);
-        Assert.Contains("LEGACY_WEB_BRANCH: main", workflow, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_WEB_BRANCH: codex/localization-review-20260728", workflow, StringComparison.Ordinal);
         Assert.Contains("export LEGACY_WEB_COMMIT=", workflow, StringComparison.Ordinal);
         Assert.Contains("LEGACY_WEB_PORT:", workflow, StringComparison.Ordinal);
     }
