@@ -110,14 +110,22 @@ if (gkeValidationMode)
     jwt = LocalJwtKeyMaterial.FromSecrets(
         RequireGkeSecret(gkeSecrets!, "legacy-jwt-private-key"),
         RequireGkeSecret(gkeSecrets!, "legacy-jwt-public-key"));
-    webCredential = LocalServiceCredential.FromSecret(
-        RequireGkeSecret(gkeSecrets!, "legacy-web-service-client-secret"));
-    intranetCredential = LocalServiceCredential.FromSecret(
-        RequireGkeSecret(gkeSecrets!, "legacy-intranet-service-client-secret"));
-    quotationCredential = LocalServiceCredential.FromSecret(
-        RequireGkeSecret(gkeSecrets!, "legacy-quotation-service-client-secret"));
-    accountingCredential = LocalServiceCredential.FromSecret(
-        RequireGkeSecret(gkeSecrets!, "legacy-accounting-service-client-secret"));
+    webCredential = LocalServiceCredential.FromSecretPair(
+        RequireGkeSecret(gkeSecrets!, "legacy-web-service-client-secret"),
+        RequireGkeSecret(gkeSecrets!, "legacy-service-client-legacy-web-secret-sha256"),
+        "legacy-web");
+    intranetCredential = LocalServiceCredential.FromSecretPair(
+        RequireGkeSecret(gkeSecrets!, "legacy-intranet-service-client-secret"),
+        RequireGkeSecret(gkeSecrets!, "legacy-service-client-legacy-intranet-secret-sha256"),
+        "legacy-intranet");
+    quotationCredential = LocalServiceCredential.FromSecretPair(
+        RequireGkeSecret(gkeSecrets!, "legacy-quotation-service-client-secret"),
+        RequireGkeSecret(gkeSecrets!, "legacy-service-client-legacy-quotation-secret-sha256"),
+        "legacy-quotation");
+    accountingCredential = LocalServiceCredential.FromSecretPair(
+        RequireGkeSecret(gkeSecrets!, "legacy-accounting-service-client-secret"),
+        RequireGkeSecret(gkeSecrets!, "legacy-service-client-legacy-accounting-secret-sha256"),
+        "legacy-accounting");
     dataProtectionCertificate = LocalDataProtectionCertificate.FromSecrets(
         RequireGkeSecret(gkeSecrets!, "legacy-web-data-protection-certificate-pfx-base64"),
         RequireGkeSecret(gkeSecrets!, "legacy-web-data-protection-certificate-password"));

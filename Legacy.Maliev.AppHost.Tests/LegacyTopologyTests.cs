@@ -264,6 +264,21 @@ public sealed class LegacyTopologyTests
     }
 
     [Fact]
+    public void GkeServiceCredential_RequiresTheConsolidatedAuthHashToMatch()
+    {
+        var credential = LocalServiceCredential.FromSecret("gke-validation-test-secret");
+
+        var matched = LocalServiceCredential.FromSecretPair(
+            credential.Secret,
+            credential.SecretSha256.ToUpperInvariant(),
+            "legacy-web");
+
+        Assert.Equal(credential.SecretSha256, matched.SecretSha256);
+        Assert.Throws<InvalidOperationException>(() =>
+            LocalServiceCredential.FromSecretPair("gke-validation-test-secret", "0".PadLeft(64, '0'), "legacy-web"));
+    }
+
+    [Fact]
     public void GkeDataProtectionSecretMaterial_RemainsImportable()
     {
         var generated = LocalDataProtectionCertificate.Create();

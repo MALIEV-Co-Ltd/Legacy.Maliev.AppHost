@@ -500,7 +500,7 @@ public sealed class AppHostSourceContractTests
             "WithEnvironment(\"ServiceAuthentication__ClientSecret\", accountingCredential.Secret)",
             source,
             StringComparison.Ordinal);
-        Assert.DoesNotContain("legacy-accounting-secret", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("\"legacy-accounting-secret\"", source, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -1030,6 +1030,11 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("legacy-intranet-service-client-secret", source, StringComparison.Ordinal);
         Assert.Contains("legacy-quotation-service-client-secret", source, StringComparison.Ordinal);
         Assert.Contains("legacy-accounting-service-client-secret", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-service-client-legacy-web-secret-sha256", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-service-client-legacy-intranet-secret-sha256", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-service-client-legacy-quotation-secret-sha256", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-service-client-legacy-accounting-secret-sha256", source, StringComparison.Ordinal);
+        Assert.Contains("LocalServiceCredential.FromSecretPair", source, StringComparison.Ordinal);
         Assert.DoesNotContain("Console.WriteLine(gkeSecrets", source, StringComparison.Ordinal);
         Assert.DoesNotContain("Console.WriteLine(webCredential.Secret", source, StringComparison.Ordinal);
     }

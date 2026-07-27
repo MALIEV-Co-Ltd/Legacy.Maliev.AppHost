@@ -22,6 +22,19 @@ public sealed record LocalServiceCredential(string Secret, string SecretSha256)
         return new(normalizedSecret, hash);
     }
 
+    /// <summary>Creates a credential and proves its hash matches the AuthService projection.</summary>
+    public static LocalServiceCredential FromSecretPair(string secret, string expectedHash, string clientId)
+    {
+        var credential = FromSecret(secret);
+        if (string.IsNullOrWhiteSpace(expectedHash)
+            || !StringComparer.OrdinalIgnoreCase.Equals(credential.SecretSha256, expectedHash.Trim()))
+        {
+            throw new InvalidOperationException($"The GKE validation service credential hash for '{clientId}' does not match.");
+        }
+
+        return credential;
+    }
+
     /// <summary>Creates a cryptographically random credential without persisting it.</summary>
     public static LocalServiceCredential Create()
     {
