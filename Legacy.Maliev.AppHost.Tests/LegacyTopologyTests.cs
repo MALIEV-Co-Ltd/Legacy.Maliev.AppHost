@@ -231,6 +231,44 @@ public sealed class LegacyTopologyTests
     }
 
     [Fact]
+    public void GkeJwtSecretMaterial_NormalizesPemWithoutChangingTheKeyPair()
+    {
+        var generated = LocalJwtKeyMaterial.Create();
+        var material = LocalJwtKeyMaterial.FromSecrets(
+            generated.PrivateKeyPem,
+            generated.PublicKeyPem);
+
+        Assert.Equal(generated.PrivateKeyPem, material.PrivateKeyPem);
+        Assert.Equal(generated.PublicKeyPem, material.PublicKeyPem);
+    }
+
+    [Fact]
+    public void GkeServiceCredential_HashesOnlyTheSuppliedSecret()
+    {
+        var material = LocalServiceCredential.FromSecret("gke-validation-test-secret");
+        var expected = Convert.ToHexStringLower(
+            SHA256.HashData(Encoding.UTF8.GetBytes("gke-validation-test-secret")));
+
+        Assert.Equal("gke-validation-test-secret", material.Secret);
+        Assert.Equal(expected, material.SecretSha256);
+    }
+
+    [Fact]
+    public void GkeDataProtectionSecretMaterial_RemainsImportable()
+    {
+        var generated = LocalDataProtectionCertificate.Create();
+        var material = LocalDataProtectionCertificate.FromSecrets(
+            generated.PfxBase64,
+            generated.Password);
+        using var certificate = X509CertificateLoader.LoadPkcs12(
+            Convert.FromBase64String(material.PfxBase64),
+            material.Password,
+            X509KeyStorageFlags.EphemeralKeySet);
+
+        Assert.True(certificate.HasPrivateKey);
+    }
+
+    [Fact]
     public void CreateServiceCredential_ReturnsMatchingRandomSha256Material()
     {
         var first = LocalServiceCredential.Create();

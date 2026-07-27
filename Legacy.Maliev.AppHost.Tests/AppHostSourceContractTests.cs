@@ -618,9 +618,9 @@ public sealed class AppHostSourceContractTests
 
         Assert.Contains("\"legacy-maliev-intranet-bff\"", bff, StringComparison.Ordinal);
         Assert.Contains("WithEnvironment(\"Jwt__PublicKey\", jwt.PublicKeyBase64)", bff, StringComparison.Ordinal);
-        Assert.Contains("WithEnvironment(\"Jwt__Issuer\", LegacyTopology.JwtIssuer)", bff, StringComparison.Ordinal);
-        Assert.Contains("WithEnvironment(\"Jwt__Audience\", LegacyTopology.JwtAudience)", bff, StringComparison.Ordinal);
-        Assert.Contains("WithEnvironment(\"Jwt__KeyId\", LegacyTopology.JwtKeyId)", bff, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"Jwt__Issuer\", jwtIssuer)", bff, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"Jwt__Audience\", jwtAudience)", bff, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"Jwt__KeyId\", jwtKeyId)", bff, StringComparison.Ordinal);
         Assert.Contains("WithEnvironment(\"ConnectionStrings__redis\", redisResp3ConnectionString)", bff, StringComparison.Ordinal);
         Assert.Contains("WithEnvironment(\"Services__Auth\", auth.GetEndpoint(\"http\"))", bff, StringComparison.Ordinal);
         Assert.Contains(".WithReference(redis)", bff, StringComparison.Ordinal);
@@ -1008,6 +1008,30 @@ public sealed class AppHostSourceContractTests
         Assert.True(guardIndex >= 0, "Expected a LEGACY_SKIP_MIGRATE guard in MigrationRunner/Program.cs.");
         Assert.True(workloadIndex > guardIndex, "The LEGACY_SKIP_MIGRATE guard must run before workload/seed logic.");
         Assert.Contains("return;", runnerSource[guardIndex..workloadIndex], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GkeValidation_UsesTheConsolidatedSecretBundleForRuntimeTrustAndCredentials()
+    {
+        var root = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
+
+        Assert.Contains("LoadGkeValidationSecrets()", source, StringComparison.Ordinal);
+        Assert.Contains("SetGkeAspireParameter", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-web-google-maps-embed-api-key", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-intranet-google-maps-browser-api-key", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-jwt-private-key", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-jwt-public-key", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-jwt-key-id", source, StringComparison.Ordinal);
+        Assert.Contains("LocalJwtKeyMaterial.FromSecrets", source, StringComparison.Ordinal);
+        Assert.Contains("LocalServiceCredential.FromSecret", source, StringComparison.Ordinal);
+        Assert.Contains("LocalDataProtectionCertificate.FromSecrets", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-web-service-client-secret", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-intranet-service-client-secret", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-quotation-service-client-secret", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-accounting-service-client-secret", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Console.WriteLine(gkeSecrets", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Console.WriteLine(webCredential.Secret", source, StringComparison.Ordinal);
     }
 
     [Fact]

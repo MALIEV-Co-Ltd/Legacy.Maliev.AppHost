@@ -14,6 +14,35 @@ public sealed record LocalJwtKeyMaterial(string PrivateKeyBase64, string PublicK
     /// <summary>Gets the SubjectPublicKeyInfo public key PEM.</summary>
     public string PublicKeyPem => Encoding.UTF8.GetString(Convert.FromBase64String(PublicKeyBase64));
 
+    /// <summary>Creates key material from the value-free Secret Manager contract.</summary>
+    public static LocalJwtKeyMaterial FromSecrets(string privateKeyPem, string publicKeyBase64)
+    {
+        if (string.IsNullOrWhiteSpace(privateKeyPem) || string.IsNullOrWhiteSpace(publicKeyBase64))
+        {
+            throw new InvalidOperationException("The GKE validation JWT key material is incomplete.");
+        }
+
+        var normalizedPrivateKeyPem = privateKeyPem.Trim();
+        var normalizedPublicKeyBase64 = publicKeyBase64.Trim();
+        if (normalizedPublicKeyBase64.Contains("BEGIN", StringComparison.Ordinal))
+        {
+            normalizedPublicKeyBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(normalizedPublicKeyBase64));
+        }
+
+        try
+        {
+            _ = Convert.FromBase64String(normalizedPublicKeyBase64);
+        }
+        catch (FormatException exception)
+        {
+            throw new InvalidOperationException("The GKE validation JWT public key is not Base64 PEM.", exception);
+        }
+
+        return new(
+            Convert.ToBase64String(Encoding.UTF8.GetBytes(normalizedPrivateKeyPem)),
+            normalizedPublicKeyBase64);
+    }
+
     /// <summary>Creates a new RSA-3072 key pair without persisting it.</summary>
     public static LocalJwtKeyMaterial Create()
     {

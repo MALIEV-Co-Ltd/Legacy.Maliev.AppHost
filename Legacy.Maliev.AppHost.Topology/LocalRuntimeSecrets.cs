@@ -9,6 +9,19 @@ namespace Legacy.Maliev.AppHost.Topology;
 /// <param name="SecretSha256">Lowercase SHA-256 credential hash supplied to AuthService.</param>
 public sealed record LocalServiceCredential(string Secret, string SecretSha256)
 {
+    /// <summary>Creates a credential from an approved Secret Manager value without logging it.</summary>
+    public static LocalServiceCredential FromSecret(string secret)
+    {
+        if (string.IsNullOrWhiteSpace(secret))
+        {
+            throw new InvalidOperationException("A GKE validation service credential is missing.");
+        }
+
+        var normalizedSecret = secret.Trim();
+        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedSecret)));
+        return new(normalizedSecret, hash);
+    }
+
     /// <summary>Creates a cryptographically random credential without persisting it.</summary>
     public static LocalServiceCredential Create()
     {
@@ -23,6 +36,26 @@ public sealed record LocalServiceCredential(string Secret, string SecretSha256)
 /// <param name="Password">Random export password.</param>
 public sealed record LocalDataProtectionCertificate(string PfxBase64, string Password)
 {
+    /// <summary>Creates a certificate from an approved Secret Manager value without persisting it.</summary>
+    public static LocalDataProtectionCertificate FromSecrets(string pfxBase64, string password)
+    {
+        if (string.IsNullOrWhiteSpace(pfxBase64) || string.IsNullOrWhiteSpace(password))
+        {
+            throw new InvalidOperationException("The GKE validation data-protection certificate is incomplete.");
+        }
+
+        try
+        {
+            _ = Convert.FromBase64String(pfxBase64.Trim());
+        }
+        catch (FormatException exception)
+        {
+            throw new InvalidOperationException("The GKE validation data-protection certificate is not Base64.", exception);
+        }
+
+        return new(pfxBase64.Trim(), password.Trim());
+    }
+
     /// <summary>Creates a short-lived self-signed RSA certificate for one local Aspire run.</summary>
     public static LocalDataProtectionCertificate Create()
     {
