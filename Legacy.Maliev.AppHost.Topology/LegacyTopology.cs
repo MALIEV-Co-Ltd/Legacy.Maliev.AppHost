@@ -67,7 +67,6 @@ public static class LegacyTopology
         "country",
         "customer",
         "employee",
-        "file",
         "order",
         "procurement",
         "quotation",

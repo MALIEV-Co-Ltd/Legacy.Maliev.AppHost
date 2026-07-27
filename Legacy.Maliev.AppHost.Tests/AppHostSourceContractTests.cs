@@ -257,7 +257,7 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
-    public void AppHost_WiresExistingRedisIntoTheFileServiceRuntime()
+    public void AppHost_DoesNotInjectRedisIntoTheFileServiceRuntime()
     {
         var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
         var file = ExtractResource(
@@ -265,11 +265,28 @@ public sealed class AppHostSourceContractTests
             "var file = builder.AddProject<Projects.Legacy_Maliev_FileService_Api>",
             "var notification = builder.AddProject<Projects.Legacy_Maliev_NotificationService_Api>");
 
-        Assert.Contains(
+        Assert.DoesNotContain(
             "WithEnvironment(\"ConnectionStrings__redis\", redisResp3ConnectionString)",
             file,
             StringComparison.Ordinal);
-        Assert.Contains(".WaitFor(redis)", file, StringComparison.Ordinal);
+        Assert.DoesNotContain(".WaitFor(redis)", file, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FileService_DoesNotRegisterOrConsumeRedis()
+    {
+        var fileServiceRoot = FindWorkspaceRepository("Legacy.Maliev.FileService");
+        var program = File.ReadAllText(Path.Combine(
+            fileServiceRoot,
+            "Legacy.Maliev.FileService.Api",
+            "Program.cs"));
+        var readme = File.ReadAllText(Path.Combine(fileServiceRoot, "README.md"));
+
+        Assert.Contains("AddPostgresDbContext<FileDbContext>", program, StringComparison.Ordinal);
+        Assert.DoesNotContain("AddStandardCache", program, StringComparison.Ordinal);
+        Assert.DoesNotContain("AddRedis", program, StringComparison.Ordinal);
+        Assert.DoesNotContain("ConnectionStrings__redis", program, StringComparison.Ordinal);
+        Assert.Contains("Redis is deliberately not used", readme, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -284,7 +301,7 @@ public sealed class AppHostSourceContractTests
 
         // The Legacy.Maliev.Intranet Razor Pages compatibility host used to be a 14th redis
         // consumer; it is intentionally dormant locally (see the NOTE above the Bff resource),
-        // so only 13 live resources wire the resp3 connection string today. These two guards
+        // so only 12 live resources wire the resp3 connection string today. These two guards
         // keep that host dormant-not-deleted: if it's ever re-added as live code without
         // updating this count, this test should fail rather than silently drift.
         Assert.Contains(
@@ -297,7 +314,7 @@ public sealed class AppHostSourceContractTests
             StringComparison.Ordinal);
 
         Assert.Equal(
-            13,
+            12,
             source.Split(
                 "WithEnvironment(\"ConnectionStrings__redis\", redisResp3ConnectionString)",
                 StringSplitOptions.None).Length - 1);
@@ -1028,6 +1045,23 @@ public sealed class AppHostSourceContractTests
         }
 
         return directory?.FullName ?? throw new DirectoryNotFoundException("Repository root was not found.");
+    }
+
+    private static string FindWorkspaceRepository(string repositoryName)
+    {
+        var directory = new DirectoryInfo(FindRepositoryRoot());
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, repositoryName);
+            if (Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new DirectoryNotFoundException($"Workspace repository '{repositoryName}' was not found.");
     }
 
     private static string ExtractResource(string source, string startMarker, string endMarker)

@@ -451,7 +451,6 @@ var file = builder.AddProject<Projects.Legacy_Maliev_FileService_Api>(
         launchProfileName: "http")
     .ConfigureDynamicHttpEndpoint()
     .WithEnvironment("ConnectionStrings__FileDbContext", CreatePooledDatabaseConnectionString("Upload"))
-    .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
     .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
@@ -468,7 +467,6 @@ var file = builder.AddProject<Projects.Legacy_Maliev_FileService_Api>(
     })
     .WaitForCompletion(fileMigrations)
     .WaitFor(pgbouncer)
-    .WaitFor(redis)
     .WaitFor(auth);
 
 fileMigrations.WithParentRelationship(file.Resource);

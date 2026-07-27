@@ -82,7 +82,6 @@ public sealed class LegacyTopologyTests
             "country",
             "customer",
             "employee",
-            "file",
             "order",
             "procurement",
             "quotation",
