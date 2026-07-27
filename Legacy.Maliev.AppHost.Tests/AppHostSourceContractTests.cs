@@ -273,6 +273,25 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
+    public void FileService_UsesTheLocalClamAvScannerInAspire()
+    {
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var file = ExtractResource(
+            source,
+            "var file = builder.AddProject<Projects.Legacy_Maliev_FileService_Api>",
+            "var notification = builder.AddProject<Projects.Legacy_Maliev_NotificationService_Api>");
+
+        Assert.Contains("AddContainer(\"legacy-clamav\", \"clamav/clamav\", \"1.4.5\")", source, StringComparison.Ordinal);
+        Assert.Contains("WithEndpoint(targetPort: 3310, name: \"tcp\")", source, StringComparison.Ordinal);
+        Assert.Contains("\"--cpus\", \"0.25\"", source, StringComparison.Ordinal);
+        Assert.Contains("\"--memory\", \"2g\"", source, StringComparison.Ordinal);
+        Assert.Contains("\"--health-cmd\", \"clamdscan --ping=1 --wait /etc/hostname >/dev/null 2>&1\"", source, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"MalwareScanner__Host\", clamav.GetEndpoint(\"tcp\").Property(EndpointProperty.Host))", file, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"MalwareScanner__Port\", clamav.GetEndpoint(\"tcp\").Property(EndpointProperty.Port))", file, StringComparison.Ordinal);
+        Assert.Contains(".WaitFor(clamav)", file, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FileService_RedisBoundaryMatchesTheCheckedOutServiceContract()
     {
         var fileServiceRoot = FindWorkspaceRepository("Legacy.Maliev.FileService");
