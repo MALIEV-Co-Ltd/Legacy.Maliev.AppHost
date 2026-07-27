@@ -53,7 +53,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.NotificationService
-          ref: f6357035b84c44fb4de131c963234854f591a104
+          ref: 7e908028222345c2010533fac835b3e7f8f00ca3
           path: Legacy.Maliev.NotificationService
           persist-credentials: false
       - name: Check out Order service
