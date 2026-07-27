@@ -210,6 +210,21 @@ var redis = builder.AddRedis("legacy-redis", port: null, password: redisPassword
     .WithContainerRuntimeArgs("--cpus", "0.10", "--memory", "96m");
 var redisResp3ConnectionString = ReferenceExpression.Create($"{redis.Resource.ConnectionStringExpression},protocol=resp3");
 
+// FileService intentionally fails closed when malware scanning is unavailable.
+// Keep a resource-bounded ClamAV daemon in the local Aspire graph so owner review
+// can exercise the complete quarantine -> scan -> promotion path without adding
+// any GKE workload or node-pool capacity.
+var clamav = builder.AddContainer("legacy-clamav", "clamav/clamav", "1.4.5")
+    .WithEndpoint(targetPort: 3310, name: "tcp")
+    .WithContainerRuntimeArgs(
+        "--cpus", "0.25",
+        "--memory", "2g",
+        "--health-cmd", "clamdscan --ping=1 --wait /etc/hostname >/dev/null 2>&1",
+        "--health-interval", "30s",
+        "--health-timeout", "10s",
+        "--health-retries", "3",
+        "--health-start-period", "120s");
+
 var countryDatabase = databases["Country"];
 var countryMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-country-migrations")
     .WithArgs("country")
@@ -530,6 +545,8 @@ var file = builder.AddProject<Projects.Legacy_Maliev_FileService_Api>(
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", jwtIssuer)
     .WithEnvironment("Jwt__Audience", jwtAudience)
+    .WithEnvironment("MalwareScanner__Host", clamav.GetEndpoint("tcp").Property(EndpointProperty.Host))
+    .WithEnvironment("MalwareScanner__Port", clamav.GetEndpoint("tcp").Property(EndpointProperty.Port))
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
@@ -543,6 +560,7 @@ var file = builder.AddProject<Projects.Legacy_Maliev_FileService_Api>(
     })
     .WaitForCompletion(fileMigrations)
     .WaitFor(pgbouncer)
+    .WaitFor(clamav)
     .WaitFor(auth);
 
 fileMigrations.WithParentRelationship(file.Resource);
