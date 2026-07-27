@@ -15,14 +15,14 @@ public sealed class LegacyWebLaunchIdentityTests
                 ["LEGACY_WEB_PROJECT"] = SourceProjectPath,
                 ["LEGACY_WEB_REPOSITORY"] = "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web.git",
                 ["LEGACY_WEB_BRANCH"] = "main",
-                ["LEGACY_WEB_COMMIT"] = "6e00796d263c45be73080fa292929a99dbb9af1d",
+                ["LEGACY_WEB_COMMIT"] = "346fa9602cff0372a67344edcc7426dc3217f54a",
                 ["LEGACY_WEB_PORT"] = "5188"
             },
             static _ => false);
 
         Assert.Equal("https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web.git", GetProperty<string>(identity, "Repository"));
         Assert.Equal("main", GetProperty<string>(identity, "Branch"));
-        Assert.Equal("6e00796d263c45be73080fa292929a99dbb9af1d", GetProperty<string>(identity, "Commit"));
+        Assert.Equal("346fa9602cff0372a67344edcc7426dc3217f54a", GetProperty<string>(identity, "Commit"));
         Assert.Equal(5188, GetProperty<int>(identity, "Port"));
     }
 
@@ -76,7 +76,7 @@ public sealed class LegacyWebLaunchIdentityTests
         ["LEGACY_WEB_PROJECT"] = SourceProjectPath,
         ["LEGACY_WEB_REPOSITORY"] = "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web.git",
         ["LEGACY_WEB_BRANCH"] = "main",
-        ["LEGACY_WEB_COMMIT"] = "6e00796d263c45be73080fa292929a99dbb9af1d",
+        ["LEGACY_WEB_COMMIT"] = "346fa9602cff0372a67344edcc7426dc3217f54a",
         ["LEGACY_WEB_PORT"] = "5088"
     };
 
