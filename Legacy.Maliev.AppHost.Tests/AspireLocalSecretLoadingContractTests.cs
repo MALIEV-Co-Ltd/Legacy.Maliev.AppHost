@@ -8,11 +8,12 @@ public sealed class AspireLocalSecretLoadingContractTests
         var repositoryRoot = FindRepositoryRoot();
         var source = File.ReadAllText(Path.Combine(repositoryRoot, "scripts", "start-current-web.ps1"));
 
-        Assert.Contains("Parameters__legacy-google-maps-api-key", source, StringComparison.Ordinal);
+        Assert.Contains("Parameters__legacy-web-google-maps-embed-api-key", source, StringComparison.Ordinal);
+        Assert.Contains("Parameters__legacy-intranet-google-maps-browser-api-key", source, StringComparison.Ordinal);
         Assert.Contains("Maliev.Aspire\\Maliev.Aspire.AppHost\\sharedsecrets.json", source, StringComparison.Ordinal);
         Assert.Contains("ConvertFrom-Json", source, StringComparison.Ordinal);
         Assert.Contains(".GoogleMaps.BrowserApiKey", source, StringComparison.Ordinal);
-        Assert.Contains("Environment]::SetEnvironmentVariable($googleMapsParameterName, $googleMapsApiKey)", source, StringComparison.Ordinal);
+        Assert.Contains("Environment]::SetEnvironmentVariable($parameterName, $googleMapsApiKey)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("Write-Host $googleMapsApiKey", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("BrowserApiKey =", source, StringComparison.Ordinal);
     }

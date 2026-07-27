@@ -85,17 +85,30 @@ $env:LEGACY_WEB_PORT = $WebPort.ToString([Globalization.CultureInfo]::InvariantC
 [Environment]::SetEnvironmentVariable('Parameters__legacy-redis-password', [guid]::NewGuid().ToString('N'))
 
 # The local Aspire review uses the browser-restricted Google Maps key already kept in
-# the workspace's untracked shared-secrets file.  Prefer an explicitly supplied process
-# value, then load only the key field from that file.  Never print or commit the value;
-# leaving it unresolved keeps the Web resource fail-closed when the local secret is absent.
-$googleMapsParameterName = 'Parameters__legacy-google-maps-api-key'
-$googleMapsApiKey = [Environment]::GetEnvironmentVariable($googleMapsParameterName)
+# the workspace's untracked shared-secrets file.  The local seed is copied into the two
+# separately named Web Embed and Intranet browser parameters; production uses separate
+# restricted Secret Manager properties.  Never print or commit the value; leaving it
+# unresolved keeps both resources fail-closed when the local secret is absent.
+$googleMapsParameterNames = @(
+    'Parameters__legacy-web-google-maps-embed-api-key',
+    'Parameters__legacy-intranet-google-maps-browser-api-key'
+)
+$googleMapsApiKey = $null
+foreach ($parameterName in $googleMapsParameterNames) {
+    $existingValue = [Environment]::GetEnvironmentVariable($parameterName)
+    if (-not [string]::IsNullOrWhiteSpace($existingValue)) {
+        $googleMapsApiKey = $existingValue
+        break
+    }
+}
 $googleMapsSecretPath = Join-Path $workspaceRoot 'Maliev.Aspire\Maliev.Aspire.AppHost\sharedsecrets.json'
 if ([string]::IsNullOrWhiteSpace($googleMapsApiKey) -and (Test-Path -LiteralPath $googleMapsSecretPath -PathType Leaf)) {
     $googleMapsApiKey = (Get-Content -LiteralPath $googleMapsSecretPath -Raw | ConvertFrom-Json).GoogleMaps.BrowserApiKey
 }
 if (-not [string]::IsNullOrWhiteSpace($googleMapsApiKey)) {
-    [Environment]::SetEnvironmentVariable($googleMapsParameterName, $googleMapsApiKey)
+    foreach ($parameterName in $googleMapsParameterNames) {
+        [Environment]::SetEnvironmentVariable($parameterName, $googleMapsApiKey)
+    }
 }
 
 Write-Host "Building Legacy Web source before port inspection: repo=$repository branch=$branch commit=$commitBeforeBuild project=$webProject"

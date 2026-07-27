@@ -13,7 +13,8 @@ public sealed class GoogleMapsAppHostContractTests
         Assert.True(buildStart > bffStart, "The Intranet BFF resource must appear before AppHost.Build().");
 
         var bffResource = source[bffStart..buildStart];
-        Assert.Contains("legacy-google-maps-api-key", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-web-google-maps-embed-api-key", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-intranet-google-maps-browser-api-key", source, StringComparison.Ordinal);
         Assert.Contains("GoogleMaps__BrowserApiKey", bffResource, StringComparison.Ordinal);
         Assert.DoesNotContain("GoogleMaps__EmbedApiKey", bffResource, StringComparison.Ordinal);
         Assert.Contains("GoogleMaps__EmbedApiKey", source[..bffStart], StringComparison.Ordinal);

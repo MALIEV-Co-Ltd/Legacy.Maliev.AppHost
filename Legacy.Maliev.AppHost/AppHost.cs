@@ -54,7 +54,8 @@ static Dictionary<string, string> LoadGkeValidationSecrets()
 var postgresUsername = builder.AddParameter("legacy-postgres-username");
 var postgresPassword = builder.AddParameter("legacy-postgres-password", secret: true);
 var redisPassword = builder.AddParameter("legacy-redis-password", secret: true);
-var googleMapsApiKey = builder.AddParameter("legacy-google-maps-api-key", secret: true);
+var webGoogleMapsEmbedApiKey = builder.AddParameter("legacy-web-google-maps-embed-api-key", secret: true);
+var intranetGoogleMapsBrowserApiKey = builder.AddParameter("legacy-intranet-google-maps-browser-api-key", secret: true);
 var googleIdentityClientId = builder.Configuration["Authentication:Google:ClientId"] ?? googleIdentityClientIdFromProcess;
 var googleIdentityHostedDomain = builder.Configuration["GoogleIdentity:Employee:HostedDomain"]
     ?? googleIdentityHostedDomainFromProcess;
@@ -750,7 +751,7 @@ builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WithEnvironment("DataProtection__CertificatePassword", dataProtectionCertificate.Password)
     .WithEnvironment("ServiceAuthentication__ClientId", "legacy-web")
     .WithEnvironment("ServiceAuthentication__ClientSecret", webCredential.Secret)
-    .WithEnvironment("GoogleMaps__EmbedApiKey", googleMapsApiKey)
+    .WithEnvironment("GoogleMaps__EmbedApiKey", webGoogleMapsEmbedApiKey)
     .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
     .WithEnvironment("Services__Customer", customer.GetEndpoint("http"))
     .WithEnvironment("Services__Notification", notification.GetEndpoint("http"))
@@ -804,7 +805,7 @@ var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legac
     .WithEnvironment("ServiceAuthentication__ClientId", "legacy-intranet")
     .WithEnvironment("ServiceAuthentication__ClientSecret", intranetCredential.Secret)
     .WithEnvironment("Authentication__Google__ClientId", googleIdentityClientId)
-    .WithEnvironment("GoogleMaps__BrowserApiKey", googleMapsApiKey)
+    .WithEnvironment("GoogleMaps__BrowserApiKey", intranetGoogleMapsBrowserApiKey)
     .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
     .WithEnvironment("Services__Catalog", catalog.GetEndpoint("http"))
     .WithEnvironment("Services__Order", order.GetEndpoint("http"))
