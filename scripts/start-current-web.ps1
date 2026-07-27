@@ -46,11 +46,11 @@ function Get-PortOwner {
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $appHostProject = Join-Path $repositoryRoot 'Legacy.Maliev.AppHost\Legacy.Maliev.AppHost.csproj'
+$workspaceRoot = Split-Path -Parent $repositoryRoot
 if (-not $WebRepositoryRoot) {
     $gitCommonDirectory = Invoke-Git -RepositoryRoot $repositoryRoot -Arguments @(
         'rev-parse', '--path-format=absolute', '--git-common-dir')
     $appHostCheckoutRoot = Split-Path -Parent $gitCommonDirectory
-    $workspaceRoot = Split-Path -Parent $appHostCheckoutRoot
     $WebRepositoryRoot = Join-Path $workspaceRoot 'Legacy.Maliev.Web'
 }
 
@@ -83,6 +83,33 @@ $env:LEGACY_WEB_PORT = $WebPort.ToString([Globalization.CultureInfo]::InvariantC
 [Environment]::SetEnvironmentVariable('Parameters__legacy-postgres-username', 'legacy_local')
 [Environment]::SetEnvironmentVariable('Parameters__legacy-postgres-password', [guid]::NewGuid().ToString('N'))
 [Environment]::SetEnvironmentVariable('Parameters__legacy-redis-password', [guid]::NewGuid().ToString('N'))
+
+# The local Aspire review uses the browser-restricted Google Maps key already kept in
+# the workspace's untracked shared-secrets file.  The local seed is copied into the two
+# separately named Web Embed and Intranet browser parameters; production uses separate
+# restricted Secret Manager properties.  Never print or commit the value; leaving it
+# unresolved keeps both resources fail-closed when the local secret is absent.
+$googleMapsParameterNames = @(
+    'Parameters__legacy-web-google-maps-embed-api-key',
+    'Parameters__legacy-intranet-google-maps-browser-api-key'
+)
+$googleMapsApiKey = $null
+foreach ($parameterName in $googleMapsParameterNames) {
+    $existingValue = [Environment]::GetEnvironmentVariable($parameterName)
+    if (-not [string]::IsNullOrWhiteSpace($existingValue)) {
+        $googleMapsApiKey = $existingValue
+        break
+    }
+}
+$googleMapsSecretPath = Join-Path $workspaceRoot 'Legacy.Maliev.AppHost\sharedsecrets.json'
+if ([string]::IsNullOrWhiteSpace($googleMapsApiKey) -and (Test-Path -LiteralPath $googleMapsSecretPath -PathType Leaf)) {
+    $googleMapsApiKey = (Get-Content -LiteralPath $googleMapsSecretPath -Raw | ConvertFrom-Json).GoogleMaps.BrowserApiKey
+}
+if (-not [string]::IsNullOrWhiteSpace($googleMapsApiKey)) {
+    foreach ($parameterName in $googleMapsParameterNames) {
+        [Environment]::SetEnvironmentVariable($parameterName, $googleMapsApiKey)
+    }
+}
 
 Write-Host "Building Legacy Web source before port inspection: repo=$repository branch=$branch commit=$commitBeforeBuild project=$webProject"
 & dotnet build $appHostProject --configuration $Configuration --verbosity minimal `

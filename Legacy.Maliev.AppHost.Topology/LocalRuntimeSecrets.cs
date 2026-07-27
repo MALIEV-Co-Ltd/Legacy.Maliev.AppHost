@@ -9,6 +9,32 @@ namespace Legacy.Maliev.AppHost.Topology;
 /// <param name="SecretSha256">Lowercase SHA-256 credential hash supplied to AuthService.</param>
 public sealed record LocalServiceCredential(string Secret, string SecretSha256)
 {
+    /// <summary>Creates a credential from an approved Secret Manager value without logging it.</summary>
+    public static LocalServiceCredential FromSecret(string secret)
+    {
+        if (string.IsNullOrWhiteSpace(secret))
+        {
+            throw new InvalidOperationException("A GKE validation service credential is missing.");
+        }
+
+        var normalizedSecret = secret.Trim();
+        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedSecret)));
+        return new(normalizedSecret, hash);
+    }
+
+    /// <summary>Creates a credential and proves its hash matches the AuthService projection.</summary>
+    public static LocalServiceCredential FromSecretPair(string secret, string expectedHash, string clientId)
+    {
+        var credential = FromSecret(secret);
+        if (string.IsNullOrWhiteSpace(expectedHash)
+            || !StringComparer.OrdinalIgnoreCase.Equals(credential.SecretSha256, expectedHash.Trim()))
+        {
+            throw new InvalidOperationException($"The GKE validation service credential hash for '{clientId}' does not match.");
+        }
+
+        return credential;
+    }
+
     /// <summary>Creates a cryptographically random credential without persisting it.</summary>
     public static LocalServiceCredential Create()
     {
@@ -23,6 +49,36 @@ public sealed record LocalServiceCredential(string Secret, string SecretSha256)
 /// <param name="Password">Random export password.</param>
 public sealed record LocalDataProtectionCertificate(string PfxBase64, string Password)
 {
+    /// <summary>Creates a certificate from an approved Secret Manager value without persisting it.</summary>
+    public static LocalDataProtectionCertificate FromSecrets(string pfxBase64, string password)
+    {
+        if (string.IsNullOrWhiteSpace(pfxBase64) || string.IsNullOrWhiteSpace(password))
+        {
+            throw new InvalidOperationException("The GKE validation data-protection certificate is incomplete.");
+        }
+
+        try
+        {
+            using var certificate = X509CertificateLoader.LoadPkcs12(
+                Convert.FromBase64String(pfxBase64.Trim()),
+                password.Trim(),
+                X509KeyStorageFlags.EphemeralKeySet);
+            if (!certificate.HasPrivateKey)
+            {
+                throw new CryptographicException("The certificate does not contain a private key.");
+            }
+        }
+        catch (Exception exception) when (
+            exception is FormatException
+            or CryptographicException
+            or ArgumentException)
+        {
+            throw new InvalidOperationException("The GKE validation data-protection certificate is invalid.", exception);
+        }
+
+        return new(pfxBase64.Trim(), password.Trim());
+    }
+
     /// <summary>Creates a short-lived self-signed RSA certificate for one local Aspire run.</summary>
     public static LocalDataProtectionCertificate Create()
     {

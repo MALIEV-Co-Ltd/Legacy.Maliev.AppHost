@@ -257,7 +257,7 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
-    public void AppHost_WiresExistingRedisIntoTheFileServiceRuntime()
+    public void AppHost_DoesNotInjectRedisIntoTheFileServiceRuntime()
     {
         var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
         var file = ExtractResource(
@@ -265,11 +265,39 @@ public sealed class AppHostSourceContractTests
             "var file = builder.AddProject<Projects.Legacy_Maliev_FileService_Api>",
             "var notification = builder.AddProject<Projects.Legacy_Maliev_NotificationService_Api>");
 
-        Assert.Contains(
+        Assert.DoesNotContain(
             "WithEnvironment(\"ConnectionStrings__redis\", redisResp3ConnectionString)",
             file,
             StringComparison.Ordinal);
-        Assert.Contains(".WaitFor(redis)", file, StringComparison.Ordinal);
+        Assert.DoesNotContain(".WaitFor(redis)", file, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FileService_RedisBoundaryMatchesTheCheckedOutServiceContract()
+    {
+        var fileServiceRoot = FindWorkspaceRepository("Legacy.Maliev.FileService");
+        var program = File.ReadAllText(Path.Combine(
+            fileServiceRoot,
+            "Legacy.Maliev.FileService.Api",
+            "Program.cs"));
+        var readme = File.ReadAllText(Path.Combine(fileServiceRoot, "README.md"));
+
+        Assert.Contains("AddPostgresDbContext<FileDbContext>", program, StringComparison.Ordinal);
+        if (program.Contains("AddStandardCache(\"legacy:file:\")", StringComparison.Ordinal))
+        {
+            Assert.Contains("ConnectionStrings__redis", readme, StringComparison.Ordinal);
+            Assert.Contains("Redis is used only for fenced upload replay checkpoints", readme, StringComparison.Ordinal);
+            Assert.DoesNotContain("Redis is used for object authorization", readme, StringComparison.Ordinal);
+            return;
+        }
+
+        // A local delegated worktree may already contain the follow-up that removes
+        // the replay checkpoint cache. Both forms keep Redis out of object
+        // authorization and signed URL decisions; the checked-out CI SHA is tested
+        // by the branch above.
+        Assert.DoesNotContain("AddStandardCache", program, StringComparison.Ordinal);
+        Assert.DoesNotContain("ConnectionStrings__redis", program, StringComparison.Ordinal);
+        Assert.Contains("Redis is deliberately not used", readme, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -284,7 +312,7 @@ public sealed class AppHostSourceContractTests
 
         // The Legacy.Maliev.Intranet Razor Pages compatibility host used to be a 14th redis
         // consumer; it is intentionally dormant locally (see the NOTE above the Bff resource),
-        // so only 13 live resources wire the resp3 connection string today. These two guards
+        // so only 12 live resources wire the resp3 connection string today. These two guards
         // keep that host dormant-not-deleted: if it's ever re-added as live code without
         // updating this count, this test should fail rather than silently drift.
         Assert.Contains(
@@ -297,7 +325,7 @@ public sealed class AppHostSourceContractTests
             StringComparison.Ordinal);
 
         Assert.Equal(
-            13,
+            12,
             source.Split(
                 "WithEnvironment(\"ConnectionStrings__redis\", redisResp3ConnectionString)",
                 StringSplitOptions.None).Length - 1);
@@ -374,6 +402,9 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("ConnectionStrings__redis", source, StringComparison.Ordinal);
         Assert.Contains("ServiceAuthentication__ClientId", source, StringComparison.Ordinal);
         Assert.Contains("ServiceAuthentication__ClientSecret", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-web-google-maps-embed-api-key", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-intranet-google-maps-browser-api-key", source, StringComparison.Ordinal);
+        Assert.Contains("GoogleMaps__EmbedApiKey", source, StringComparison.Ordinal);
         Assert.Contains("ServiceClients__Clients__legacy-web__SecretSha256", source, StringComparison.Ordinal);
         Assert.Contains("DataProtection__CertificatePfxBase64", source, StringComparison.Ordinal);
         Assert.Contains("DataProtection__CertificatePassword", source, StringComparison.Ordinal);
@@ -480,7 +511,7 @@ public sealed class AppHostSourceContractTests
             "WithEnvironment(\"ServiceAuthentication__ClientSecret\", accountingCredential.Secret)",
             source,
             StringComparison.Ordinal);
-        Assert.DoesNotContain("legacy-accounting-secret", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("\"legacy-accounting-secret\"", source, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -598,9 +629,9 @@ public sealed class AppHostSourceContractTests
 
         Assert.Contains("\"legacy-maliev-intranet-bff\"", bff, StringComparison.Ordinal);
         Assert.Contains("WithEnvironment(\"Jwt__PublicKey\", jwt.PublicKeyBase64)", bff, StringComparison.Ordinal);
-        Assert.Contains("WithEnvironment(\"Jwt__Issuer\", LegacyTopology.JwtIssuer)", bff, StringComparison.Ordinal);
-        Assert.Contains("WithEnvironment(\"Jwt__Audience\", LegacyTopology.JwtAudience)", bff, StringComparison.Ordinal);
-        Assert.Contains("WithEnvironment(\"Jwt__KeyId\", LegacyTopology.JwtKeyId)", bff, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"Jwt__Issuer\", jwtIssuer)", bff, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"Jwt__Audience\", jwtAudience)", bff, StringComparison.Ordinal);
+        Assert.Contains("WithEnvironment(\"Jwt__KeyId\", jwtKeyId)", bff, StringComparison.Ordinal);
         Assert.Contains("WithEnvironment(\"ConnectionStrings__redis\", redisResp3ConnectionString)", bff, StringComparison.Ordinal);
         Assert.Contains("WithEnvironment(\"Services__Auth\", auth.GetEndpoint(\"http\"))", bff, StringComparison.Ordinal);
         Assert.Contains(".WithReference(redis)", bff, StringComparison.Ordinal);
@@ -990,6 +1021,62 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("return;", runnerSource[guardIndex..workloadIndex], StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void GkeValidation_UsesTheConsolidatedSecretBundleForRuntimeTrustAndCredentials()
+    {
+        var root = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
+
+        Assert.Contains("LoadGkeValidationSecrets()", source, StringComparison.Ordinal);
+        Assert.Contains("SetGkeAspireParameter", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-web-google-maps-embed-api-key", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-intranet-google-maps-browser-api-key", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-jwt-private-key", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-jwt-public-key", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-jwt-key-id", source, StringComparison.Ordinal);
+        Assert.Contains("LocalJwtKeyMaterial.FromSecrets", source, StringComparison.Ordinal);
+        Assert.Contains("LocalServiceCredential.FromSecret", source, StringComparison.Ordinal);
+        Assert.Contains("LocalDataProtectionCertificate.FromSecrets", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-web-service-client-secret", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-intranet-service-client-secret", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-quotation-service-client-secret", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-accounting-service-client-secret", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-service-client-legacy-web-secret-sha256", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-service-client-legacy-intranet-secret-sha256", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-service-client-legacy-quotation-secret-sha256", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-service-client-legacy-accounting-secret-sha256", source, StringComparison.Ordinal);
+        Assert.Contains("LocalServiceCredential.FromSecretPair", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Console.WriteLine(gkeSecrets", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Console.WriteLine(webCredential.Secret", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AuthMigrationRunner_AlwaysMigratesRegardlessOfGkeValidationMode()
+    {
+        // Auth (RefreshSessions) is local-only infrastructure with no GKE counterpart — unlike
+        // every other migration runner, it must never be skipped, even when gkeValidationMode is
+        // true. Regression guard: this previously left the local Auth database permanently
+        // unmigrated in GKE validation mode, so every login succeeded at credential validation
+        // and then crashed with DbUpdateException writing the refresh session (missing table).
+        var root = FindRepositoryRoot();
+        var appHostSource = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
+
+        var authMigrationsIndex = appHostSource.IndexOf(
+            "\"legacy-auth-migrations\"", StringComparison.Ordinal);
+        Assert.True(authMigrationsIndex >= 0, "Expected the legacy-auth-migrations resource declaration.");
+
+        var nextResourceIndex = appHostSource.IndexOf(
+            "var customerIdentityMigrations", authMigrationsIndex, StringComparison.Ordinal);
+        Assert.True(nextResourceIndex > authMigrationsIndex, "Expected the next resource declaration after auth migrations.");
+
+        var authMigrationsBlock = appHostSource[authMigrationsIndex..nextResourceIndex];
+        Assert.Contains(
+            ".WithEnvironment(\"LEGACY_SKIP_MIGRATE\", \"false\")",
+            authMigrationsBlock,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("gkeValidationMode", authMigrationsBlock, StringComparison.Ordinal);
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -999,6 +1086,23 @@ public sealed class AppHostSourceContractTests
         }
 
         return directory?.FullName ?? throw new DirectoryNotFoundException("Repository root was not found.");
+    }
+
+    private static string FindWorkspaceRepository(string repositoryName)
+    {
+        var directory = new DirectoryInfo(FindRepositoryRoot());
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, repositoryName);
+            if (Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new DirectoryNotFoundException($"Workspace repository '{repositoryName}' was not found.");
     }
 
     private static string ExtractResource(string source, string startMarker, string endMarker)

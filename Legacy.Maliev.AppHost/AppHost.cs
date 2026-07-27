@@ -3,6 +3,8 @@ using Google.Cloud.SecretManager.V1;
 using Legacy.Maliev.AppHost.Topology;
 
 var legacyWebIdentity = LegacyWebLaunchIdentity.Capture();
+var googleIdentityClientIdFromProcess = Environment.GetEnvironmentVariable("MALIEV_GOOGLE_IDENTITY_CLIENT_ID") ?? string.Empty;
+var googleIdentityHostedDomainFromProcess = Environment.GetEnvironmentVariable("MALIEV_GOOGLE_IDENTITY_HOSTED_DOMAIN") ?? "maliev.com";
 // Captured before sanitization strips it (LocalEnvironmentPolicy.SanitizeCurrentProcess only
 // preserves a small allowlist — LEGACY_GKE_VALIDATION isn't in it, same reason
 // LegacyWebLaunchIdentity.Capture() above must also run first).
@@ -49,15 +51,85 @@ static Dictionary<string, string> LoadGkeValidationSecrets()
 }
 // === END LEGACY_GKE_VALIDATION ===
 
+static string RequireGkeSecret(IReadOnlyDictionary<string, string> secrets, string property)
+{
+    if (!secrets.TryGetValue(property, out var value) || string.IsNullOrWhiteSpace(value))
+    {
+        throw new InvalidOperationException($"LEGACY_GKE_VALIDATION requires the approved secret property '{property}'.");
+    }
+
+    return value.Trim();
+}
+
+static void SetGkeAspireParameter(IReadOnlyDictionary<string, string> secrets, string parameterName, string property)
+{
+    Environment.SetEnvironmentVariable(
+        $"Parameters__{parameterName}",
+        RequireGkeSecret(secrets, property));
+}
+
 var postgresUsername = builder.AddParameter("legacy-postgres-username");
 var postgresPassword = builder.AddParameter("legacy-postgres-password", secret: true);
 var redisPassword = builder.AddParameter("legacy-redis-password", secret: true);
+
+if (gkeValidationMode)
+{
+    SetGkeAspireParameter(gkeSecrets!, "legacy-web-google-maps-embed-api-key", "legacy-web-google-maps-embed-api-key");
+    SetGkeAspireParameter(gkeSecrets!, "legacy-intranet-google-maps-browser-api-key", "legacy-intranet-google-maps-browser-api-key");
+}
+
+var webGoogleMapsEmbedApiKey = builder.AddParameter("legacy-web-google-maps-embed-api-key", secret: true);
+var intranetGoogleMapsBrowserApiKey = builder.AddParameter("legacy-intranet-google-maps-browser-api-key", secret: true);
+var googleIdentityClientId = gkeValidationMode
+    ? RequireGkeSecret(gkeSecrets!, "legacy-google-identity-client-id")
+    : builder.Configuration["Authentication:Google:ClientId"] ?? googleIdentityClientIdFromProcess;
+var googleIdentityHostedDomain = gkeValidationMode
+    ? RequireGkeSecret(gkeSecrets!, "legacy-google-identity-employee-hosted-domain")
+    : builder.Configuration["GoogleIdentity:Employee:HostedDomain"] ?? googleIdentityHostedDomainFromProcess;
+var googleIdentityAudience = gkeValidationMode
+    ? RequireGkeSecret(gkeSecrets!, "legacy-google-identity-employee-audience-intranet")
+    : builder.Configuration["GoogleIdentity:Employee:Audiences:intranet"] ?? googleIdentityClientId;
+var jwtIssuer = gkeValidationMode
+    ? RequireGkeSecret(gkeSecrets!, "legacy-jwt-issuer")
+    : LegacyTopology.JwtIssuer;
+var jwtAudience = gkeValidationMode
+    ? RequireGkeSecret(gkeSecrets!, "legacy-jwt-audience")
+    : LegacyTopology.JwtAudience;
+var jwtKeyId = gkeValidationMode
+    ? RequireGkeSecret(gkeSecrets!, "legacy-jwt-key-id")
+    : LegacyTopology.JwtKeyId;
 var jwt = LocalJwtKeyMaterial.Create();
 var webCredential = LocalServiceCredential.Create();
 var intranetCredential = LocalServiceCredential.Create();
 var quotationCredential = LocalServiceCredential.Create();
 var accountingCredential = LocalServiceCredential.Create();
 var dataProtectionCertificate = LocalDataProtectionCertificate.Create();
+
+if (gkeValidationMode)
+{
+    jwt = LocalJwtKeyMaterial.FromSecrets(
+        RequireGkeSecret(gkeSecrets!, "legacy-jwt-private-key"),
+        RequireGkeSecret(gkeSecrets!, "legacy-jwt-public-key"));
+    webCredential = LocalServiceCredential.FromSecretPair(
+        RequireGkeSecret(gkeSecrets!, "legacy-web-service-client-secret"),
+        RequireGkeSecret(gkeSecrets!, "legacy-service-client-legacy-web-secret-sha256"),
+        "legacy-web");
+    intranetCredential = LocalServiceCredential.FromSecretPair(
+        RequireGkeSecret(gkeSecrets!, "legacy-intranet-service-client-secret"),
+        RequireGkeSecret(gkeSecrets!, "legacy-service-client-legacy-intranet-secret-sha256"),
+        "legacy-intranet");
+    quotationCredential = LocalServiceCredential.FromSecretPair(
+        RequireGkeSecret(gkeSecrets!, "legacy-quotation-service-client-secret"),
+        RequireGkeSecret(gkeSecrets!, "legacy-service-client-legacy-quotation-secret-sha256"),
+        "legacy-quotation");
+    accountingCredential = LocalServiceCredential.FromSecretPair(
+        RequireGkeSecret(gkeSecrets!, "legacy-accounting-service-client-secret"),
+        RequireGkeSecret(gkeSecrets!, "legacy-service-client-legacy-accounting-secret-sha256"),
+        "legacy-accounting");
+    dataProtectionCertificate = LocalDataProtectionCertificate.FromSecrets(
+        RequireGkeSecret(gkeSecrets!, "legacy-web-data-protection-certificate-pfx-base64"),
+        RequireGkeSecret(gkeSecrets!, "legacy-web-data-protection-certificate-password"));
+}
 
 var postgres = builder.AddPostgres("legacy-postgres-main", postgresUsername, postgresPassword)
     .WithImageTag("18-alpine")
@@ -139,8 +211,8 @@ var country = builder.AddProject<Projects.Legacy_Maliev_CountryService_Api>("leg
     .WithEnvironment("ConnectionStrings__CountryDbContext", CreatePooledDatabaseConnectionString("Country"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
-    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("Jwt__Issuer", jwtIssuer)
+    .WithEnvironment("Jwt__Audience", jwtAudience)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
@@ -156,12 +228,14 @@ var country = builder.AddProject<Projects.Legacy_Maliev_CountryService_Api>("leg
     .WaitFor(pgbouncer)
     .WaitFor(redis);
 
+countryMigrations.WithParentRelationship(country.Resource);
+
 var document = builder.AddProject<Projects.Legacy_Maliev_DocumentService_Api>("legacy-maliev-document-service")
     .WithHttpEndpoint(name: "http")
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
-    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("Jwt__Issuer", jwtIssuer)
+    .WithEnvironment("Jwt__Audience", jwtAudience)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithHttpHealthCheck("/documents/liveness", endpointName: "http")
@@ -172,9 +246,12 @@ var document = builder.AddProject<Projects.Legacy_Maliev_DocumentService_Api>("l
         url.DisplayText = "Document Scalar";
     });
 
+// Auth (RefreshSessions) is local-only infrastructure with no GKE counterpart (see the
+// comment on CreatePooledDatabaseConnectionString above) — it must always be migrated,
+// even in GKE validation mode, unlike every other workload here which targets real GKE data.
 var authMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-auth-migrations")
     .WithArgs("auth")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", "false")
     .WithEnvironment("ConnectionStrings__RefreshSessions", authDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -205,10 +282,12 @@ var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>("legacy-ma
     .WithEnvironment("ConnectionStrings__CustomerIdentity", CreatePooledDatabaseConnectionString("CustomerIdentity"))
     .WithEnvironment("ConnectionStrings__EmployeeIdentity", CreatePooledDatabaseConnectionString("EmployeeIdentity"))
     .WithEnvironment("ConnectionStrings__RefreshSessions", CreatePooledDatabaseConnectionString("Auth"))
-    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
-    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("Jwt__Issuer", jwtIssuer)
+    .WithEnvironment("Jwt__Audience", jwtAudience)
     .WithEnvironment("Jwt__PrivateKeyPem", jwt.PrivateKeyPem)
-    .WithEnvironment("Jwt__KeyId", LegacyTopology.JwtKeyId)
+    .WithEnvironment("Jwt__KeyId", jwtKeyId)
+    .WithEnvironment("GoogleIdentity__Employee__HostedDomain", googleIdentityHostedDomain)
+    .WithEnvironment("GoogleIdentity__Employee__Audiences__intranet", googleIdentityAudience)
     .WithEnvironment("ServiceClients__Clients__legacy-web__SecretSha256", webCredential.SecretSha256)
     .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__0", "legacy-auth.customer-self-service")
     .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__1", "legacy-customer.customers.create")
@@ -260,6 +339,10 @@ for (var permissionIndex = 0; permissionIndex < LegacyTopology.AccountingPermiss
         $"ServiceClients__Clients__legacy-accounting__Permissions__{permissionIndex}",
         LegacyTopology.AccountingPermissions[permissionIndex]);
 }
+authMigrations.WithParentRelationship(auth.Resource);
+customerIdentityMigrations.WithParentRelationship(auth.Resource);
+employeeIdentityMigrations.WithParentRelationship(auth.Resource);
+
 
 var customerDatabase = databases["Customer"];
 var customerMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-customer-migrations")
@@ -278,8 +361,8 @@ var customer = builder.AddProject<Projects.Legacy_Maliev_CustomerService_Api>(
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("AuthService__LegacyCustomerIdentityBaseUrl", ReferenceExpression.Create($"{auth.GetEndpoint("http")}/auth/v1/legacy/customers/"))
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
-    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("Jwt__Issuer", jwtIssuer)
+    .WithEnvironment("Jwt__Audience", jwtAudience)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
@@ -295,6 +378,8 @@ var customer = builder.AddProject<Projects.Legacy_Maliev_CustomerService_Api>(
     .WaitFor(pgbouncer)
     .WaitFor(redis)
     .WaitFor(auth);
+
+customerMigrations.WithParentRelationship(customer.Resource);
 
 var employeeDatabase = databases["Employee"];
 var employeeMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-employee-migrations")
@@ -313,8 +398,8 @@ var employee = builder.AddProject<Projects.Legacy_Maliev_EmployeeService_Api>(
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("AuthService__LegacyEmployeeIdentityBaseUrl", ReferenceExpression.Create($"{auth.GetEndpoint("http")}/auth/v1/legacy/employees/"))
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
-    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("Jwt__Issuer", jwtIssuer)
+    .WithEnvironment("Jwt__Audience", jwtAudience)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
@@ -330,6 +415,8 @@ var employee = builder.AddProject<Projects.Legacy_Maliev_EmployeeService_Api>(
     .WaitFor(pgbouncer)
     .WaitFor(redis)
     .WaitFor(auth);
+
+employeeMigrations.WithParentRelationship(employee.Resource);
 
 var catalogDatabase = databases["Material"];
 var catalogMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-catalog-migrations")
@@ -347,8 +434,8 @@ var catalog = builder.AddProject<Projects.Legacy_Maliev_CatalogService_Api>(
     .WithEnvironment("ConnectionStrings__CatalogDbContext", CreatePooledDatabaseConnectionString("Material"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
-    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("Jwt__Issuer", jwtIssuer)
+    .WithEnvironment("Jwt__Audience", jwtAudience)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
@@ -364,6 +451,8 @@ var catalog = builder.AddProject<Projects.Legacy_Maliev_CatalogService_Api>(
     .WaitFor(pgbouncer)
     .WaitFor(redis)
     .WaitFor(auth);
+
+catalogMigrations.WithParentRelationship(catalog.Resource);
 
 var supplierDatabase = databases["Supplier"];
 var purchaseOrderDatabase = databases["PurchaseOrder"];
@@ -390,8 +479,8 @@ var procurement = builder.AddProject<Projects.Legacy_Maliev_ProcurementService_A
     .WithEnvironment("ConnectionStrings__PurchaseOrderDbContext", CreatePooledDatabaseConnectionString("PurchaseOrder"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
-    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("Jwt__Issuer", jwtIssuer)
+    .WithEnvironment("Jwt__Audience", jwtAudience)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
@@ -409,6 +498,9 @@ var procurement = builder.AddProject<Projects.Legacy_Maliev_ProcurementService_A
     .WaitFor(redis)
     .WaitFor(auth);
 
+supplierMigrations.WithParentRelationship(procurement.Resource);
+purchaseOrderMigrations.WithParentRelationship(procurement.Resource);
+
 var fileDatabase = databases["Upload"];
 var fileMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-file-migrations")
     .WithArgs("file")
@@ -423,10 +515,9 @@ var file = builder.AddProject<Projects.Legacy_Maliev_FileService_Api>(
         launchProfileName: "http")
     .ConfigureDynamicHttpEndpoint()
     .WithEnvironment("ConnectionStrings__FileDbContext", CreatePooledDatabaseConnectionString("Upload"))
-    .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
-    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("Jwt__Issuer", jwtIssuer)
+    .WithEnvironment("Jwt__Audience", jwtAudience)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
@@ -440,8 +531,9 @@ var file = builder.AddProject<Projects.Legacy_Maliev_FileService_Api>(
     })
     .WaitForCompletion(fileMigrations)
     .WaitFor(pgbouncer)
-    .WaitFor(redis)
     .WaitFor(auth);
+
+fileMigrations.WithParentRelationship(file.Resource);
 
 var notification = builder.AddProject<Projects.Legacy_Maliev_NotificationService_Api>(
         "legacy-maliev-notification-service",
@@ -450,8 +542,8 @@ var notification = builder.AddProject<Projects.Legacy_Maliev_NotificationService
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
     .WithEnvironment("Notifications__UseDevelopmentRecordingProvider", "true")
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
-    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("Jwt__Issuer", jwtIssuer)
+    .WithEnvironment("Jwt__Audience", jwtAudience)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "100663296")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithHttpHealthCheck("/emails/liveness", endpointName: "http")
@@ -488,8 +580,8 @@ var order = builder.AddProject<Projects.Legacy_Maliev_OrderService_Api>(
     .WithEnvironment("ConnectionStrings__OrderStatusDbContext", CreatePooledDatabaseConnectionString("OrderStatus"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
-    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("Jwt__Issuer", jwtIssuer)
+    .WithEnvironment("Jwt__Audience", jwtAudience)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
@@ -506,6 +598,9 @@ var order = builder.AddProject<Projects.Legacy_Maliev_OrderService_Api>(
     .WaitFor(pgbouncer)
     .WaitFor(redis)
     .WaitFor(auth);
+
+orderMigrations.WithParentRelationship(order.Resource);
+orderStatusMigrations.WithParentRelationship(order.Resource);
 
 var quotationDatabase = databases["Quotation"];
 var quotationRequestDatabase = databases["QuotationRequest"];
@@ -538,8 +633,8 @@ var quotation = builder.AddProject<Projects.Legacy_Maliev_QuotationService_Api>(
     .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
     .WithEnvironment("Services__Order", order.GetEndpoint("http"))
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
-    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("Jwt__Issuer", jwtIssuer)
+    .WithEnvironment("Jwt__Audience", jwtAudience)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
@@ -560,6 +655,9 @@ var quotation = builder.AddProject<Projects.Legacy_Maliev_QuotationService_Api>(
     .WaitFor(auth)
     .WaitFor(order);
 
+quotationMigrations.WithParentRelationship(quotation.Resource);
+quotationRequestMigrations.WithParentRelationship(quotation.Resource);
+
 var careerDatabase = databases["JobOffers"];
 var careerMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-career-migrations")
     .WithArgs("career")
@@ -575,8 +673,8 @@ var career = builder.AddProject<Projects.Legacy_Maliev_CareerService_Api>(
     .WithEnvironment("ConnectionStrings__CareerDbContext", CreatePooledDatabaseConnectionString("JobOffers"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
-    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("Jwt__Issuer", jwtIssuer)
+    .WithEnvironment("Jwt__Audience", jwtAudience)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
@@ -591,6 +689,8 @@ var career = builder.AddProject<Projects.Legacy_Maliev_CareerService_Api>(
     .WaitForCompletion(careerMigrations)
     .WaitFor(pgbouncer)
     .WaitFor(redis);
+
+careerMigrations.WithParentRelationship(career.Resource);
 
 var contactDatabase = databases["Message"];
 var contactMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-contact-migrations")
@@ -607,8 +707,8 @@ var contact = builder.AddProject<Projects.Legacy_Maliev_ContactService_Api>(
     .WithEnvironment("ConnectionStrings__ContactRequestDbContext", CreatePooledDatabaseConnectionString("Message"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
-    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("Jwt__Issuer", jwtIssuer)
+    .WithEnvironment("Jwt__Audience", jwtAudience)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
@@ -623,6 +723,8 @@ var contact = builder.AddProject<Projects.Legacy_Maliev_ContactService_Api>(
     .WaitForCompletion(contactMigrations)
     .WaitFor(pgbouncer)
     .WaitFor(redis);
+
+contactMigrations.WithParentRelationship(contact.Resource);
 
 var paymentDatabase = databases["Payment"];
 var invoiceDatabase = databases["Invoice"];
@@ -665,8 +767,8 @@ var accounting = builder.AddProject<Projects.Legacy_Maliev_AccountingService_Api
     .WithEnvironment("Services__Customer", customer.GetEndpoint("http"))
     .WithEnvironment("Services__Employee", employee.GetEndpoint("http"))
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
-    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
+    .WithEnvironment("Jwt__Issuer", jwtIssuer)
+    .WithEnvironment("Jwt__Audience", jwtAudience)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
@@ -696,9 +798,14 @@ var accounting = builder.AddProject<Projects.Legacy_Maliev_AccountingService_Api
     .WaitFor(customer)
     .WaitFor(employee);
 
+paymentMigrations.WithParentRelationship(accounting.Resource);
+invoiceMigrations.WithParentRelationship(accounting.Resource);
+receiptMigrations.WithParentRelationship(accounting.Resource);
+
 builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WithHttpEndpoint(port: legacyWebIdentity.Port, name: "http")
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+    .WithEnvironment("DOTNET_ENVIRONMENT", "Development")
     .WithEnvironment("BuildIdentity__Repository", legacyWebIdentity.Repository)
     .WithEnvironment("BuildIdentity__Branch", legacyWebIdentity.Branch)
     .WithEnvironment("BuildIdentity__Commit", legacyWebIdentity.Commit)
@@ -707,6 +814,7 @@ builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WithEnvironment("DataProtection__CertificatePassword", dataProtectionCertificate.Password)
     .WithEnvironment("ServiceAuthentication__ClientId", "legacy-web")
     .WithEnvironment("ServiceAuthentication__ClientSecret", webCredential.Secret)
+    .WithEnvironment("GoogleMaps__EmbedApiKey", webGoogleMapsEmbedApiKey)
     .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
     .WithEnvironment("Services__Customer", customer.GetEndpoint("http"))
     .WithEnvironment("Services__Notification", notification.GetEndpoint("http"))
@@ -754,11 +862,13 @@ var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legac
     .WithEnvironment("DataProtection__CertificatePfxBase64", dataProtectionCertificate.PfxBase64)
     .WithEnvironment("DataProtection__CertificatePassword", dataProtectionCertificate.Password)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", LegacyTopology.JwtIssuer)
-    .WithEnvironment("Jwt__Audience", LegacyTopology.JwtAudience)
-    .WithEnvironment("Jwt__KeyId", LegacyTopology.JwtKeyId)
+    .WithEnvironment("Jwt__Issuer", jwtIssuer)
+    .WithEnvironment("Jwt__Audience", jwtAudience)
+    .WithEnvironment("Jwt__KeyId", jwtKeyId)
     .WithEnvironment("ServiceAuthentication__ClientId", "legacy-intranet")
     .WithEnvironment("ServiceAuthentication__ClientSecret", intranetCredential.Secret)
+    .WithEnvironment("Authentication__Google__ClientId", googleIdentityClientId)
+    .WithEnvironment("GoogleMaps__BrowserApiKey", intranetGoogleMapsBrowserApiKey)
     .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
     .WithEnvironment("Services__Catalog", catalog.GetEndpoint("http"))
     .WithEnvironment("Services__Order", order.GetEndpoint("http"))

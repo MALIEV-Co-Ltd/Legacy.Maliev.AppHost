@@ -67,7 +67,6 @@ public static class LegacyTopology
         "country",
         "customer",
         "employee",
-        "file",
         "order",
         "procurement",
         "quotation",
@@ -76,12 +75,14 @@ public static class LegacyTopology
     /// <summary>Gets the exact permissions required by currently migrated Intranet workflows.</summary>
     public static IReadOnlyList<string> IntranetPermissions { get; } =
     [
+        "legacy-auth.google-identity.exchange",
         "legacy-auth.customer-identities.create",
         "legacy-auth.employee-identities.create",
         "legacy-auth.employee-self-service",
         "legacy-customer.customers.read",
         "legacy-customer.customers.list",
         "legacy-customer.customers.create",
+        "legacy-customer.customers.update",
         "legacy-customer.customers.delete",
         "legacy-employee.employees.read",
         "legacy-employee.employees.list",

@@ -82,7 +82,6 @@ public sealed class LegacyTopologyTests
             "country",
             "customer",
             "employee",
-            "file",
             "order",
             "procurement",
             "quotation",
@@ -96,12 +95,14 @@ public sealed class LegacyTopologyTests
     {
         string[] expected =
         [
+            "legacy-auth.google-identity.exchange",
             "legacy-auth.customer-identities.create",
             "legacy-auth.employee-identities.create",
             "legacy-auth.employee-self-service",
             "legacy-customer.customers.read",
             "legacy-customer.customers.list",
             "legacy-customer.customers.create",
+            "legacy-customer.customers.update",
             "legacy-customer.customers.delete",
             "legacy-employee.employees.read",
             "legacy-employee.employees.list",
@@ -227,6 +228,76 @@ public sealed class LegacyTopologyTests
         Assert.Contains("PRIVATE KEY", privatePem, StringComparison.Ordinal);
         Assert.StartsWith("-----BEGIN ", publicPem, StringComparison.Ordinal);
         Assert.Contains("PUBLIC KEY", publicPem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GkeJwtSecretMaterial_NormalizesPemWithoutChangingTheKeyPair()
+    {
+        var generated = LocalJwtKeyMaterial.Create();
+        var material = LocalJwtKeyMaterial.FromSecrets(
+            generated.PrivateKeyPem,
+            generated.PublicKeyPem);
+
+        Assert.Equal(generated.PrivateKeyPem, material.PrivateKeyPem);
+        Assert.Equal(generated.PublicKeyPem, material.PublicKeyPem);
+    }
+
+    [Fact]
+    public void GkeJwtSecretMaterial_RejectsMismatchedKeys()
+    {
+        var first = LocalJwtKeyMaterial.Create();
+        var second = LocalJwtKeyMaterial.Create();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            LocalJwtKeyMaterial.FromSecrets(first.PrivateKeyPem, second.PublicKeyBase64));
+    }
+
+    [Fact]
+    public void GkeServiceCredential_HashesOnlyTheSuppliedSecret()
+    {
+        var material = LocalServiceCredential.FromSecret("gke-validation-test-secret");
+        var expected = Convert.ToHexStringLower(
+            SHA256.HashData(Encoding.UTF8.GetBytes("gke-validation-test-secret")));
+
+        Assert.Equal("gke-validation-test-secret", material.Secret);
+        Assert.Equal(expected, material.SecretSha256);
+    }
+
+    [Fact]
+    public void GkeServiceCredential_RequiresTheConsolidatedAuthHashToMatch()
+    {
+        var credential = LocalServiceCredential.FromSecret("gke-validation-test-secret");
+
+        var matched = LocalServiceCredential.FromSecretPair(
+            credential.Secret,
+            credential.SecretSha256.ToUpperInvariant(),
+            "legacy-web");
+
+        Assert.Equal(credential.SecretSha256, matched.SecretSha256);
+        Assert.Throws<InvalidOperationException>(() =>
+            LocalServiceCredential.FromSecretPair("gke-validation-test-secret", "0".PadLeft(64, '0'), "legacy-web"));
+    }
+
+    [Fact]
+    public void GkeDataProtectionSecretMaterial_RemainsImportable()
+    {
+        var generated = LocalDataProtectionCertificate.Create();
+        var material = LocalDataProtectionCertificate.FromSecrets(
+            generated.PfxBase64,
+            generated.Password);
+        using var certificate = X509CertificateLoader.LoadPkcs12(
+            Convert.FromBase64String(material.PfxBase64),
+            material.Password,
+            X509KeyStorageFlags.EphemeralKeySet);
+
+        Assert.True(certificate.HasPrivateKey);
+    }
+
+    [Fact]
+    public void GkeDataProtectionSecretMaterial_RejectsInvalidPayloads()
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            LocalDataProtectionCertificate.FromSecrets("not-base64", "password"));
     }
 
     [Fact]
