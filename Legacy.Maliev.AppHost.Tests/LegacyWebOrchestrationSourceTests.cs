@@ -69,7 +69,7 @@ public sealed class LegacyWebOrchestrationSourceTests
             "workflows",
             "_build-and-test.yml"));
 
-        Assert.Contains("ref: 2fc047ee4cb4bd349538190307fcb0eab641a4dd", workflow, StringComparison.Ordinal);
+        Assert.Contains("ref: a70dd456adeb72978ef8bdf43d7d258733dca06e", workflow, StringComparison.Ordinal);
         Assert.Contains("export LEGACY_WEB_PROJECT=", workflow, StringComparison.Ordinal);
         Assert.Contains("export LEGACY_WEB_REPOSITORY=", workflow, StringComparison.Ordinal);
         Assert.Contains("LEGACY_WEB_BRANCH:", workflow, StringComparison.Ordinal);
