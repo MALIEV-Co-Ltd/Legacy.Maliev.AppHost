@@ -931,6 +931,9 @@ public sealed class AppHostSourceContractTests
 
         Assert.Contains("Legacy.Maliev.AppHost\\sharedsecrets.json", startScript, StringComparison.Ordinal);
         Assert.Contains("GoogleMaps.BrowserApiKey", startScript, StringComparison.Ordinal);
+        Assert.Contains("gcloud secrets versions access latest", startScript, StringComparison.Ordinal);
+        Assert.Contains("--secret=maliev-legacy-secrets", startScript, StringComparison.Ordinal);
+        Assert.Contains("legacy-web-google-maps-embed-api-key", startScript, StringComparison.Ordinal);
         Assert.Contains("Parameters__legacy-web-google-maps-embed-api-key", startScript, StringComparison.Ordinal);
         Assert.Contains("Parameters__legacy-intranet-google-maps-browser-api-key", startScript, StringComparison.Ordinal);
         Assert.DoesNotContain("local-review-only-map-key", startScript, StringComparison.Ordinal);
