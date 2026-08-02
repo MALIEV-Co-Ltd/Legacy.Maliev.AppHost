@@ -45,6 +45,18 @@ if ([string]::IsNullOrWhiteSpace($RedisPassword)) {
     $RedisPassword = [Guid]::NewGuid().ToString('N')
 }
 
+$googleMapsApiKey = [Environment]::GetEnvironmentVariable(
+    'Parameters__legacy-web-google-maps-embed-api-key')
+$googleMapsSecretPath = Join-Path $WorkspaceRoot 'Legacy.Maliev.AppHost\sharedsecrets.json'
+if ([string]::IsNullOrWhiteSpace($googleMapsApiKey) -and
+    (Test-Path -LiteralPath $googleMapsSecretPath -PathType Leaf)) {
+    $googleMapsApiKey = (Get-Content -LiteralPath $googleMapsSecretPath -Raw |
+        ConvertFrom-Json).GoogleMaps.BrowserApiKey
+}
+if ([string]::IsNullOrWhiteSpace($googleMapsApiKey)) {
+    throw 'The local Google Maps browser key projection is required for exact-snapshot review.'
+}
+
 $legacyWebBranch = (& git -C $LegacyWebRepository branch --show-current).Trim()
 $legacyWebCommit = (& git -C $LegacyWebRepository rev-parse HEAD).Trim()
 if ([string]::IsNullOrWhiteSpace($legacyWebBranch) -or [string]::IsNullOrWhiteSpace($legacyWebCommit)) {
@@ -66,8 +78,8 @@ $environment = @{
     'Parameters__legacy-postgres-username' = 'postgres'
     'Parameters__legacy-postgres-password' = $PostgresPassword
     'Parameters__legacy-redis-password' = $RedisPassword
-    'Parameters__legacy-web-google-maps-embed-api-key' = 'local-review-only-map-key'
-    'Parameters__legacy-intranet-google-maps-browser-api-key' = 'local-review-only-map-key'
+    'Parameters__legacy-web-google-maps-embed-api-key' = $googleMapsApiKey
+    'Parameters__legacy-intranet-google-maps-browser-api-key' = $googleMapsApiKey
 }
 
 $stdoutPath = Join-Path $env:TEMP 'maliev-legacy-local-snapshot-aspire.stdout.log'
