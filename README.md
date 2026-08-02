@@ -156,8 +156,10 @@ protection-key databases) are restored by dedicated snapshot resources as well. 
 session database remains local-only and is migrated normally, so local sign-in state cannot write
 to GKE.
 
-This mode is deliberately local and fail-closed: it never calls `kubectl`, Secret Manager, or a
-production endpoint, and the source archives remain outside Git. The restored identity hashes are
+This mode is deliberately local and fail-closed: it never calls `kubectl` or an application/data
+production endpoint. It may read the consolidated `maliev-legacy-secrets` bundle through the
+owner's active `gcloud` session solely to project the Maps browser key in memory; the value is never
+printed or written. The source archives remain outside Git. The restored identity hashes are
 the migrated hashes, so an owner may test an existing credential against the local Intranet BFF
 without the launcher logging or transmitting the password. Treat the snapshot directory as
 sensitive production-derived data and do not copy it into a repository or share it.

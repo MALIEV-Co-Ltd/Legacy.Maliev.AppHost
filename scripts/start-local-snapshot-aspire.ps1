@@ -53,6 +53,16 @@ if ([string]::IsNullOrWhiteSpace($googleMapsApiKey) -and
     $googleMapsApiKey = (Get-Content -LiteralPath $googleMapsSecretPath -Raw |
         ConvertFrom-Json).GoogleMaps.BrowserApiKey
 }
+if ([string]::IsNullOrWhiteSpace($googleMapsApiKey) -and
+    (Get-Command gcloud -ErrorAction SilentlyContinue)) {
+    $secretJson = (& gcloud secrets versions access latest `
+        --secret=maliev-legacy-secrets `
+        --project=maliev-website 2>$null) -join [Environment]::NewLine
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($secretJson)) {
+        $secretBundle = $secretJson | ConvertFrom-Json -AsHashtable
+        $googleMapsApiKey = $secretBundle['legacy-web-google-maps-embed-api-key']
+    }
+}
 if ([string]::IsNullOrWhiteSpace($googleMapsApiKey)) {
     throw 'The local Google Maps browser key projection is required for exact-snapshot review.'
 }
