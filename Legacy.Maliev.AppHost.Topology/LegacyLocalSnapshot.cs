@@ -67,6 +67,7 @@ public sealed class LegacyLocalSnapshot
         {
             if (string.IsNullOrWhiteSpace(entry.Database) ||
                 string.IsNullOrWhiteSpace(entry.File) ||
+                entry.File.IndexOfAny(['/', '\\']) >= 0 ||
                 !string.Equals(Path.GetFileName(entry.File), entry.File, StringComparison.Ordinal) ||
                 !IsSha256(entry.Sha256) ||
                 entry.Bytes <= 0)
