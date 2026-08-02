@@ -55,6 +55,7 @@ $environment = @{
     MalievWorkspaceRoot = $WorkspaceRoot
     LEGACY_LOCAL_SNAPSHOT = 'true'
     LEGACY_LOCAL_SNAPSHOT_DIR = $SnapshotDirectory
+    LEGACY_LOCAL_FIXTURES = 'true'
     LEGACY_WEB_PROJECT = $LegacyWebProject
     LEGACY_WEB_REPOSITORY = $LegacyWebRepository
     LEGACY_WEB_BRANCH = $legacyWebBranch

@@ -326,4 +326,26 @@ public sealed class LegacyTopologyTests
         Assert.Contains("Legacy.Maliev.Web", certificate.Subject, StringComparison.Ordinal);
         Assert.True(certificate.NotAfter > DateTime.UtcNow);
     }
+
+    [Fact]
+    public void CreateOrLoadDataProtectionCertificate_ReusesTheLocalMaterialAcrossRuns()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "maliev-legacy-aspire", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var first = LocalDataProtectionCertificate.CreateOrLoad("intranet", directory);
+            var second = LocalDataProtectionCertificate.CreateOrLoad("intranet", directory);
+
+            Assert.Equal(first.PfxBase64, second.PfxBase64);
+            Assert.Equal(first.Password, second.Password);
+            Assert.True(File.Exists(Path.Combine(directory, "intranet.json")));
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
 }

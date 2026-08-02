@@ -695,6 +695,10 @@ public sealed class AppHostSourceContractTests
             bff,
             StringComparison.Ordinal);
         Assert.Contains(
+            "WithEnvironment(\"Workspace__AllowLocalTestDomain\", \"true\")",
+            bff,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "\"legacy-catalog.materials.read\"",
             File.ReadAllText(Path.Combine(
                 FindRepositoryRoot(),
@@ -901,6 +905,20 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("FirstName = \"Local\"", source, StringComparison.Ordinal);
         Assert.Contains("LastName = \"Customer\"", source, StringComparison.Ordinal);
         Assert.Contains("customer.Id != 1", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LocalSnapshotFixtures_AreExplicitlyOptInAndNeverEnabledForGkeValidation()
+    {
+        var root = FindRepositoryRoot();
+        var appHost = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var migrationRunner = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost.MigrationRunner", "Program.cs"));
+        var startScript = File.ReadAllText(Path.Combine(root, "scripts", "start-local-snapshot-aspire.ps1"));
+
+        Assert.Contains("LEGACY_LOCAL_FIXTURES", appHost, StringComparison.Ordinal);
+        Assert.Contains("localSnapshotMode && localFixturesRequested", appHost, StringComparison.Ordinal);
+        Assert.Contains("SeedLocalSnapshotFixtureAsync", migrationRunner, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_LOCAL_FIXTURES = 'true'", startScript, StringComparison.Ordinal);
     }
 
     [Fact]

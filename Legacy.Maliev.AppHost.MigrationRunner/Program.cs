@@ -54,6 +54,10 @@ if (string.Equals(Environment.GetEnvironmentVariable("LEGACY_SKIP_MIGRATE"), "tr
     }
 
     await RestoreSnapshotAsync(snapshotDirectory, snapshotDatabase, snapshotConnectionString);
+    if (string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_FIXTURES"), "true", StringComparison.OrdinalIgnoreCase))
+    {
+        await SeedLocalSnapshotFixtureAsync(snapshotDatabase, snapshotConnectionString);
+    }
     return;
 }
 
@@ -184,6 +188,53 @@ static async Task RestoreSnapshotAsync(
     }
 
     Console.WriteLine($"Restored the verified local PostgreSQL snapshot for database '{databaseName}'.");
+}
+
+static async Task SeedLocalSnapshotFixtureAsync(string databaseName, string connectionString)
+{
+    switch (databaseName)
+    {
+        case "CustomerIdentity":
+            var customerIdentityOptions = new DbContextOptionsBuilder<CustomerIdentityDbContext>()
+                .UseNpgsql(connectionString)
+                .Options;
+            await using (var context = new CustomerIdentityDbContext(customerIdentityOptions))
+            {
+                await SeedIdentityAsync(
+                    context,
+                    "local-customer",
+                    LegacyTopology.LocalCustomerEmail,
+                    databaseId: 1,
+                    includeCustomerFields: true);
+            }
+
+            break;
+        case "EmployeeIdentity":
+            var employeeIdentityOptions = new DbContextOptionsBuilder<EmployeeIdentityDbContext>()
+                .UseNpgsql(connectionString)
+                .Options;
+            await using (var context = new EmployeeIdentityDbContext(employeeIdentityOptions))
+            {
+                await SeedIdentityAsync(
+                    context,
+                    "local-employee",
+                    LegacyTopology.LocalEmployeeEmail,
+                    databaseId: 2,
+                    includeCustomerFields: false);
+            }
+
+            break;
+        case "Customer":
+            var customerOptions = new DbContextOptionsBuilder<CustomerDbContext>()
+                .UseNpgsql(connectionString)
+                .Options;
+            await using (var context = new CustomerDbContext(customerOptions))
+            {
+                await SeedCustomerAsync(context);
+            }
+
+            break;
+    }
 }
 
 static async Task MigrateAsync(string workload, string connectionString)
@@ -576,6 +627,10 @@ static async Task SeedCustomerAsync(CustomerDbContext context)
     {
         customer = new Customer
         {
+            // The local fixture identity is intentionally tied to the reserved local profile
+            // identifier. This row is added only in the opt-in local snapshot overlay; production
+            // databases are never seeded by this path.
+            Id = 1,
             FirstName = "Local",
             LastName = "Customer",
             Email = LegacyTopology.LocalCustomerEmail,

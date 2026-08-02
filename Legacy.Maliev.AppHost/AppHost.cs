@@ -13,6 +13,7 @@ var recaptchaProjectIdFromProcess = Environment.GetEnvironmentVariable("MALIEV_R
 var gkeValidationModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_GKE_VALIDATION"), "true", StringComparison.OrdinalIgnoreCase);
 var localSnapshotModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_SNAPSHOT"), "true", StringComparison.OrdinalIgnoreCase);
 var localSnapshotDirectoryRequested = Environment.GetEnvironmentVariable("LEGACY_LOCAL_SNAPSHOT_DIR")?.Trim();
+var localFixturesRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_FIXTURES"), "true", StringComparison.OrdinalIgnoreCase);
 if (gkeValidationModeRequested && localSnapshotModeRequested)
 {
     throw new InvalidOperationException("LEGACY_GKE_VALIDATION and LEGACY_LOCAL_SNAPSHOT cannot be enabled together.");
@@ -21,6 +22,11 @@ if (gkeValidationModeRequested && localSnapshotModeRequested)
 if (localSnapshotModeRequested && string.IsNullOrWhiteSpace(localSnapshotDirectoryRequested))
 {
     throw new InvalidOperationException("LEGACY_LOCAL_SNAPSHOT_DIR is required when LEGACY_LOCAL_SNAPSHOT=true.");
+}
+
+if (localFixturesRequested && !localSnapshotModeRequested)
+{
+    throw new InvalidOperationException("LEGACY_LOCAL_FIXTURES requires LEGACY_LOCAL_SNAPSHOT=true.");
 }
 
 LocalEnvironmentPolicy.SanitizeCurrentProcess();
@@ -50,6 +56,7 @@ var builder = DistributedApplication.CreateBuilder(args);
 var gkeValidationMode = gkeValidationModeRequested;
 var gkeSecrets = gkeValidationMode ? LoadGkeValidationSecrets() : null;
 var localSnapshotMode = localSnapshotModeRequested;
+var localFixtures = localSnapshotMode && localFixturesRequested;
 if (localSnapshotMode)
 {
     var snapshot = LegacyLocalSnapshot.Load(localSnapshotDirectoryRequested!);
@@ -139,8 +146,8 @@ var webCredential = LocalServiceCredential.Create();
 var intranetCredential = LocalServiceCredential.Create();
 var quotationCredential = LocalServiceCredential.Create();
 var accountingCredential = LocalServiceCredential.Create();
-var dataProtectionCertificate = LocalDataProtectionCertificate.Create();
-var intranetDataProtectionCertificate = LocalDataProtectionCertificate.Create();
+var dataProtectionCertificate = LocalDataProtectionCertificate.CreateOrLoad("Web");
+var intranetDataProtectionCertificate = LocalDataProtectionCertificate.CreateOrLoad("Intranet");
 
 if (gkeValidationMode)
 {
@@ -316,6 +323,7 @@ var customerIdentityMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHo
         "legacy-customer-identity-migrations")
     .WithArgs("customer-identity")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_FIXTURES", localFixtures ? "true" : "false")
     .WithEnvironment("ConnectionStrings__CustomerIdentity", customerIdentityDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -325,6 +333,7 @@ var employeeIdentityMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHo
         "legacy-employee-identity-migrations")
     .WithArgs("employee-identity")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_FIXTURES", localFixtures ? "true" : "false")
     .WithEnvironment("ConnectionStrings__EmployeeIdentity", employeeIdentityDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -425,6 +434,7 @@ var customerDatabase = databases["Customer"];
 var customerMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-customer-migrations")
     .WithArgs("customer")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_FIXTURES", localFixtures ? "true" : "false")
     .WithEnvironment("ConnectionStrings__CustomerDbContext", customerDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -940,6 +950,7 @@ builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
 var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legacy-maliev-intranet-bff")
     .WithHttpsEndpoint(name: "https")
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+    .WithEnvironment("Workspace__AllowLocalTestDomain", "true")
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("DataProtection__CertificatePfxBase64", intranetDataProtectionCertificate.PfxBase64)
     .WithEnvironment("DataProtection__CertificatePassword", intranetDataProtectionCertificate.Password)
