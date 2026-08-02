@@ -1,3 +1,5 @@
+using DiagnosticsProcess = System.Diagnostics.Process;
+using DiagnosticsProcessStartInfo = System.Diagnostics.ProcessStartInfo;
 using Legacy.Maliev.AuthService.Infrastructure;
 using Legacy.Maliev.AppHost.Topology;
 using Legacy.Maliev.CountryService.Data;
@@ -17,19 +19,59 @@ using Legacy.Maliev.ContactService.Data;
 using Legacy.Maliev.AccountingService.Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
+
+var workload = args.FirstOrDefault()
+    ?? throw new InvalidOperationException("A migration workload is required.");
+var snapshotDirectory = Environment.GetEnvironmentVariable("LEGACY_SNAPSHOT_DIRECTORY");
 
 if (string.Equals(Environment.GetEnvironmentVariable("LEGACY_SKIP_MIGRATE"), "true", StringComparison.OrdinalIgnoreCase))
 {
-    // GKE validation mode: the target database already has the real migrated schema and
-    // data. Never touch it here — beyond MigrateAsync, several workloads below also seed
-    // rows (SeedQuotationAsync, SeedOrderAsync, etc.), which must not run against real data.
-    Console.WriteLine("LEGACY_SKIP_MIGRATE=true; skipping migration and seeding.");
+    if (string.IsNullOrWhiteSpace(snapshotDirectory))
+    {
+        // GKE validation mode: the target database already has the real migrated schema and
+        // data. Never touch it here — beyond MigrateAsync, several workloads below also seed
+        // rows (SeedQuotationAsync, SeedOrderAsync, etc.), which must not run against real data.
+        Console.WriteLine("LEGACY_SKIP_MIGRATE=true; skipping migration and seeding.");
+        return;
+    }
+
+    var snapshotDatabase = workload == "snapshot"
+        ? args.Skip(1).SingleOrDefault()
+        : DatabaseNameForWorkload(workload);
+    if (string.IsNullOrWhiteSpace(snapshotDatabase))
+    {
+        throw new InvalidOperationException("A snapshot workload requires a database name.");
+    }
+
+    var snapshotConnectionName = workload == "snapshot"
+        ? "SnapshotDb"
+        : ConnectionNameForWorkload(workload);
+    var snapshotConnectionString = Environment.GetEnvironmentVariable($"ConnectionStrings__{snapshotConnectionName}");
+    if (string.IsNullOrWhiteSpace(snapshotConnectionString))
+    {
+        throw new InvalidOperationException($"The {snapshotConnectionName} snapshot connection string is required.");
+    }
+
+    await RestoreSnapshotAsync(snapshotDirectory, snapshotDatabase, snapshotConnectionString);
     return;
 }
 
-var workload = args.SingleOrDefault()
-    ?? throw new InvalidOperationException("A migration workload is required.");
-var connectionName = workload switch
+if (workload == "snapshot")
+{
+    throw new InvalidOperationException("Snapshot workloads require LEGACY_SKIP_MIGRATE=true.");
+}
+
+var connectionName = ConnectionNameForWorkload(workload);
+var connectionString = Environment.GetEnvironmentVariable($"ConnectionStrings__{connectionName}");
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    throw new InvalidOperationException($"The {connectionName} connection string is required.");
+}
+
+await MigrateAsync(workload, connectionString);
+
+static string ConnectionNameForWorkload(string workload) => workload switch
 {
     "auth" => "RefreshSessions",
     "customer-identity" => "CustomerIdentity",
@@ -52,13 +94,97 @@ var connectionName = workload switch
     "receipt" => "ReceiptDbContext",
     _ => throw new InvalidOperationException($"Unknown migration workload '{workload}'."),
 };
-var connectionString = Environment.GetEnvironmentVariable($"ConnectionStrings__{connectionName}");
-if (string.IsNullOrWhiteSpace(connectionString))
-{
-    throw new InvalidOperationException($"The {connectionName} connection string is required.");
-}
 
-await MigrateAsync(workload, connectionString);
+static string DatabaseNameForWorkload(string workload) => workload switch
+{
+    "country" => "Country",
+    "customer-identity" => "CustomerIdentity",
+    "employee-identity" => "EmployeeIdentity",
+    "customer" => "Customer",
+    "employee" => "Employee",
+    "catalog" => "Material",
+    "supplier" => "Supplier",
+    "purchase-order" => "PurchaseOrder",
+    "file" => "Upload",
+    "order" => "Order",
+    "order-status" => "OrderStatus",
+    "quotation" => "Quotation",
+    "quotation-request" => "QuotationRequest",
+    "career" => "JobOffers",
+    "contact" => "Message",
+    "payment" => "Payment",
+    "invoice" => "Invoice",
+    "receipt" => "Receipt",
+    _ => throw new InvalidOperationException($"Workload '{workload}' does not map to a migrated database."),
+};
+
+static async Task RestoreSnapshotAsync(
+    string snapshotDirectory,
+    string databaseName,
+    string connectionString)
+{
+    var archivePath = LegacyLocalSnapshot.Load(snapshotDirectory).GetArchivePath(databaseName);
+    var connection = new NpgsqlConnectionStringBuilder(connectionString);
+    var password = connection.Password;
+    var host = connection.Host ?? throw new InvalidOperationException("Snapshot connection host is required.");
+    var username = connection.Username ?? throw new InvalidOperationException("Snapshot connection username is required.");
+    var database = connection.Database ?? throw new InvalidOperationException("Snapshot connection database is required.");
+
+    var startInfo = new DiagnosticsProcessStartInfo
+    {
+        FileName = Environment.GetEnvironmentVariable("PG_RESTORE_PATH") ?? "pg_restore",
+        UseShellExecute = false,
+        RedirectStandardError = true,
+        RedirectStandardOutput = true,
+        CreateNoWindow = true,
+    };
+    startInfo.ArgumentList.Add("--exit-on-error");
+    startInfo.ArgumentList.Add("--clean");
+    startInfo.ArgumentList.Add("--if-exists");
+    startInfo.ArgumentList.Add("--no-owner");
+    startInfo.ArgumentList.Add("--no-privileges");
+    startInfo.ArgumentList.Add("--single-transaction");
+    startInfo.ArgumentList.Add("--no-password");
+    startInfo.ArgumentList.Add("--host");
+    startInfo.ArgumentList.Add(host);
+    startInfo.ArgumentList.Add("--port");
+    startInfo.ArgumentList.Add(connection.Port.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    startInfo.ArgumentList.Add("--username");
+    startInfo.ArgumentList.Add(username);
+    startInfo.ArgumentList.Add("--dbname");
+    startInfo.ArgumentList.Add(database);
+    startInfo.ArgumentList.Add(archivePath);
+    if (!string.IsNullOrWhiteSpace(password))
+    {
+        startInfo.Environment["PGPASSWORD"] = password;
+    }
+
+    using var process = new DiagnosticsProcess { StartInfo = startInfo };
+    try
+    {
+        if (!process.Start())
+        {
+            throw new InvalidOperationException("pg_restore could not be started.");
+        }
+    }
+    catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
+    {
+        throw new InvalidOperationException(
+            "The local snapshot requires pg_restore in PATH or PG_RESTORE_PATH.",
+            exception);
+    }
+
+    var standardOutputTask = process.StandardOutput.ReadToEndAsync();
+    var standardErrorTask = process.StandardError.ReadToEndAsync();
+    await process.WaitForExitAsync();
+    await Task.WhenAll(standardOutputTask, standardErrorTask);
+    if (process.ExitCode != 0)
+    {
+        throw new InvalidOperationException($"pg_restore failed for database '{databaseName}'.");
+    }
+
+    Console.WriteLine($"Restored the verified local PostgreSQL snapshot for database '{databaseName}'.");
+}
 
 static async Task MigrateAsync(string workload, string connectionString)
 {

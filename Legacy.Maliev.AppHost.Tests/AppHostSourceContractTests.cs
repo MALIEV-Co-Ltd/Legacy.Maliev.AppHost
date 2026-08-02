@@ -1058,19 +1058,38 @@ public sealed class AppHostSourceContractTests
 
         // Every migration-runner resource is told to skip in GKE validation mode...
         Assert.Contains(
-            ".WithEnvironment(\"LEGACY_SKIP_MIGRATE\", gkeValidationMode ? \"true\" : \"false\")",
+            ".WithEnvironment(\"LEGACY_SKIP_MIGRATE\", gkeValidationMode || localSnapshotMode ? \"true\" : \"false\")",
             appHostSource,
             StringComparison.Ordinal);
 
-        // ...and the runner itself must check that guard and return before the workload
+        // ...and the runner itself must check that guard and return before the migration
         // switch (and its Seed*Async calls, which Add()+SaveChanges() real rows) ever runs.
         // Several seed methods commit before validating an assumed ID and throwing, so the
         // guard must gate everything, not just MigrateAsync.
         var guardIndex = runnerSource.IndexOf("LEGACY_SKIP_MIGRATE", StringComparison.Ordinal);
-        var workloadIndex = runnerSource.IndexOf("var workload = args.SingleOrDefault()", StringComparison.Ordinal);
+        var migrationIndex = runnerSource.IndexOf("await MigrateAsync(workload", StringComparison.Ordinal);
         Assert.True(guardIndex >= 0, "Expected a LEGACY_SKIP_MIGRATE guard in MigrationRunner/Program.cs.");
-        Assert.True(workloadIndex > guardIndex, "The LEGACY_SKIP_MIGRATE guard must run before workload/seed logic.");
-        Assert.Contains("return;", runnerSource[guardIndex..workloadIndex], StringComparison.Ordinal);
+        Assert.True(migrationIndex > guardIndex, "The LEGACY_SKIP_MIGRATE guard must run before workload/seed logic.");
+        Assert.Contains("return;", runnerSource[guardIndex..migrationIndex], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LocalSnapshotMode_IsExplicitAndValidatesEveryMigratedDatabase()
+    {
+        var root = FindRepositoryRoot();
+        var appHostSource = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var runnerSource = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost.MigrationRunner", "Program.cs"));
+
+        Assert.Contains("LEGACY_LOCAL_SNAPSHOT", appHostSource, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_LOCAL_SNAPSHOT_DIR", appHostSource, StringComparison.Ordinal);
+        Assert.Contains("LegacyLocalSnapshot.Load", appHostSource, StringComparison.Ordinal);
+        Assert.Contains("LegacyTopology.DatabaseNames", appHostSource, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_SNAPSHOT_DIRECTORY", appHostSource, StringComparison.Ordinal);
+        Assert.Contains("LegacyLocalSnapshot.Load(snapshotDirectory)", runnerSource, StringComparison.Ordinal);
+        Assert.Contains("pg_restore", runnerSource, StringComparison.Ordinal);
+        Assert.Contains("--no-owner", runnerSource, StringComparison.Ordinal);
+        Assert.Contains("--no-privileges", runnerSource, StringComparison.Ordinal);
+        Assert.Contains("--single-transaction", runnerSource, StringComparison.Ordinal);
     }
 
     [Fact]
