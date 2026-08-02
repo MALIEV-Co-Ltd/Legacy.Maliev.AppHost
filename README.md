@@ -136,6 +136,37 @@ dotnet run --project .\Legacy.Maliev.AppHost\Legacy.Maliev.AppHost.csproj --laun
 The dashboard is served at `http://localhost:15888`. Do not reuse production credentials for
 local parameters.
 
+### Exact migrated PostgreSQL snapshot review
+
+For a local review that exercises the migrated production-shaped data instead of the synthetic
+seed rows, use the guarded snapshot launcher:
+
+```powershell
+dotnet build .\Legacy.Maliev.AppHost\Legacy.Maliev.AppHost.csproj -c Release --nologo
+.\scripts\start-local-snapshot-aspire.ps1 `
+  -SnapshotDirectory 'C:\Users\<you>\AppData\Local\MALIEV\legacy-postgres-snapshots\gke-<timestamp>'
+```
+
+The snapshot directory must contain the manifest and all 21 custom-format archives produced by
+the read-only PostgreSQL export from `legacy-postgres-main`. AppHost validates the manifest,
+archive names, sizes, and SHA-256 checksums before creating any resources. Each local migration
+runner then restores its database with `pg_restore --clean --if-exists --single-transaction`; the
+three preserved stores without an extracted service migration runner (Currency and both data
+protection-key databases) are restored by dedicated snapshot resources as well. The Auth refresh
+session database remains local-only and is migrated normally, so local sign-in state cannot write
+to GKE.
+
+This mode is deliberately local and fail-closed: it never calls `kubectl`, Secret Manager, or a
+production endpoint, and the source archives remain outside Git. The restored identity hashes are
+the migrated hashes, so an owner may test an existing credential against the local Intranet BFF
+without the launcher logging or transmitting the password. Treat the snapshot directory as
+sensitive production-derived data and do not copy it into a repository or share it.
+
+The dashboard URL and dynamic Web/Intranet endpoints are printed by Aspire. Use the `/web/liveness`,
+`/web/readiness`, `/intranet-bff/liveness`, `/intranet-bff/readiness`, `/auth/liveness`, and
+`/auth/readiness` endpoints for the health gate. This mode does not change GKE or the current
+production SQL Server workload.
+
 ### PostgreSQL connection boundary
 
 The local resource `legacy-postgres-pooler-rw` mirrors the prepared CloudNativePG Pooler name and

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Text.Json;
 
 namespace Legacy.Maliev.AppHost.Topology;
 
@@ -44,7 +45,7 @@ public sealed record LocalServiceCredential(string Secret, string SecretSha256)
     }
 }
 
-/// <summary>Contains an ephemeral certificate used to encrypt the local Web key ring.</summary>
+/// <summary>Contains a certificate used to encrypt a local Web key ring.</summary>
 /// <param name="PfxBase64">Base64 PKCS#12 certificate containing its private key.</param>
 /// <param name="Password">Random export password.</param>
 public sealed record LocalDataProtectionCertificate(string PfxBase64, string Password)
@@ -79,13 +80,66 @@ public sealed record LocalDataProtectionCertificate(string PfxBase64, string Pas
         return new(pfxBase64.Trim(), password.Trim());
     }
 
-    /// <summary>Creates a short-lived self-signed RSA certificate for one local Aspire run.</summary>
+    /// <summary>
+    /// Loads the local certificate from the user profile, creating it once when needed.
+    /// Keeping this material stable across Aspire restarts allows browser auth and
+    /// antiforgery cookies to survive a normal local rebuild without weakening CSRF.
+    /// </summary>
+    public static LocalDataProtectionCertificate CreateOrLoad(string name, string? storageDirectory = null)
+    {
+        if (string.IsNullOrWhiteSpace(name)
+            || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            throw new ArgumentException("The local data-protection certificate name is invalid.", nameof(name));
+        }
+
+        var directory = storageDirectory
+            ?? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "MALIEV",
+                "legacy-aspire",
+                "data-protection");
+        var path = Path.Combine(directory, $"{name}.json");
+
+        lock (PersistedCertificateLock)
+        {
+            Directory.CreateDirectory(directory);
+            if (TryLoad(path, out var persisted))
+            {
+                return persisted;
+            }
+
+            var generated = Create($"Legacy.Maliev.{name} Local Data Protection");
+            var serialized = JsonSerializer.Serialize(
+                new PersistedLocalDataProtectionCertificate(generated.PfxBase64, generated.Password));
+            var temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
+            try
+            {
+                File.WriteAllText(temporaryPath, serialized, Encoding.UTF8);
+                File.Move(temporaryPath, path, overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath))
+                {
+                    File.Delete(temporaryPath);
+                }
+            }
+
+            return generated;
+        }
+    }
+
+    /// <summary>Creates a short-lived self-signed RSA certificate.</summary>
     public static LocalDataProtectionCertificate Create()
+        => Create("Legacy.Maliev.Web Local Data Protection");
+
+    private static LocalDataProtectionCertificate Create(string subject)
     {
         var password = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(24));
         using var rsa = RSA.Create(2048);
         var request = new CertificateRequest(
-            "CN=Legacy.Maliev.Web Local Data Protection",
+            $"CN={subject}",
             rsa,
             HashAlgorithmName.SHA256,
             RSASignaturePadding.Pkcs1);
@@ -98,4 +152,45 @@ public sealed record LocalDataProtectionCertificate(string PfxBase64, string Pas
             Convert.ToBase64String(certificate.Export(X509ContentType.Pfx, password)),
             password);
     }
+
+    private static bool TryLoad(string path, out LocalDataProtectionCertificate material)
+    {
+        material = null!;
+        try
+        {
+            var persisted = JsonSerializer.Deserialize<PersistedLocalDataProtectionCertificate>(
+                File.ReadAllText(path));
+            if (persisted is null)
+            {
+                return false;
+            }
+
+            var validated = FromSecrets(persisted.PfxBase64, persisted.Password);
+            using var certificate = X509CertificateLoader.LoadPkcs12(
+                Convert.FromBase64String(validated.PfxBase64),
+                validated.Password,
+                X509KeyStorageFlags.EphemeralKeySet);
+            if (certificate.NotAfter <= DateTime.UtcNow.AddHours(1))
+            {
+                return false;
+            }
+
+            material = validated;
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is IOException
+            or UnauthorizedAccessException
+            or JsonException
+            or InvalidOperationException
+            or FormatException
+            or CryptographicException)
+        {
+            return false;
+        }
+    }
+
+    private sealed record PersistedLocalDataProtectionCertificate(string PfxBase64, string Password);
+
+    private static readonly object PersistedCertificateLock = new();
 }
