@@ -107,6 +107,7 @@ public sealed class LegacyTopologyTests
             "legacy-employee.employees.read",
             "legacy-employee.employees.list",
             "legacy-employee.employees.create",
+            "legacy-employee.employees.self-update",
             "legacy-employee.employees.delete",
             "legacy-catalog.countries.read",
             "legacy-catalog.currencies.read",
