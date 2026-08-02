@@ -922,6 +922,21 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
+    public void LocalSnapshotLauncher_UsesTheUntrackedMapsProjectionWithoutEmbeddingTheKey()
+    {
+        var startScript = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "scripts",
+            "start-local-snapshot-aspire.ps1"));
+
+        Assert.Contains("Legacy.Maliev.AppHost\\sharedsecrets.json", startScript, StringComparison.Ordinal);
+        Assert.Contains("GoogleMaps.BrowserApiKey", startScript, StringComparison.Ordinal);
+        Assert.Contains("Parameters__legacy-web-google-maps-embed-api-key", startScript, StringComparison.Ordinal);
+        Assert.Contains("Parameters__legacy-intranet-google-maps-browser-api-key", startScript, StringComparison.Ordinal);
+        Assert.DoesNotContain("local-review-only-map-key", startScript, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void VerificationScript_PollsAndChecksTheLocalServiceTopology()
     {
         var sourcePath = Path.Combine(FindRepositoryRoot(), "scripts", "verify-local-stack.ps1");
