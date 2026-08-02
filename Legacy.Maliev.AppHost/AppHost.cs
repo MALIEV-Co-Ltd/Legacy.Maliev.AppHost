@@ -343,11 +343,14 @@ var employeeIdentityMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHo
 // do not have an extracted service-owned EF migration runner. In local exact-data
 // mode they still need to be restored so the snapshot represents the complete
 // migrated production inventory rather than only the databases with active APIs.
-_ = AddSnapshotMigration("legacy-currency-snapshot", "Currency");
-_ = AddSnapshotMigration("legacy-data-protection-keys-snapshot", "DataProtectionKeys");
-_ = AddSnapshotMigration(
-    "legacy-data-protection-keys-employee-snapshot",
-    "DataProtectionKeysEmployee");
+if (localSnapshotMode)
+{
+    _ = AddSnapshotMigration("legacy-currency-snapshot", "Currency");
+    _ = AddSnapshotMigration("legacy-data-protection-keys-snapshot", "DataProtectionKeys");
+    _ = AddSnapshotMigration(
+        "legacy-data-protection-keys-employee-snapshot",
+        "DataProtectionKeysEmployee");
+}
 
 IResourceBuilder<ProjectResource> AddSnapshotMigration(string resourceName, string databaseName)
 {
