@@ -61,10 +61,10 @@ public sealed partial class WorkflowContractTests
         Assert.Contains("ref: f759e107c5bfbc61a6e161ce1e869e95e50027b2", source, StringComparison.Ordinal);
         Assert.Contains("path: Legacy.Maliev.QuotationService", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.ServiceDefaults", source, StringComparison.Ordinal);
-        Assert.Contains("ref: 1065c071ae0aca17fa56d88c1e13ae51bae074a4", source, StringComparison.Ordinal);
+        Assert.Contains("ref: ff1cc72d9978887ae31a936a7f34b80025f4c10d", source, StringComparison.Ordinal);
         Assert.Contains("path: Legacy.Maliev.ServiceDefaults", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.CompatibilityContracts", source, StringComparison.Ordinal);
-        Assert.Contains("ref: 95c62eb6209411f5aada443b315447a2f76ca0cd", source, StringComparison.Ordinal);
+        Assert.Contains("ref: edcfdeeb9485c872be2de11c4b9e3cafa06ca806", source, StringComparison.Ordinal);
         Assert.Contains("path: Legacy.Maliev.CompatibilityContracts", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.Web", source, StringComparison.Ordinal);
         Assert.Contains("ref: 2fc047ee4cb4bd349538190307fcb0eab641a4dd", source, StringComparison.Ordinal);
