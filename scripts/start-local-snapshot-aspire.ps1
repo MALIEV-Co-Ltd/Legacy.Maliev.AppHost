@@ -4,13 +4,14 @@ param(
     [ValidateNotNullOrEmpty()]
     [string]$SnapshotDirectory,
 
-    [string]$WorkspaceRoot = 'B:\maliev',
+    [string]$WorkspaceRoot = 'B:\maliev-legacy',
     [string]$AppHostProject = '',
     [string]$LegacyWebProject = '',
     [string]$LegacyWebRepository = '',
     [int]$LegacyWebPort = 5188,
     [string]$PostgresPassword = '',
     [string]$RedisPassword = '',
+    [switch]$IncludeLocalFixtures,
     [switch]$Wait
 )
 
@@ -59,8 +60,8 @@ if ([string]::IsNullOrWhiteSpace($googleMapsApiKey) -and
         --secret=maliev-legacy-secrets `
         --project=maliev-website 2>$null) -join [Environment]::NewLine
     if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($secretJson)) {
-        $secretBundle = $secretJson | ConvertFrom-Json -AsHashtable
-        $googleMapsApiKey = $secretBundle['legacy-web-google-maps-embed-api-key']
+        $secretBundle = $secretJson | ConvertFrom-Json
+        $googleMapsApiKey = $secretBundle.'legacy-web-google-maps-embed-api-key'
     }
 }
 if ([string]::IsNullOrWhiteSpace($googleMapsApiKey)) {
@@ -77,7 +78,7 @@ $environment = @{
     MalievWorkspaceRoot = $WorkspaceRoot
     LEGACY_LOCAL_SNAPSHOT = 'true'
     LEGACY_LOCAL_SNAPSHOT_DIR = $SnapshotDirectory
-    LEGACY_LOCAL_FIXTURES = 'true'
+    LEGACY_LOCAL_FIXTURES = if ($IncludeLocalFixtures) { 'true' } else { 'false' }
     LEGACY_WEB_PROJECT = $LegacyWebProject
     LEGACY_WEB_REPOSITORY = $LegacyWebRepository
     LEGACY_WEB_BRANCH = $legacyWebBranch
@@ -85,6 +86,7 @@ $environment = @{
     LEGACY_WEB_PORT = $LegacyWebPort.ToString()
     ASPIRE_ALLOW_UNSECURED_TRANSPORT = 'true'
     ASPNETCORE_ENVIRONMENT = 'Development'
+    ASPNETCORE_URLS = 'http://localhost:15888'
     'Parameters__legacy-postgres-username' = 'postgres'
     'Parameters__legacy-postgres-password' = $PostgresPassword
     'Parameters__legacy-redis-password' = $RedisPassword
@@ -112,6 +114,8 @@ Write-Output "Started Legacy Aspire local snapshot mode (PID $($process.Id))."
 Write-Output "Dashboard output: $stdoutPath"
 Write-Output "Error output: $stderrPath"
 Write-Output "Snapshot: $SnapshotDirectory"
+Write-Output "Synthetic local fixtures: $($IncludeLocalFixtures.IsPresent)"
+Write-Output "Aspire dashboard: http://localhost:15888"
 Write-Output "Legacy Web branch: $legacyWebBranch ($legacyWebCommit)"
 
 if ($Wait) {

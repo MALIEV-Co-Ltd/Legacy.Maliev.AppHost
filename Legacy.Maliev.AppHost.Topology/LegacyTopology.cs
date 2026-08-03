@@ -140,6 +140,7 @@ public static class LegacyTopology
         "legacy.quotation-files.read",
         "legacy.quotation-files.write",
         "legacy.quotations.read",
+        "legacy.customer-quotations.read",
         "legacy.quotations.create",
         "legacy.quotation-lines.write",
         "legacy.quotation-orders.read",

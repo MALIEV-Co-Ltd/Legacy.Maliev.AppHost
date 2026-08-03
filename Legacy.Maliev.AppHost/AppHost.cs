@@ -57,6 +57,7 @@ var gkeValidationMode = gkeValidationModeRequested;
 var gkeSecrets = gkeValidationMode ? LoadGkeValidationSecrets() : null;
 var localSnapshotMode = localSnapshotModeRequested;
 var localFixtures = localSnapshotMode && localFixturesRequested;
+var allowExactSnapshotServiceClaims = localSnapshotMode ? "true" : "false";
 if (localSnapshotMode)
 {
     var snapshot = LegacyLocalSnapshot.Load(localSnapshotDirectoryRequested!);
@@ -490,6 +491,7 @@ var employee = builder.AddProject<Projects.Legacy_Maliev_EmployeeService_Api>(
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", jwtIssuer)
     .WithEnvironment("Jwt__Audience", jwtAudience)
+    .WithEnvironment("Features__AllowExactServiceClaimsForLiveCheck", allowExactSnapshotServiceClaims)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
@@ -571,6 +573,7 @@ var procurement = builder.AddProject<Projects.Legacy_Maliev_ProcurementService_A
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", jwtIssuer)
     .WithEnvironment("Jwt__Audience", jwtAudience)
+    .WithEnvironment("Features__AllowExactServiceClaimsForLiveCheck", allowExactSnapshotServiceClaims)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
@@ -728,6 +731,7 @@ var quotation = builder.AddProject<Projects.Legacy_Maliev_QuotationService_Api>(
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", jwtIssuer)
     .WithEnvironment("Jwt__Audience", jwtAudience)
+    .WithEnvironment("Features__AllowExactServiceClaimsForLiveCheck", allowExactSnapshotServiceClaims)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
@@ -862,6 +866,7 @@ var accounting = builder.AddProject<Projects.Legacy_Maliev_AccountingService_Api
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", jwtIssuer)
     .WithEnvironment("Jwt__Audience", jwtAudience)
+    .WithEnvironment("Features__AllowExactServiceClaimsForLiveCheck", allowExactSnapshotServiceClaims)
     .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
     .WithEnvironment("DOTNET_GCConserveMemory", "3")
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")

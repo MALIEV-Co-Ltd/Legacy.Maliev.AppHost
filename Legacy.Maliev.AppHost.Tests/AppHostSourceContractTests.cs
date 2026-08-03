@@ -918,7 +918,53 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("LEGACY_LOCAL_FIXTURES", appHost, StringComparison.Ordinal);
         Assert.Contains("localSnapshotMode && localFixturesRequested", appHost, StringComparison.Ordinal);
         Assert.Contains("SeedLocalSnapshotFixtureAsync", migrationRunner, StringComparison.Ordinal);
-        Assert.Contains("LEGACY_LOCAL_FIXTURES = 'true'", startScript, StringComparison.Ordinal);
+        Assert.Contains("[switch]$IncludeLocalFixtures", startScript, StringComparison.Ordinal);
+        Assert.Contains(
+            "LEGACY_LOCAL_FIXTURES = if ($IncludeLocalFixtures) { 'true' } else { 'false' }",
+            startScript,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("LEGACY_LOCAL_FIXTURES = 'true'", startScript, StringComparison.Ordinal);
+        Assert.Contains("[string]$WorkspaceRoot = 'B:\\maliev-legacy'", startScript, StringComparison.Ordinal);
+        Assert.Contains("ASPNETCORE_URLS = 'http://localhost:15888'", startScript, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LocalSnapshot_ServiceClaimFallback_IsScopedToForcedLiveServicesAndDisabledOtherwise()
+    {
+        var appHost = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "Legacy.Maliev.AppHost",
+            "AppHost.cs"));
+
+        Assert.Contains(
+            "var allowExactSnapshotServiceClaims = localSnapshotMode ? \"true\" : \"false\";",
+            appHost,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            4,
+            appHost.Split(
+                ".WithEnvironment(\"Features__AllowExactServiceClaimsForLiveCheck\", allowExactSnapshotServiceClaims)",
+                StringSplitOptions.None).Length - 1);
+
+        foreach (var service in new[]
+                 {
+                     "Legacy_Maliev_EmployeeService_Api",
+                     "Legacy_Maliev_ProcurementService_Api",
+                     "Legacy_Maliev_QuotationService_Api",
+                     "Legacy_Maliev_AccountingService_Api",
+                 })
+        {
+            var serviceStart = appHost.IndexOf(service, StringComparison.Ordinal);
+            Assert.True(serviceStart >= 0, $"Expected AppHost registration for {service}.");
+            var nextService = appHost.IndexOf("builder.AddProject<Projects.", serviceStart + service.Length, StringComparison.Ordinal);
+            var serviceRegistration = nextService < 0
+                ? appHost[serviceStart..]
+                : appHost[serviceStart..nextService];
+            Assert.Contains(
+                "Features__AllowExactServiceClaimsForLiveCheck",
+                serviceRegistration,
+                StringComparison.Ordinal);
+        }
     }
 
     [Fact]
@@ -932,6 +978,7 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("Legacy.Maliev.AppHost\\sharedsecrets.json", startScript, StringComparison.Ordinal);
         Assert.Contains("GoogleMaps.BrowserApiKey", startScript, StringComparison.Ordinal);
         Assert.Contains("gcloud secrets versions access latest", startScript, StringComparison.Ordinal);
+        Assert.DoesNotContain("ConvertFrom-Json -AsHashtable", startScript, StringComparison.Ordinal);
         Assert.Contains("--secret=maliev-legacy-secrets", startScript, StringComparison.Ordinal);
         Assert.Contains("legacy-web-google-maps-embed-api-key", startScript, StringComparison.Ordinal);
         Assert.Contains("Parameters__legacy-web-google-maps-embed-api-key", startScript, StringComparison.Ordinal);
