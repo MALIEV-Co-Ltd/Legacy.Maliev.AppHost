@@ -918,7 +918,14 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("LEGACY_LOCAL_FIXTURES", appHost, StringComparison.Ordinal);
         Assert.Contains("localSnapshotMode && localFixturesRequested", appHost, StringComparison.Ordinal);
         Assert.Contains("SeedLocalSnapshotFixtureAsync", migrationRunner, StringComparison.Ordinal);
-        Assert.Contains("LEGACY_LOCAL_FIXTURES = 'true'", startScript, StringComparison.Ordinal);
+        Assert.Contains("[switch]$IncludeLocalFixtures", startScript, StringComparison.Ordinal);
+        Assert.Contains(
+            "LEGACY_LOCAL_FIXTURES = if ($IncludeLocalFixtures) { 'true' } else { 'false' }",
+            startScript,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("LEGACY_LOCAL_FIXTURES = 'true'", startScript, StringComparison.Ordinal);
+        Assert.Contains("[string]$WorkspaceRoot = 'B:\\maliev-legacy'", startScript, StringComparison.Ordinal);
+        Assert.Contains("ASPNETCORE_URLS = 'http://localhost:15888'", startScript, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -932,6 +939,7 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("Legacy.Maliev.AppHost\\sharedsecrets.json", startScript, StringComparison.Ordinal);
         Assert.Contains("GoogleMaps.BrowserApiKey", startScript, StringComparison.Ordinal);
         Assert.Contains("gcloud secrets versions access latest", startScript, StringComparison.Ordinal);
+        Assert.DoesNotContain("ConvertFrom-Json -AsHashtable", startScript, StringComparison.Ordinal);
         Assert.Contains("--secret=maliev-legacy-secrets", startScript, StringComparison.Ordinal);
         Assert.Contains("legacy-web-google-maps-embed-api-key", startScript, StringComparison.Ordinal);
         Assert.Contains("Parameters__legacy-web-google-maps-embed-api-key", startScript, StringComparison.Ordinal);

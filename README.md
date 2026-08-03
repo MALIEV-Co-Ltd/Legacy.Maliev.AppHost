@@ -164,6 +164,10 @@ the migrated hashes, so an owner may test an existing credential against the loc
 without the launcher logging or transmitting the password. Treat the snapshot directory as
 sensitive production-derived data and do not copy it into a repository or share it.
 
+Synthetic `@maliev.test` identities are excluded by default so this review remains an exact copy.
+They may be added only for a deliberately isolated fixture test by passing
+`-IncludeLocalFixtures`; never use that switch for owner parity review.
+
 The dashboard URL and dynamic Web/Intranet endpoints are printed by Aspire. Use the `/web/liveness`,
 `/web/readiness`, `/intranet-bff/liveness`, `/intranet-bff/readiness`, `/auth/liveness`, and
 `/auth/readiness` endpoints for the health gate. This mode does not change GKE or the current
