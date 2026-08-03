@@ -929,6 +929,45 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
+    public void LocalSnapshot_ServiceClaimFallback_IsScopedToForcedLiveServicesAndDisabledOtherwise()
+    {
+        var appHost = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "Legacy.Maliev.AppHost",
+            "AppHost.cs"));
+
+        Assert.Contains(
+            "var allowExactSnapshotServiceClaims = localSnapshotMode ? \"true\" : \"false\";",
+            appHost,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            4,
+            appHost.Split(
+                ".WithEnvironment(\"Features__AllowExactServiceClaimsForLiveCheck\", allowExactSnapshotServiceClaims)",
+                StringSplitOptions.None).Length - 1);
+
+        foreach (var service in new[]
+                 {
+                     "Legacy_Maliev_EmployeeService_Api",
+                     "Legacy_Maliev_ProcurementService_Api",
+                     "Legacy_Maliev_QuotationService_Api",
+                     "Legacy_Maliev_AccountingService_Api",
+                 })
+        {
+            var serviceStart = appHost.IndexOf(service, StringComparison.Ordinal);
+            Assert.True(serviceStart >= 0, $"Expected AppHost registration for {service}.");
+            var nextService = appHost.IndexOf("builder.AddProject<Projects.", serviceStart + service.Length, StringComparison.Ordinal);
+            var serviceRegistration = nextService < 0
+                ? appHost[serviceStart..]
+                : appHost[serviceStart..nextService];
+            Assert.Contains(
+                "Features__AllowExactServiceClaimsForLiveCheck",
+                serviceRegistration,
+                StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void LocalSnapshotLauncher_UsesTheUntrackedMapsProjectionWithoutEmbeddingTheKey()
     {
         var startScript = File.ReadAllText(Path.Combine(
