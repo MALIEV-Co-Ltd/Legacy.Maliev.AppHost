@@ -1202,10 +1202,15 @@ try {
         $_.to -eq 'local.changed@maliev.test' -and
         $_.subject -eq 'Confirm your new MALIEV email address'
     })
+    $oldEmailNotification = @($recordedNotifications | Where-Object {
+        $_.to -eq 'local.customer@maliev.test' -and
+        $_.subject -eq 'MALIEV email-change request'
+    })
     if (
-        $recordedNotifications.Count -ne 2 -or
+        $recordedNotifications.Count -ne 3 -or
         $passwordNotification.Count -ne 1 -or
-        $emailNotification.Count -ne 1
+        $emailNotification.Count -ne 1 -or
+        $oldEmailNotification.Count -ne 1
     ) {
         $recordedSummary = @($recordedNotifications | ForEach-Object {
             "$($_.to) | $($_.subject)"

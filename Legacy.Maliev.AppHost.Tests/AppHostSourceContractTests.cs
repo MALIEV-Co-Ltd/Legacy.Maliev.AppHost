@@ -1137,6 +1137,8 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("NewEmail", source, StringComparison.Ordinal);
         Assert.Contains("/notifications/development/recorded", source, StringComparison.Ordinal);
         Assert.Contains("local.changed@maliev.test", source, StringComparison.Ordinal);
+        Assert.Contains("MALIEV email-change request", source, StringComparison.Ordinal);
+        Assert.Contains("$recordedNotifications.Count -ne 3", source, StringComparison.Ordinal);
         Assert.Contains("legacy-order-migrations-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-order-status-migrations-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-maliev-order-service-*", source, StringComparison.Ordinal);
