@@ -509,6 +509,25 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
+    public void AppHost_WiresEveryWebServiceDiscoveryDependency()
+    {
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var web = ExtractResource(
+            source,
+            "builder.AddProject<Projects.Legacy_Maliev_Web>(\"legacy-maliev-web\")",
+            ".WithEnvironment(\"DOTNET_GCHeapHardLimit\", \"201326592\")");
+
+        foreach (var service in new[]
+                 {
+                     "Auth", "Accounting", "Career", "Catalog", "Contact", "Country",
+                     "Customer", "Document", "File", "Notification", "Order", "Quotation"
+                 })
+        {
+            Assert.Contains($"WithEnvironment(\"Services__{service}\", {service.ToLowerInvariant()}.", web, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void AccountingServiceIdentity_IsRuntimeOnlyAndHasExactlyFourteenPermissions()
     {
         var source = File.ReadAllText(Path.Combine(
