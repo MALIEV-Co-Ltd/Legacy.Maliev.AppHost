@@ -337,7 +337,9 @@ function Invoke-WebMemberAccountFlow {
         if (
             [int]$quotationPage.StatusCode -ne 200 -or
             $quotationContent -notmatch 'Local CNC quotation line' -or
-            $quotationContent -notmatch 'local-cnc-quotation.pdf' -or
+            $quotationContent -notmatch 'No files are linked to this quotation\.' -or
+            $quotationContent -match 'local-cnc-quotation\.pdf' -or
+            $quotationContent -match 'quotations/local-cnc-quotation\.pdf' -or
             $quotationContent -match 'paypal'
         ) {
             $diagnostics = @(

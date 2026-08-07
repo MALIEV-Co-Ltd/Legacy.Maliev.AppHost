@@ -31,7 +31,7 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
-    public void LocalVerifier_ValidatesTheCustomerSafeQuotationFileName()
+    public void LocalVerifier_ValidatesTheCustomerSafeQuotationReadOnlyState()
     {
         var verifier = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
@@ -39,11 +39,15 @@ public sealed class AppHostSourceContractTests
             "verify-local-stack.ps1"));
 
         Assert.Contains(
-            "$quotationContent -notmatch 'local-cnc-quotation.pdf'",
+            "$quotationContent -notmatch 'No files are linked to this quotation\\.'",
             verifier,
             StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "$quotationContent -notmatch 'quotations/local-cnc-quotation.pdf'",
+        Assert.Contains(
+            "$quotationContent -match 'local-cnc-quotation\\.pdf'",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "$quotationContent -match 'quotations/local-cnc-quotation\\.pdf'",
             verifier,
             StringComparison.Ordinal);
     }
