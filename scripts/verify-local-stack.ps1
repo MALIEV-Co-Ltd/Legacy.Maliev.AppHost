@@ -1033,8 +1033,11 @@ try {
     Invoke-ExpectedStatus -Uri "$careerUrl/Jobs/readiness" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$careerUrl/Jobs/scalar" -ExpectedStatus 200
     $careerListing = Invoke-WebRequest -Uri "$careerUrl/Jobs" -UseBasicParsing -SkipHttpErrorCheck
-    if ($careerListing.StatusCode -ne 200 -or $careerListing.Content -notmatch 'Local Manufacturing Engineer') {
-        throw 'The anonymous Career API did not return the seeded local job offer.'
+    if ($careerListing.StatusCode -notin @(200, 404)) {
+        throw "The anonymous Career API returned an unexpected status (HTTP $($careerListing.StatusCode))."
+    }
+    if ($careerListing.Content -match 'Local Manufacturing Engineer') {
+        throw 'The anonymous Career API returned the retired Local Manufacturing Engineer fixture.'
     }
 
     $contactResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-contact-service-*'
@@ -1134,8 +1137,11 @@ try {
     Invoke-ExpectedStatus -Uri "$webUrl/Account/Login" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$webUrl/Account/Signup" -ExpectedStatus 200
     $careerPage = Invoke-WebRequest -Uri "$webUrl/career?culture=en" -UseBasicParsing -SkipHttpErrorCheck
-    if ($careerPage.StatusCode -ne 200 -or $careerPage.Content -notmatch 'Local Manufacturing Engineer') {
-        throw 'The Web Career page did not render the Career service result.'
+    if ($careerPage.StatusCode -ne 200) {
+        throw "The Web Career page returned an unexpected status (HTTP $($careerPage.StatusCode))."
+    }
+    if ($careerPage.Content -match 'Local Manufacturing Engineer') {
+        throw 'The Web Career page rendered the retired Local Manufacturing Engineer fixture.'
     }
     Invoke-ExpectedStatus -Uri "$webUrl/contact?culture=en" -ExpectedStatus 200
     Invoke-WebInstantQuotationFlow -WebUrl $webUrl

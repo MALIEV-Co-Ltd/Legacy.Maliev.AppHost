@@ -1093,6 +1093,10 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("legacy-maliev-contact-service-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-maliev-accounting-service-*", source, StringComparison.Ordinal);
         Assert.Contains("/career?culture=en", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("StatusCode -notin @(200, 404)", source, StringComparison.Ordinal);
+        Assert.Contains("returned the retired Local Manufacturing Engineer fixture", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("did not return the seeded local job offer", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Content -notmatch 'Local Manufacturing Engineer'", source, StringComparison.Ordinal);
         Assert.Contains("/contact?culture=en", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("/accounting/liveness", source, StringComparison.Ordinal);
         Assert.Contains("/accounting/readiness", source, StringComparison.Ordinal);
