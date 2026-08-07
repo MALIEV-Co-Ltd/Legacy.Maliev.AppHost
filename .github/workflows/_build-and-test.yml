@@ -67,14 +67,14 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.QuotationService
-          ref: 5f02d81ed7369bd25bd85554d4d28f63aeb7c855
+          ref: fb4a28ab530f68ea9857643549afc909da381a47
           path: Legacy.Maliev.QuotationService
           persist-credentials: false
       - name: Check out legacy service defaults
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.ServiceDefaults
-          ref: 25e2502a3146b0bbb5fec12731db89d20702f2cc
+          ref: 2833d30c492d9c40869d9bfac30e1ce9bdc11f84
           path: Legacy.Maliev.ServiceDefaults
           persist-credentials: false
       - name: Check out compatibility contracts
@@ -88,7 +88,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.Web
-          ref: f1dbbc5d4fe50fd1256a9371a1e9f14a8f012432
+          ref: fd4849e0788011e97a62d6bd99eed962e0354ec9
           path: Legacy.Maliev.Web
           persist-credentials: false
       - name: Check out Employee service
@@ -123,7 +123,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.Intranet
-          ref: 7e632a47f02a9851c2ac618c6768b6d0174e7b78
+          ref: d239ed6fd4f9d1ad591545546fbc074e60071b80
           path: Legacy.Maliev.Intranet
           persist-credentials: false
       - name: Check out Career service
