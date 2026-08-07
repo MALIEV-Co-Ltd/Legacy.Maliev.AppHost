@@ -1184,6 +1184,9 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("/accounting/scalar", source, StringComparison.Ordinal);
         Assert.Contains("/payments", source, StringComparison.Ordinal);
         Assert.Contains("Invoke-IntranetEmployeeFlow", source, StringComparison.Ordinal);
+        Assert.Contains("/bff/session", source, StringComparison.Ordinal);
+        Assert.Contains("X-CSRF-TOKEN", source, StringComparison.Ordinal);
+        Assert.Contains("/bff/login", source, StringComparison.Ordinal);
         Assert.Contains("/Customers/Index", source, StringComparison.Ordinal);
         Assert.Contains("/Employees/Index", source, StringComparison.Ordinal);
         Assert.Contains("/Materials/Index", source, StringComparison.Ordinal);

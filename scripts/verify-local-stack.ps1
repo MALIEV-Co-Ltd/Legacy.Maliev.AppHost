@@ -584,28 +584,41 @@ function Invoke-IntranetEmployeeFlow {
     $handler.CookieContainer = [System.Net.CookieContainer]::new()
     $client = [System.Net.Http.HttpClient]::new($handler)
     try {
-        $loginPage = $client.GetAsync("$IntranetUrl/Login").GetAwaiter().GetResult()
-        $loginContent = $loginPage.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-        $antiforgery = [regex]::Match(
-            $loginContent,
-            'name="__RequestVerificationToken"[^>]*value="([^"]+)"')
-        if ([int]$loginPage.StatusCode -ne 200 -or -not $antiforgery.Success) {
-            throw 'The Intranet login form did not render with antiforgery protection.'
+        $sessionResponse = $client.GetAsync("$IntranetUrl/bff/session").GetAwaiter().GetResult()
+        $sessionContent = $sessionResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        $session = if ([int]$sessionResponse.StatusCode -eq 200) {
+            $sessionContent | ConvertFrom-Json
+        }
+        else {
+            $null
         }
 
-        $loginForm = [System.Collections.Generic.Dictionary[string,string]]::new()
-        $loginForm.Add(
-            '__RequestVerificationToken',
-            [System.Net.WebUtility]::HtmlDecode($antiforgery.Groups[1].Value))
-        $loginForm.Add('Email', 'local.employee@maliev.test')
-        $loginForm.Add('Password', 'local-test-only')
-        $loginForm.Add('ReturnUrl', '/Dashboard')
-        $loginResponse = $client.PostAsync(
-            "$IntranetUrl/Login",
-            [System.Net.Http.FormUrlEncodedContent]::new($loginForm)).GetAwaiter().GetResult()
-        if ([int]$loginResponse.StatusCode -notin 302, 303) {
-            $content = $loginResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-            throw "The Intranet employee login returned HTTP $([int]$loginResponse.StatusCode): $content"
+        $csrfToken = [string]$session.csrfToken
+        if ([int]$sessionResponse.StatusCode -ne 200 -or [string]::IsNullOrWhiteSpace($csrfToken)) {
+            throw 'The Intranet BFF session endpoint did not issue an antiforgery token.'
+        }
+
+        $loginRequest = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Post,
+            "$IntranetUrl/bff/login")
+        $null = $loginRequest.Headers.TryAddWithoutValidation('X-CSRF-TOKEN', $csrfToken)
+        $loginRequest.Content = [System.Net.Http.StringContent]::new(
+            (@{
+                email = 'local.employee@maliev.test'
+                password = 'local-test-only'
+                returnUrl = '/Dashboard'
+                rememberMe = $false
+            } | ConvertTo-Json -Compress),
+            [System.Text.Encoding]::UTF8,
+            'application/json')
+        $loginResponse = $client.SendAsync($loginRequest).GetAwaiter().GetResult()
+        $loginContent = $loginResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        if ([int]$loginResponse.StatusCode -ne 200) {
+            throw "The Intranet employee login returned HTTP $([int]$loginResponse.StatusCode): $loginContent"
+        }
+        $loginResult = $loginContent | ConvertFrom-Json
+        if ([string]$loginResult.redirectUrl -ne '/Dashboard') {
+            throw 'The Intranet employee login returned an unexpected local redirect.'
         }
 
         $routes = @(
