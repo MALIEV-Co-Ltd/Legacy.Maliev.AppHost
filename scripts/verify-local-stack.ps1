@@ -638,12 +638,6 @@ function Get-MatchingResources {
     )
 
     $matches = @($Items | Where-Object { $_.metadata.name -like $NamePattern })
-    if ($NamePattern -eq 'legacy-maliev-intranet-*') {
-        $matches = @($matches | Where-Object {
-            $_.metadata.name -notlike 'legacy-maliev-intranet-bff-*'
-        })
-    }
-
     return $matches
 }
 
@@ -826,7 +820,6 @@ try {
         'legacy-maliev-quotation-service-*',
         'legacy-maliev-notification-service-*',
         'legacy-maliev-web-*',
-        'legacy-maliev-intranet-*',
         'legacy-maliev-intranet-bff-*',
         'legacy-maliev-career-service-*',
         'legacy-maliev-contact-service-*',
@@ -1155,7 +1148,7 @@ try {
     # opaque confirmation tokens, so completion is covered by the Web/Auth contract
     # suites rather than by reconstructing a token from local runtime state.
 
-    $intranetResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-intranet-*'
+    $intranetResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-intranet-bff-*'
     $intranetUrl = Get-ResourceUrl -Resource $intranetResource
     $intranetClientSecret = ($intranetResource.status.effectiveEnv | Where-Object {
         $_.name -eq 'ServiceAuthentication__ClientSecret'
@@ -1177,8 +1170,8 @@ try {
         throw 'The Intranet service JWT did not contain the exact least-privilege permission contract.'
     }
 
-    Invoke-ExpectedStatus -Uri "$intranetUrl/intranet/liveness" -ExpectedStatus 200
-    Invoke-ExpectedStatus -Uri "$intranetUrl/intranet/readiness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$intranetUrl/intranet-bff/liveness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$intranetUrl/intranet-bff/readiness" -ExpectedStatus 200
     Invoke-IntranetEmployeeFlow -IntranetUrl $intranetUrl
 
     $recordedResponse = Invoke-RestMethod `

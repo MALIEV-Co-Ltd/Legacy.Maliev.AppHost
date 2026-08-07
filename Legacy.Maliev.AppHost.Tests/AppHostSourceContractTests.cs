@@ -119,19 +119,27 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
-    public void LocalVerifier_DistinguishesTheIntranetCompatibilityHostFromItsBff()
+    public void LocalVerifier_UsesTheIntranetBffAsTheCanonicalLocalHost()
     {
         var verifier = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
             "scripts",
             "verify-local-stack.ps1"));
 
-        Assert.Contains(
-            "$_.metadata.name -notlike 'legacy-maliev-intranet-bff-*'",
+        Assert.DoesNotContain(
+            "'legacy-maliev-intranet-*',",
             verifier,
             StringComparison.Ordinal);
         Assert.Contains(
             "'legacy-maliev-intranet-bff-*'",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "$intranetUrl/intranet-bff/liveness",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "$intranetUrl/intranet-bff/readiness",
             verifier,
             StringComparison.Ordinal);
     }
