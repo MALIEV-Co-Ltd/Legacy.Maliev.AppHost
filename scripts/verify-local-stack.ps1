@@ -369,13 +369,16 @@ function Invoke-WebMemberAccountFlow {
             $compatibilityResponse = $client.SendAsync($compatibilityRequest).GetAwaiter().GetResult()
             $compatibilityContent = $compatibilityResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
             $expectedKindMarker = 'data-kind="' + $route.ExpectedKind + '"'
+            $hasOrderForm = $compatibilityContent -match 'data-member-order-form'
+            $hasExpectedKind = $compatibilityContent -match [regex]::Escape($expectedKindMarker)
+            $hasOptionsEndpoint = $compatibilityContent -match 'data-options-endpoint="/member/orders/material-options"'
             if (
                 [int]$compatibilityResponse.StatusCode -ne 200 -or
-                $compatibilityContent -notmatch 'data-member-order-form' -or
-                $compatibilityContent -notmatch [regex]::Escape($expectedKindMarker) -or
-                $compatibilityContent -notmatch 'data-options-endpoint="/member/orders/material-options"'
+                -not $hasOrderForm -or
+                -not $hasExpectedKind -or
+                -not $hasOptionsEndpoint
             ) {
-                throw "The authenticated compatibility route $($route.Path) did not render the migrated member order form."
+                throw "The authenticated compatibility route $($route.Path) did not render the migrated member order form (status=$([int]$compatibilityResponse.StatusCode), form=$hasOrderForm, kind=$hasExpectedKind, options=$hasOptionsEndpoint, bytes=$($compatibilityContent.Length))."
             }
         }
 
