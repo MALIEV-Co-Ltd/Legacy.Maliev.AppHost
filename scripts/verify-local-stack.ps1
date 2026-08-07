@@ -551,27 +551,23 @@ function Invoke-WebMemberAccountFlow {
         }
 
         $emailRedirect = [Uri]::new([Uri]$WebUrl, $emailLocation)
-        if (
-            $emailRedirect.AbsolutePath -ne '/Account/Login' -or
-            [System.Net.WebUtility]::UrlDecode($emailRedirect.Query) -notmatch 'email=local.changed@maliev.test'
-        ) {
+        if ($emailRedirect.AbsolutePath -ne '/Member/Account/Manage/ChangeEmail') {
             throw "The Member email change redirected to unexpected location $emailRedirect."
         }
 
-        $clearCookies = @($emailResult.Headers.GetValues('Set-Cookie'))
-        if (-not ($clearCookies | Where-Object { $_ -match '__Host-Maliev\.Legacy\.Session=;' })) {
-            throw 'The Member email change did not clear the encrypted BFF session cookie.'
-        }
-
-        $signedOutRequest = [System.Net.Http.HttpRequestMessage]::new(
+        $pendingEmailRequest = [System.Net.Http.HttpRequestMessage]::new(
             [System.Net.Http.HttpMethod]::Get,
-            "$WebUrl/member/account/manage/changeemail")
-        $null = $signedOutRequest.Headers.TryAddWithoutValidation(
+            "$WebUrl/member/account/manage/changeemail?culture=en")
+        $null = $pendingEmailRequest.Headers.TryAddWithoutValidation(
             'Cookie',
             "$antiforgeryCookie; $sessionCookie")
-        $signedOut = $client.SendAsync($signedOutRequest).GetAwaiter().GetResult()
-        if ([int]$signedOut.StatusCode -notin 302, 303) {
-            throw 'The invalidated BFF session still accessed an authenticated Member route.'
+        $pendingEmailPage = $client.SendAsync($pendingEmailRequest).GetAwaiter().GetResult()
+        $pendingEmailContent = $pendingEmailPage.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        if (
+            [int]$pendingEmailPage.StatusCode -ne 200 -or
+            $pendingEmailContent -notmatch 'data-migration-component="member-change-email-content"'
+        ) {
+            throw 'The pending Member email-change state did not remain available through the Web BFF.'
         }
     }
     finally {
@@ -1153,15 +1149,11 @@ try {
     Invoke-WebInstantQuotationFlow -WebUrl $webUrl
     Invoke-WebMemberAccountFlow -WebUrl $webUrl
 
-    # Verify the revoked pre-change identities before the separate Intranet login flow
-    # consumes the remaining shared Auth login-rate-limit permits.
-    foreach ($email in @('local.customer@maliev.test', 'local.changed@maliev.test')) {
-        Invoke-ExpectedPostStatus -Uri "$authUrl/auth/v1/login" -ExpectedStatus 401 -Body (@{
-                userName = $email
-                password = 'local-test-updated'
-                identityKind = 0
-            } | ConvertTo-Json -Compress)
-    }
+    # The Web flow intentionally leaves the identity and customer profile pending
+    # until the one-time confirmation link is opened. The development notification
+    # provider records delivery metadata only and never retains message bodies or
+    # opaque confirmation tokens, so completion is covered by the Web/Auth contract
+    # suites rather than by reconstructing a token from local runtime state.
 
     $intranetResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-intranet-*'
     $intranetUrl = Get-ResourceUrl -Resource $intranetResource
@@ -1223,11 +1215,6 @@ try {
                 } | Select-Object -Last 60
         ) -join ' | '
         throw "The development notification provider did not record the password and email security messages. Count: $($recordedNotifications.Count). Recorded: $recordedSummary. Diagnostics: $notificationDiagnostics"
-    }
-
-    $changedCustomer = Invoke-RestMethod -Uri "$customerUrl/customers/1" -Headers $serviceHeaders
-    if ($changedCustomer.email -ne 'local.changed@maliev.test') {
-        throw 'The Customer profile did not retain the new email address after the Web BFF change.'
     }
 
     $postgresContainer = $resourceItems | Where-Object {

@@ -89,6 +89,36 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
+    public void LocalVerifier_ValidatesPendingEmailConfirmationWithoutRetainingTokens()
+    {
+        var verifier = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "scripts",
+            "verify-local-stack.ps1"));
+
+        Assert.Contains(
+            "$emailRedirect.AbsolutePath -ne '/Member/Account/Manage/ChangeEmail'",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "data-migration-component=\"member-change-email-content\"",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "provider records delivery metadata only and never retains message bodies",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "__Host-Maliev\\.Legacy\\.Session=;",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "The Customer profile did not retain the new email address",
+            verifier,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void LocalVerifier_DistinguishesTheIntranetCompatibilityHostFromItsBff()
     {
         var verifier = File.ReadAllText(Path.Combine(
