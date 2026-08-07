@@ -126,8 +126,9 @@ function Invoke-WebInstantQuotationFlow {
     $page = Invoke-WebRequest -Uri $pageUri -UseBasicParsing -SkipHttpErrorCheck
     if (
         $page.StatusCode -ne 200 -or
-        $page.Content -notmatch 'Get an instant manufacturing estimate' -or
-        $page.Content -notmatch '<option value="PLA" selected>'
+        $page.Content -notmatch 'data-migration-component="instant-quotation-three-dimensional-printing"' -or
+        $page.Content -notmatch 'data-workflow-upload' -or
+        $page.Content -notmatch 'id="instant-quote-files"'
     ) {
         throw "The public instant quotation page did not render its deterministic pricing form (HTTP $($page.StatusCode))."
     }

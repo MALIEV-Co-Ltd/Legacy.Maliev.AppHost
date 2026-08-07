@@ -1038,7 +1038,9 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("/Account/Signup", source, StringComparison.Ordinal);
         Assert.Contains("/InstantQuotation/3D-Printing?culture=en", source, StringComparison.Ordinal);
         Assert.Contains("handler=GetEstimate", source, StringComparison.Ordinal);
-        Assert.Contains("Get an instant manufacturing estimate", source, StringComparison.Ordinal);
+        Assert.Contains("data-migration-component=\"instant-quotation-three-dimensional-printing\"", source, StringComparison.Ordinal);
+        Assert.Contains("data-workflow-upload", source, StringComparison.Ordinal);
+        Assert.Contains("id=\"instant-quote-files\"", source, StringComparison.Ordinal);
         Assert.Contains("currency -ne 'THB'", source, StringComparison.Ordinal);
         Assert.Contains("AllowAutoRedirect = $false", source, StringComparison.Ordinal);
         Assert.Contains("Headers.GetValues('Set-Cookie')", source, StringComparison.Ordinal);
