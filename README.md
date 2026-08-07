@@ -126,6 +126,12 @@ cookies, connection strings, provider responses, or temporary runtime paths. Att
 JSON artifact to AppHost issue #33 and link it from Project #2; an absent, `running`, malformed, or
 failed artifact is rejected by the validation script and is not release evidence.
 
+For source-backed SQL Server to PostgreSQL parity, prepare the receipt described in
+[`docs/postgres-migration-evidence.md`](docs/postgres-migration-evidence.md) and run
+`scripts/verify-postgres-migration-evidence.ps1` with the complete database inventory and
+owner-approved `-RequiredAsOfUtc` cutoff. This is a read-only evidence gate; it never authorizes
+cutover or writes to GKE/production.
+
 For interactive development, set the three `Parameters__legacy-*` environment variables to
 local-only values and run:
 
