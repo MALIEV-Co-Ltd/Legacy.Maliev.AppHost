@@ -150,7 +150,7 @@ public sealed class SchemaBaselineGateTests
             appHost,
             StringComparison.Ordinal);
         Assert.Contains(
-            ".WithEnvironment(\"LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE\", \"true\")",
+            ".WithEnvironment(\"LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE\", gkeValidationMode ? \"false\" : \"true\")",
             ExtractResource(appHost, "var authMigrations", "var customerIdentityMigrations"),
             StringComparison.Ordinal);
         Assert.Contains(
