@@ -481,8 +481,6 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("ConnectionStrings__RefreshSessions", source, StringComparison.Ordinal);
         Assert.Contains("ConnectionStrings__CustomerIdentity", source, StringComparison.Ordinal);
         Assert.Contains("ConnectionStrings__EmployeeIdentity", source, StringComparison.Ordinal);
-        Assert.Contains("IdentityStorage__Provider", source, StringComparison.Ordinal);
-        Assert.Contains("\"PostgreSql\"", source, StringComparison.Ordinal);
         Assert.Contains("ConnectionStrings__CustomerDbContext", source, StringComparison.Ordinal);
         Assert.Contains("ConnectionStrings__redis", source, StringComparison.Ordinal);
         Assert.Contains("ServiceAuthentication__ClientId", source, StringComparison.Ordinal);

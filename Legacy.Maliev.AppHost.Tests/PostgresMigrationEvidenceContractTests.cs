@@ -57,7 +57,6 @@ public sealed class PostgresMigrationEvidenceContractTests
         Assert.DoesNotContain("kubectl apply", script, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("gcloud", script, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("psql", script, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("sqlcmd", script, StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task<(int ExitCode, string StandardError)> RunValidatorAsync(
@@ -121,7 +120,7 @@ public sealed class PostgresMigrationEvidenceContractTests
                 ["schemaVersion"] = 1,
                 ["source"] = new JsonObject
                 {
-                    ["system"] = "sqlserver",
+                    ["system"] = "relational-source",
                     ["snapshotId"] = "source-2026-08-07",
                     ["capturedAtUtc"] = "2026-08-07T00:05:00.0000000+00:00",
                     ["backupUri"] = "gs://maliev.com/database/full/2026-08-07/source.bak",

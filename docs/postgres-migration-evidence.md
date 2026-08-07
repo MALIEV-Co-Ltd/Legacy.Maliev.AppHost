@@ -1,8 +1,9 @@
 # Source-backed PostgreSQL migration evidence
 
-`verify-postgres-migration-evidence.ps1` is a read-only, fail-closed validator for the SQL
-Server-to-PostgreSQL parity receipt required before a legacy migration runner may be
-authorized against a copied database. It does not connect to SQL Server, PostgreSQL, GKE,
+`verify-postgres-migration-evidence.ps1` is a read-only, fail-closed validator for the
+relational-source-to-PostgreSQL parity receipt required before a legacy migration runner
+may be authorized against a copied database. It does not connect to any source database,
+PostgreSQL, GKE,
 Cloud Storage, or Secret Manager and it never changes data.
 
 The evidence file must contain exactly these fields:
@@ -11,7 +12,7 @@ The evidence file must contain exactly these fields:
 {
   "schemaVersion": 1,
   "source": {
-    "system": "sqlserver",
+    "system": "relational-source",
     "snapshotId": "approved-source-snapshot-id",
     "capturedAtUtc": "2026-08-07T00:00:00.0000000+00:00",
     "backupUri": "gs://approved-bucket/approved-backup"

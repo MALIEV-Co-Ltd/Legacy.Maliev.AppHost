@@ -166,11 +166,11 @@ Assert-ExactKeys $evidence.constraints @(
     'additionalInfrastructureCostAllowed'
 ) '$.constraints'
 
-if ($evidence.source.system -ne 'sqlserver' -or
+if ($evidence.source.system -ne 'relational-source' -or
     $evidence.target.system -ne 'postgresql' -or
     $evidence.target.cluster -ne 'legacy-postgres-main' -or
     $evidence.target.namespace -ne 'maliev-legacy') {
-    throw 'Migration evidence does not identify the approved SQL Server to legacy-postgres-main target boundary.'
+    throw 'Migration evidence does not identify the approved relational-source to legacy-postgres-main target boundary.'
 }
 
 foreach ($field in @('snapshotId', 'backupUri')) {
@@ -274,4 +274,4 @@ if ($observed.Count -ne $expected.Count -or (Compare-Object -ReferenceObject $ex
     throw 'The migration evidence database inventory does not exactly match ExpectedDatabase.'
 }
 
-Write-Host "PASS: exact SQL Server to PostgreSQL migration evidence validated for $($observed.Count) databases as of $($requiredAt.ToString('O'))."
+Write-Host "PASS: exact relational-source to PostgreSQL migration evidence validated for $($observed.Count) databases as of $($requiredAt.ToString('O'))."

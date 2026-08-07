@@ -126,7 +126,7 @@ cookies, connection strings, provider responses, or temporary runtime paths. Att
 JSON artifact to AppHost issue #33 and link it from Project #2; an absent, `running`, malformed, or
 failed artifact is rejected by the validation script and is not release evidence.
 
-For source-backed SQL Server to PostgreSQL parity, prepare the receipt described in
+For source-backed relational-to-PostgreSQL parity, prepare the receipt described in
 [`docs/postgres-migration-evidence.md`](docs/postgres-migration-evidence.md) and run
 `scripts/verify-postgres-migration-evidence.ps1` with the complete database inventory and
 owner-approved `-RequiredAsOfUtc` cutoff. This is a read-only evidence gate; it never authorizes
@@ -177,7 +177,7 @@ They may be added only for a deliberately isolated fixture test by passing
 The dashboard URL and dynamic Web/Intranet endpoints are printed by Aspire. Use the `/web/liveness`,
 `/web/readiness`, `/intranet-bff/liveness`, `/intranet-bff/readiness`, `/auth/liveness`, and
 `/auth/readiness` endpoints for the health gate. This mode does not change GKE or the current
-production SQL Server workload.
+production workload.
 
 ### PostgreSQL connection boundary
 

@@ -372,7 +372,6 @@ IResourceBuilder<ProjectResource> AddSnapshotMigration(string resourceName, stri
 var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>("legacy-maliev-auth-service")
     .WithHttpEndpoint(name: "http")
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
-    .WithEnvironment("IdentityStorage__Provider", "PostgreSql")
     .WithEnvironment("ConnectionStrings__CustomerIdentity", CreatePooledDatabaseConnectionString("CustomerIdentity"))
     .WithEnvironment("ConnectionStrings__EmployeeIdentity", CreatePooledDatabaseConnectionString("EmployeeIdentity"))
     .WithEnvironment("ConnectionStrings__RefreshSessions", authConnectionString)
