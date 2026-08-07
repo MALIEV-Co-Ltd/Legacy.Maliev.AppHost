@@ -355,9 +355,9 @@ function Invoke-WebMemberAccountFlow {
         }
 
         $serviceOrderCompatibilityRoutes = @(
-            @{ Path = '/member/orders/3d-printing'; ExpectedItem = '3D-Printing' },
-            @{ Path = '/member/orders/3d-scanning'; ExpectedItem = '3D-Scanning' },
-            @{ Path = '/member/orders/cnc-machining'; ExpectedItem = 'CNC-Machining' }
+            @{ Path = '/member/orders/3d-printing'; ExpectedKind = 'additive' },
+            @{ Path = '/member/orders/3d-scanning'; ExpectedKind = 'scanning' },
+            @{ Path = '/member/orders/cnc-machining'; ExpectedKind = 'machining' }
         )
         foreach ($route in $serviceOrderCompatibilityRoutes) {
             $compatibilityRequest = [System.Net.Http.HttpRequestMessage]::new(
@@ -367,17 +367,15 @@ function Invoke-WebMemberAccountFlow {
                 'Cookie',
                 "$antiforgeryCookie; $sessionCookie")
             $compatibilityResponse = $client.SendAsync($compatibilityRequest).GetAwaiter().GetResult()
-            $locationHeader = $compatibilityResponse.Headers.Location
-            if ([int]$compatibilityResponse.StatusCode -notin 302, 303 -or $null -eq $locationHeader) {
-                throw "The authenticated compatibility route $($route.Path) did not redirect to the quotation request."
-            }
-
-            $location = [Uri]::new([Uri]$WebUrl, $locationHeader)
+            $compatibilityContent = $compatibilityResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+            $expectedKindMarker = 'data-kind="' + $route.ExpectedKind + '"'
             if (
-                $location.AbsolutePath -notin '/Quotation', '/Quotation/Index' -or
-                $location.Query -ne "?item=$($route.ExpectedItem)"
+                [int]$compatibilityResponse.StatusCode -ne 200 -or
+                $compatibilityContent -notmatch 'data-member-order-form' -or
+                $compatibilityContent -notmatch [regex]::Escape($expectedKindMarker) -or
+                $compatibilityContent -notmatch 'data-options-endpoint="/member/orders/material-options"'
             ) {
-                throw "The compatibility route $($route.Path) redirected to unexpected location $location."
+                throw "The authenticated compatibility route $($route.Path) did not render the migrated member order form."
             }
         }
 

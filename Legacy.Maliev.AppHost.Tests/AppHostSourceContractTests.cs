@@ -71,6 +71,20 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
+    public void LocalVerifier_ValidatesMemberOrderCompatibilityForms()
+    {
+        var verifier = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "scripts",
+            "verify-local-stack.ps1"));
+
+        Assert.Contains("$route.ExpectedKind", verifier, StringComparison.Ordinal);
+        Assert.Contains("data-member-order-form", verifier, StringComparison.Ordinal);
+        Assert.Contains("data-options-endpoint=\"/member/orders/material-options\"", verifier, StringComparison.Ordinal);
+        Assert.DoesNotContain("did not redirect to the quotation request", verifier, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void LocalVerifier_DistinguishesTheIntranetCompatibilityHostFromItsBff()
     {
         var verifier = File.ReadAllText(Path.Combine(
@@ -1092,11 +1106,11 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("/member/orders/3d-printing", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("/member/orders/3d-scanning", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("/member/orders/cnc-machining", source, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("ExpectedItem = '3D-Printing'", source, StringComparison.Ordinal);
-        Assert.Contains("ExpectedItem = '3D-Scanning'", source, StringComparison.Ordinal);
-        Assert.Contains("ExpectedItem = 'CNC-Machining'", source, StringComparison.Ordinal);
-        Assert.Contains("AbsolutePath -notin '/Quotation', '/Quotation/Index'", source, StringComparison.Ordinal);
-        Assert.Contains("Headers.Location", source, StringComparison.Ordinal);
+        Assert.Contains("ExpectedKind = 'additive'", source, StringComparison.Ordinal);
+        Assert.Contains("ExpectedKind = 'scanning'", source, StringComparison.Ordinal);
+        Assert.Contains("ExpectedKind = 'machining'", source, StringComparison.Ordinal);
+        Assert.Contains("data-member-order-form", source, StringComparison.Ordinal);
+        Assert.Contains("data-options-endpoint=\"/member/orders/material-options\"", source, StringComparison.Ordinal);
         Assert.Contains("handler=CancelOrder", source, StringComparison.Ordinal);
         Assert.Contains("orderId", source, StringComparison.Ordinal);
         Assert.Contains("legacy-catalog-migrations-*", source, StringComparison.Ordinal);
