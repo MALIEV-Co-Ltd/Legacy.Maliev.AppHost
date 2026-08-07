@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageReference Include="Npgsql" Version="10.0.3" />
     <PackageReference Include="Testcontainers.Redis" Version="4.13.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
@@ -12,6 +13,9 @@
   <ItemGroup>
     <ProjectReference Include="..\Legacy.Maliev.AppHost.Topology\Legacy.Maliev.AppHost.Topology.csproj" />
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.Intranet\Legacy.Maliev.Intranet.Server\Legacy.Maliev.Intranet.Server.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\Legacy.Maliev.AppHost.MigrationRunner\SchemaBaselineGate.cs" Link="SchemaBaselineGate.cs" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
