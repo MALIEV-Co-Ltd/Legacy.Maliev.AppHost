@@ -423,7 +423,9 @@ function Invoke-WebMemberAccountFlow {
             [int]$orderPage.StatusCode -ne 200 -or
             -not $orderAntiforgery.Success -or
             $orderContent -notmatch 'Reviewing' -or
-            $orderContent -notmatch 'local-cnc-part.step'
+            $orderContent -notmatch 'No files are linked to this order\.' -or
+            $orderContent -match 'local-cnc-part\.step' -or
+            $orderContent -match 'orders/local-cnc-part\.step'
         ) {
             throw 'The authenticated owned order detail did not render through the Web BFF.'
         }

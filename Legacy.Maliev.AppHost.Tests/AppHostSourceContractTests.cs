@@ -53,7 +53,7 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
-    public void LocalVerifier_ValidatesTheCustomerSafeOrderFileName()
+    public void LocalVerifier_ValidatesTheLocalOrderFileFailClosedContract()
     {
         var verifier = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
@@ -61,6 +61,10 @@ public sealed class AppHostSourceContractTests
             "verify-local-stack.ps1"));
 
         Assert.Contains(
+            "$orderContent -notmatch 'No files are linked to this order\\.'",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
             "$orderContent -notmatch 'local-cnc-part.step'",
             verifier,
             StringComparison.Ordinal);
