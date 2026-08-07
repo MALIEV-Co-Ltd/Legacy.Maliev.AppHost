@@ -928,7 +928,9 @@ try {
                     'ServiceClients__Clients__legacy-accounting__SecretSha256',
                     'ServiceClients__Clients__legacy-quotation__SecretSha256',
                     'DataProtection__CertificatePassword',
-                    'Brevo__ApiKey'
+                    'Brevo__ApiKey',
+                    'GoogleMaps__BrowserApiKey',
+                    'GoogleMaps__EmbedApiKey'
                 )
             }
     )

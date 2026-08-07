@@ -1001,6 +1001,8 @@ public sealed class AppHostSourceContractTests
         var source = File.ReadAllText(sourcePath);
 
         Assert.Contains("while (", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("'GoogleMaps__BrowserApiKey'", source, StringComparison.Ordinal);
+        Assert.Contains("'GoogleMaps__EmbedApiKey'", source, StringComparison.Ordinal);
         Assert.Contains("/countries/liveness", source, StringComparison.Ordinal);
         Assert.Contains("/countries/readiness", source, StringComparison.Ordinal);
         Assert.Contains("/countries/scalar", source, StringComparison.Ordinal);
