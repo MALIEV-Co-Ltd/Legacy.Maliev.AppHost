@@ -1166,7 +1166,7 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("legacy-maliev-employee-service-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-maliev-procurement-service-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-maliev-file-service-*", source, StringComparison.Ordinal);
-        Assert.Contains("legacy-maliev-intranet-*", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-intranet-bff-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-career-migrations-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-contact-migrations-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-payment-migrations-*", source, StringComparison.Ordinal);
