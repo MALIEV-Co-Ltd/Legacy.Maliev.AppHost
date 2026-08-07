@@ -74,16 +74,16 @@ cluster and `maliev-legacy` namespace.
 - .NET SDK 10
 - Docker Desktop
 - `kubectl` (used only with Aspire DCP's generated temporary local kubeconfig)
-- Sibling repositories at `B:\maliev\Legacy.Maliev.AuthService`,
-  `B:\maliev\Legacy.Maliev.CountryService`, `B:\maliev\Legacy.Maliev.CustomerService`,
-  `B:\maliev\Legacy.Maliev.DocumentService`, `B:\maliev\Legacy.Maliev.EmployeeService`,
-  `B:\maliev\Legacy.Maliev.CatalogService`, `B:\maliev\Legacy.Maliev.ProcurementService`,
-  `B:\maliev\Legacy.Maliev.FileService`, `B:\maliev\Legacy.Maliev.NotificationService`,
-  `B:\maliev\Legacy.Maliev.CareerService`, `B:\maliev\Legacy.Maliev.ContactService`,
-  `B:\maliev\Legacy.Maliev.AccountingService`, `B:\maliev\Legacy.Maliev.Web`,
-  `B:\maliev\Legacy.Maliev.Intranet`,
-  `B:\maliev\Legacy.Maliev.ServiceDefaults`, and
-  `B:\maliev\Legacy.Maliev.CompatibilityContracts`.
+- Sibling repositories at `B:\maliev-legacy\Legacy.Maliev.AuthService`,
+  `B:\maliev-legacy\Legacy.Maliev.CountryService`, `B:\maliev-legacy\Legacy.Maliev.CustomerService`,
+  `B:\maliev-legacy\Legacy.Maliev.DocumentService`, `B:\maliev-legacy\Legacy.Maliev.EmployeeService`,
+  `B:\maliev-legacy\Legacy.Maliev.CatalogService`, `B:\maliev-legacy\Legacy.Maliev.ProcurementService`,
+  `B:\maliev-legacy\Legacy.Maliev.FileService`, `B:\maliev-legacy\Legacy.Maliev.NotificationService`,
+  `B:\maliev-legacy\Legacy.Maliev.CareerService`, `B:\maliev-legacy\Legacy.Maliev.ContactService`,
+  `B:\maliev-legacy\Legacy.Maliev.AccountingService`, `B:\maliev-legacy\Legacy.Maliev.Web`,
+  `B:\maliev-legacy\Legacy.Maliev.Intranet`,
+  `B:\maliev-legacy\Legacy.Maliev.ServiceDefaults`, and
+  `B:\maliev-legacy\Legacy.Maliev.CompatibilityContracts`.
 
 ## Verify locally
 
@@ -102,7 +102,7 @@ path above is ignored so the evidence artifact itself does not invalidate a late
 
 The verifier also requires a clean, named-branch `Legacy.Maliev.Web` checkout. Set
 `$env:MalievWorkspaceRoot` when reviewing isolated sibling worktrees; otherwise it resolves the
-normal `B:\maliev` sibling layout. Legacy Web is assigned disposable port `15088` by default so
+normal `B:\maliev-legacy` sibling layout. Legacy Web is assigned disposable port `15088` by default so
 the existing `5088` listener is never stopped, reused, or replaced during review. Override it only
 with another free local port via `-LegacyWebPort`.
 
@@ -243,7 +243,7 @@ an occupied port. For a non-disruptive replacement review while the existing lis
 
 ```powershell
 .\scripts\start-current-web.ps1 `
-  -WebRepositoryRoot B:\maliev\Legacy.Maliev.Web\.worktrees\issue-154-build-identity `
+  -WebRepositoryRoot B:\maliev-legacy\Legacy.Maliev.Web\.worktrees\issue-154-build-identity `
   -WebPort 5188
 ```
 
@@ -255,7 +255,7 @@ For the owner-coordinated `5088` cutover, first compile and inspect the current 
 
 ```powershell
 .\scripts\start-current-web.ps1 `
-  -WebRepositoryRoot B:\maliev\Legacy.Maliev.Web `
+  -WebRepositoryRoot B:\maliev-legacy\Legacy.Maliev.Web `
   -WebPort 5088 `
   -PreflightOnly
 ```
