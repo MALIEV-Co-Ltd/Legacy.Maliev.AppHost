@@ -247,8 +247,14 @@ public sealed class AppHostSourceContractTests
             "CreatePooledDatabaseConnectionString\\(\"[A-Za-z]+\"\\)")
             .Count;
 
-        Assert.Equal(19, directMigrationConnectionCount);
+        // Auth uses the shared authConnectionString expression so explicit GKE validation can
+        // target the GitOps RefreshSessions database; its local branch remains direct.
+        Assert.Equal(18, directMigrationConnectionCount);
         Assert.Equal(19, pooledApplicationConnectionCount);
+        Assert.Contains(
+            "? CreatePooledDatabaseConnectionString(\"Auth\")\n    : authDatabase.Resource.ConnectionStringExpression",
+            source,
+            StringComparison.Ordinal);
 
         var verifier = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "verify-local-stack.ps1"));
         Assert.Contains("'DB_PASSWORD'", verifier, StringComparison.Ordinal);
@@ -1213,13 +1219,8 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
-    public void AuthMigrationRunner_AlwaysMigratesRegardlessOfGkeValidationMode()
+    public void AuthMigrationRunner_UsesGkeDatabaseAndSkipsMigrationInGkeValidationMode()
     {
-        // Auth (RefreshSessions) is local-only infrastructure with no GKE counterpart — unlike
-        // every other migration runner, it must never be skipped, even when gkeValidationMode is
-        // true. Regression guard: this previously left the local Auth database permanently
-        // unmigrated in GKE validation mode, so every login succeeded at credential validation
-        // and then crashed with DbUpdateException writing the refresh session (missing table).
         var root = FindRepositoryRoot();
         var appHostSource = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
 
@@ -1233,10 +1234,25 @@ public sealed class AppHostSourceContractTests
 
         var authMigrationsBlock = appHostSource[authMigrationsIndex..nextResourceIndex];
         Assert.Contains(
-            ".WithEnvironment(\"LEGACY_SKIP_MIGRATE\", \"false\")",
+            ".WithEnvironment(\"LEGACY_SKIP_MIGRATE\", gkeValidationMode ? \"true\" : \"false\")",
             authMigrationsBlock,
             StringComparison.Ordinal);
-        Assert.DoesNotContain("gkeValidationMode", authMigrationsBlock, StringComparison.Ordinal);
+        Assert.Contains(
+            ".WithEnvironment(\"LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE\", gkeValidationMode ? \"false\" : \"true\")",
+            authMigrationsBlock,
+            StringComparison.Ordinal);
+        Assert.Contains("authConnectionString", authMigrationsBlock, StringComparison.Ordinal);
+        Assert.Contains("LegacyGkeDatabaseCredentialKeys.For(databaseName)", appHostSource, StringComparison.Ordinal);
+
+        var authServiceIndex = appHostSource.IndexOf(
+            "var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>",
+            StringComparison.Ordinal);
+        Assert.True(authServiceIndex >= 0, "Expected the Auth service resource declaration.");
+        var authServiceBlock = appHostSource[authServiceIndex..];
+        Assert.Contains(
+            ".WithEnvironment(\"ConnectionStrings__RefreshSessions\", authConnectionString)",
+            authServiceBlock,
+            StringComparison.Ordinal);
     }
 
     private static string FindRepositoryRoot()

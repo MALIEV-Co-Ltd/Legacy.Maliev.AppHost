@@ -209,17 +209,14 @@ var pgbouncer = builder.AddContainer("legacy-postgres-pooler-rw", "edoburu/pgbou
 
 ReferenceExpression CreatePooledDatabaseConnectionString(string databaseName)
 {
-    // "Auth" (RefreshSessions) is new infrastructure for the rotating-refresh-token design,
-    // not part of the legacy SQL Server migration — it has no GKE database or secret entry,
-    // unlike every name in LegacyTopology.DatabaseNames. Always run it locally.
-    if (gkeValidationMode && databaseName != "Auth")
+    if (gkeValidationMode)
     {
-        var key = ToKebabCase(databaseName);
-        if (!gkeSecrets!.TryGetValue($"legacy-postgres-{key}-username", out var gkeUsername)
-            || !gkeSecrets.TryGetValue($"legacy-postgres-{key}-password", out var gkePassword))
+        var credentialKeys = LegacyGkeDatabaseCredentialKeys.For(databaseName);
+        if (!gkeSecrets!.TryGetValue(credentialKeys.Username, out var gkeUsername)
+            || !gkeSecrets.TryGetValue(credentialKeys.Password, out var gkePassword))
         {
             throw new InvalidOperationException(
-                $"LEGACY_GKE_VALIDATION is set but the loaded GKE secret bundle has no credentials for database '{databaseName}' (expected keys legacy-postgres-{key}-username/-password).");
+                $"LEGACY_GKE_VALIDATION is set but the loaded GKE secret bundle has no credentials for database '{databaseName}' (expected keys {credentialKeys.Username}/{credentialKeys.Password}).");
         }
 
         return ReferenceExpression.Create(
@@ -310,14 +307,16 @@ var document = builder.AddProject<Projects.Legacy_Maliev_DocumentService_Api>("l
         url.DisplayText = "Document Scalar";
     });
 
-// Auth (RefreshSessions) is local-only infrastructure with no GKE counterpart (see the
-// comment on CreatePooledDatabaseConnectionString above) — it must always be migrated,
-// even in GKE validation mode, unlike every other workload here which targets real GKE data.
+// Auth is local in normal and snapshot modes, but explicit GKE validation must exercise the
+// GitOps-managed Auth/RefreshSessions database without running migrations or writes against it.
+var authConnectionString = gkeValidationMode
+    ? CreatePooledDatabaseConnectionString("Auth")
+    : authDatabase.Resource.ConnectionStringExpression;
 var authMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-auth-migrations")
     .WithArgs("auth")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", "true")
-    .WithEnvironment("ConnectionStrings__RefreshSessions", authDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", gkeValidationMode ? "false" : "true")
+    .WithEnvironment("ConnectionStrings__RefreshSessions", authConnectionString)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
     .WaitFor(authDatabase);
@@ -376,7 +375,7 @@ var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>("legacy-ma
     .WithEnvironment("IdentityStorage__Provider", "PostgreSql")
     .WithEnvironment("ConnectionStrings__CustomerIdentity", CreatePooledDatabaseConnectionString("CustomerIdentity"))
     .WithEnvironment("ConnectionStrings__EmployeeIdentity", CreatePooledDatabaseConnectionString("EmployeeIdentity"))
-    .WithEnvironment("ConnectionStrings__RefreshSessions", CreatePooledDatabaseConnectionString("Auth"))
+    .WithEnvironment("ConnectionStrings__RefreshSessions", authConnectionString)
     .WithEnvironment("Jwt__Issuer", jwtIssuer)
     .WithEnvironment("Jwt__Audience", jwtAudience)
     .WithEnvironment("Jwt__PrivateKeyPem", jwt.PrivateKeyPem)

@@ -55,6 +55,29 @@ public sealed class LegacyTopologyTests
         Assert.Equal(expected, LegacyTopology.DatabaseNames);
     }
 
+    [Theory]
+    [InlineData("Auth", "legacy-auth-refresh-sessions-username", "legacy-auth-refresh-sessions-password")]
+    [InlineData("CustomerIdentity", "legacy-postgres-customer-identity-username", "legacy-postgres-customer-identity-password")]
+    [InlineData("PurchaseOrder", "legacy-postgres-purchase-order-username", "legacy-postgres-purchase-order-password")]
+    public void GkeDatabaseCredentialKeys_MatchGitOpsSecretContract(
+        string databaseName,
+        string expectedUsername,
+        string expectedPassword)
+    {
+        var keys = LegacyGkeDatabaseCredentialKeys.For(databaseName);
+
+        Assert.Equal(expectedUsername, keys.Username);
+        Assert.Equal(expectedPassword, keys.Password);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void GkeDatabaseCredentialKeys_RejectBlankDatabaseNames(string databaseName)
+    {
+        Assert.Throws<ArgumentException>(() => LegacyGkeDatabaseCredentialKeys.For(databaseName));
+    }
+
     [Fact]
     public void CountryConfigurationKeys_MatchTheGitOpsEnvironmentContract()
     {
