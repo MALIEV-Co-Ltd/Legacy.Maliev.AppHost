@@ -46,6 +46,23 @@ public sealed class LegacyWebOrchestrationSourceTests
     }
 
     [Fact]
+    public void StartScript_RequiresExactSnapshotSoExistingEmployeeCredentialsCanAuthenticate()
+    {
+        var script = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "scripts",
+            "start-current-web.ps1"));
+
+        Assert.Contains("[string] $SnapshotDirectory", script, StringComparison.Ordinal);
+        Assert.Contains("MALIEV\\legacy-postgres-snapshots", script, StringComparison.Ordinal);
+        Assert.Contains("manifest.json", script, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_LOCAL_SNAPSHOT', 'true'", script, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_LOCAL_SNAPSHOT_DIR', $SnapshotDirectory", script, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_LOCAL_FIXTURES', 'false'", script, StringComparison.Ordinal);
+        Assert.Contains("Existing-credential local testing requires", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Readme_DocumentsExactStartAndCoordinatedPortHandoff()
     {
         var readme = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "README.md"));

@@ -238,8 +238,12 @@ gate has direct evidence and the owner records approval in AppHost issue #33.
 ## Deterministic Legacy Web Aspire review
 
 Start Legacy Web through the guarded script so Aspire builds an exact clean source checkout, records the
-repository, branch, and commit in the dashboard environment and Web response headers, and refuses to reuse
-an occupied port. For a non-disruptive replacement review while the existing listener remains on `5088`, use:
+repository, branch, and commit in the dashboard environment and Web response headers, restores the latest
+validated migrated snapshot for existing employee credentials, and refuses to reuse an occupied port. The
+launcher fails closed when no snapshot containing `manifest.json` exists under
+`%LOCALAPPDATA%\MALIEV\legacy-postgres-snapshots`; use `-SnapshotDirectory` to select another approved
+snapshot explicitly. It never enables synthetic identities in this owner-review path. For a non-disruptive
+replacement review while the existing listener remains on `5088`, use:
 
 ```powershell
 .\scripts\start-current-web.ps1 `
