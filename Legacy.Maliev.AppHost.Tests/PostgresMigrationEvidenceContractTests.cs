@@ -87,6 +87,30 @@ public sealed class PostgresMigrationEvidenceContractTests
     }
 
     [Theory]
+    [InlineData("ContactRequest")]
+    [InlineData("Hangfire")]
+    [InlineData("LocationData")]
+    [InlineData("Log")]
+    public async Task Validator_RejectsMissingNewlyRetainedDatabase(string databaseName)
+    {
+        using var evidence = TemporaryEvidence.Create($"missing-database:{databaseName}");
+        var result = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
+        Assert.NotEqual(0, result.ExitCode);
+    }
+
+    [Theory]
+    [InlineData("ContactRequest")]
+    [InlineData("Hangfire")]
+    [InlineData("LocationData")]
+    [InlineData("Log")]
+    public async Task Validator_RejectsDuplicateNewlyRetainedDatabase(string databaseName)
+    {
+        using var evidence = TemporaryEvidence.Create($"duplicate-database:{databaseName}");
+        var result = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
+        Assert.NotEqual(0, result.ExitCode);
+    }
+
+    [Theory]
     [InlineData("payload-tamper")]
     [InlineData("signature-tamper")]
     [InlineData("unknown-key")]
@@ -212,6 +236,11 @@ public sealed class PostgresMigrationEvidenceContractTests
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
 
         Assert.Contains("-TrustedPublicKeyPath", docs, StringComparison.Ordinal);
+        Assert.Contains("For all 25 migrated databases", docs, StringComparison.Ordinal);
+        Assert.Contains("signed: 25 migrate", docs, StringComparison.Ordinal);
+        Assert.DoesNotContain("21 migrated databases", docs, StringComparison.Ordinal);
+        Assert.DoesNotContain("archive-only", docs, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("held for review", docs, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("docs/postgres-migration-evidence.md", readme, StringComparison.Ordinal);
         Assert.Contains("mappingPlanSha256", script, StringComparison.Ordinal);
         Assert.Contains("foreignKeys", script, StringComparison.Ordinal);
@@ -647,6 +676,28 @@ public sealed class PostgresMigrationEvidenceContractTests
             JsonObject executionNode = (JsonObject)root["execution"]!;
             JsonArray databases = (JsonArray)root["databases"]!;
             JsonObject first = (JsonObject)databases[0]!;
+            if (mutation is not null && mutation.StartsWith("missing-database:", StringComparison.Ordinal))
+            {
+                string databaseName = mutation["missing-database:".Length..];
+                for (int index = 0; index < databases.Count; index++)
+                {
+                    if (((JsonObject)databases[index]!)["name"]!.GetValue<string>() == databaseName)
+                    {
+                        databases.RemoveAt(index);
+                        return;
+                    }
+                }
+
+                throw new InvalidOperationException($"Test fixture database '{databaseName}' was not found.");
+            }
+
+            if (mutation is not null && mutation.StartsWith("duplicate-database:", StringComparison.Ordinal))
+            {
+                string databaseName = mutation["duplicate-database:".Length..];
+                databases.Add(Database(databaseName, mappingHash, 0));
+                return;
+            }
+
             switch (mutation)
             {
                 case "source-stale": source["capturedAtUtc"] = "2026-08-06T23:59:59.0000000+00:00"; break;

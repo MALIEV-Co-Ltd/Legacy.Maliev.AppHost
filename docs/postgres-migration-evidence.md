@@ -17,7 +17,7 @@ commit, and exact table/foreign-key/sequence inventories must also equal the ind
 baseline. Empty relationship or sequence arrays are accepted only when that external baseline
 explicitly expects none.
 
-For all 21 migrated databases the receipt must reconcile:
+For all 25 migrated databases the receipt must reconcile:
 
 - database and table row counts;
 - per-column null counts;
@@ -28,8 +28,9 @@ For all 21 migrated databases the receipt must reconcile:
 
 Database totals must equal the sum of all planned table and batch receipts. Missing, extra,
 duplicated, or renamed evidence fails. The complete 27-database disposition inventory is also
-signed: 21 migrate, `Hangfire` and `Log` immutable archive-only, both machine-learning databases
-excluded, and `ContactRequest`/`LocationData` held for review.
+signed: 25 migrate, including `ContactRequest`, `Hangfire`, `LocationData`, and `Log`; only
+`MachineLearning` and `MachineLearningData` are excluded under the retired PredictionService
+decision.
 
 ## Signed execution and replay boundary
 
