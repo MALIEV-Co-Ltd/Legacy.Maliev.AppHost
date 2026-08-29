@@ -1260,7 +1260,7 @@ try {
     Complete-VerificationStage -Stage 'verification'
     $verificationCurrentStage = 'complete'
     $verificationPassed = $true
-    Write-Host "PASS: PostgreSQL, Redis, 16 services, 19 migrations, 21 preserved databases plus Auth runtime state, public Career and Contact boundaries, standalone Accounting protection, public instant quotation, recorded local security notifications, customer/employee login, authenticated Member and Intranet flows, and environment isolation are healthy. Evidence: $EvidencePath"
+    Write-Host "PASS: PostgreSQL, Redis, 16 services, 23 migrations, 25 preserved databases plus Auth runtime state, public Career and Contact boundaries, standalone Accounting protection, public instant quotation, recorded local security notifications, customer/employee login, authenticated Member and Intranet flows, and environment isolation are healthy. Evidence: $EvidencePath"
 }
 catch {
     $verificationFailedBeforeCleanup = $true

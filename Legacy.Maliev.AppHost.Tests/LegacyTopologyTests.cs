@@ -29,6 +29,7 @@ public sealed class LegacyTopologyTests
     {
         string[] expected =
         [
+            "ContactRequest",
             "Country",
             "Currency",
             "Customer",
@@ -37,8 +38,11 @@ public sealed class LegacyTopologyTests
             "DataProtectionKeysEmployee",
             "Employee",
             "EmployeeIdentity",
+            "Hangfire",
             "Invoice",
             "JobOffers",
+            "LocationData",
+            "Log",
             "Material",
             "Message",
             "Order",

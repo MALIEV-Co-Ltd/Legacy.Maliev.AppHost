@@ -6,7 +6,7 @@ cloud resource.
 
 ## Current topology
 
-- PostgreSQL 18 with the 21 legacy database names preserved exactly and a separate `Auth` database
+- PostgreSQL 18 with all 25 retained legacy database names preserved exactly and a separate `Auth` database
   for refresh sessions and single-use account-action tokens. Application traffic passes through a
   resource-bounded PgBouncer 1.25.2 container using the same transaction-pool limits as the dormant
   CloudNativePG Pooler; migration and bootstrap jobs keep direct PostgreSQL connections.
@@ -113,7 +113,7 @@ service boundaries, renders the seeded Career listing through Web, persists a Co
 the create-only Web identity, keeps Accounting frontend-disconnected, validates the exact Intranet
 service-token permissions, signs into the
 Intranet, exercises Dashboard plus Customer/Employee/Material/Supplier/Order/PurchaseOrder pages,
-checks all 21
+checks all 25
 preserved database names plus the isolated Auth runtime database, proves a real Country query
 through PgBouncer, rejects ambient credential
 leakage, and removes the local containers in `finally` even when validation fails.
@@ -157,7 +157,7 @@ dotnet build .\Legacy.Maliev.AppHost\Legacy.Maliev.AppHost.csproj -c Release --n
   -SnapshotDirectory 'C:\Users\<you>\AppData\Local\MALIEV\legacy-postgres-snapshots\gke-<timestamp>'
 ```
 
-The snapshot directory must contain the manifest and all 21 custom-format archives produced by
+The snapshot directory must contain the manifest and all 25 custom-format archives produced by
 the read-only PostgreSQL export from `legacy-postgres-main`. AppHost validates the manifest,
 archive names, sizes, and SHA-256 checksums before creating any resources. Each local migration
 runner then restores its database with `pg_restore --clean --if-exists --single-transaction`; the

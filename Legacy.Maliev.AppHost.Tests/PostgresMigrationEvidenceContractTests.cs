@@ -11,9 +11,9 @@ public sealed class PostgresMigrationEvidenceContractTests
 {
     private static readonly string[] MigratedDatabases =
     [
-        "Country", "Currency", "Customer", "CustomerIdentity", "DataProtectionKeys",
+        "ContactRequest", "Country", "Currency", "Customer", "CustomerIdentity", "DataProtectionKeys",
         "DataProtectionKeysEmployee", "Employee", "EmployeeIdentity", "Invoice", "JobOffers",
-        "Material", "Message", "Order", "OrderStatus", "Payment", "PurchaseOrder", "Quotation",
+        "Hangfire", "LocationData", "Log", "Material", "Message", "Order", "OrderStatus", "Payment", "PurchaseOrder", "Quotation",
         "QuotationRequest", "Receipt", "Supplier", "Upload",
     ];
 
@@ -28,6 +28,8 @@ public sealed class PostgresMigrationEvidenceContractTests
     [Theory]
     [InlineData("source-stale")]
     [InlineData("target-before-source")]
+    [InlineData("target-before-authorization")]
+    [InlineData("target-after-lease")]
     [InlineData("row-count-drift")]
     [InlineData("content-drift")]
     [InlineData("foreign-key-drift")]
@@ -37,8 +39,7 @@ public sealed class PostgresMigrationEvidenceContractTests
     [InlineData("duplicate-database")]
     [InlineData("missing-database")]
     [InlineData("wrong-disposition")]
-    [InlineData("archive-not-immutable")]
-    [InlineData("archive-missing")]
+    [InlineData("unexpected-archive")]
     [InlineData("unknown-field")]
     [InlineData("sensitive-field")]
     [InlineData("future-source")]
@@ -421,17 +422,17 @@ public sealed class PostgresMigrationEvidenceContractTests
             {
                 ["runId"] = "11111111-1111-4111-8111-111111111111",
                 ["evidenceId"] = "22222222-2222-4222-8222-222222222222",
-                ["issuedAtUtc"] = now.AddMinutes(-5).ToString("O"),
+                ["issuedAtUtc"] = now.AddMinutes(-15).ToString("O"),
                 ["expiresAtUtc"] = now.AddMinutes(15).ToString("O"),
                 ["leaseId"] = "33333333-3333-4333-8333-333333333333",
-                ["leaseAcquiredAtUtc"] = now.AddMinutes(-4).ToString("O"),
+                ["leaseAcquiredAtUtc"] = now.AddMinutes(-14).ToString("O"),
                 ["leaseExpiresAtUtc"] = now.AddMinutes(10).ToString("O"),
                 ["targetGeneration"] = "shadow-generation-1",
                 ["restoreId"] = "restore-current",
                 ["state"] = "completed",
             },
             ["inventory"] = BuildInventory(),
-            ["archives"] = new JsonArray(Archive("Hangfire", '1'), Archive("Log", '2')),
+            ["archives"] = new JsonArray(),
             ["databases"] = new JsonArray(MigratedDatabases.Select((name, index) => Database(name, mappingHash, index)).ToArray()),
             ["parity"] = "exact",
             ["constraints"] = new JsonObject
@@ -449,14 +450,14 @@ public sealed class PostgresMigrationEvidenceContractTests
         {
             (string Name, string Owner, string Disposition)[] entries =
             [
-                ("ContactRequest", "Legacy.Maliev.CompatibilityContracts", "review_hold"),
+                ("ContactRequest", "Legacy.Maliev.ContactService", "migrate"),
                 ("Country", "Legacy.Maliev.CatalogService", "migrate"), ("Currency", "Legacy.Maliev.CatalogService", "migrate"),
                 ("Customer", "Legacy.Maliev.CustomerService", "migrate"), ("CustomerIdentity", "Legacy.Maliev.AuthService", "migrate"),
                 ("DataProtectionKeys", "Legacy.Maliev.AuthService", "migrate"), ("DataProtectionKeysEmployee", "Legacy.Maliev.AuthService", "migrate"),
                 ("Employee", "Legacy.Maliev.EmployeeService", "migrate"), ("EmployeeIdentity", "Legacy.Maliev.AuthService", "migrate"),
-                ("Hangfire", "Legacy.Maliev.CompatibilityContracts", "archive_only"), ("Invoice", "Legacy.Maliev.AccountingService", "migrate"),
-                ("JobOffers", "Legacy.Maliev.CareerService", "migrate"), ("LocationData", "Legacy.Maliev.CompatibilityContracts", "review_hold"),
-                ("Log", "Legacy.Maliev.CompatibilityContracts", "archive_only"), ("MachineLearning", "Legacy.Maliev.CompatibilityContracts", "excluded"),
+                ("Hangfire", "Legacy.Maliev.CompatibilityContracts", "migrate"), ("Invoice", "Legacy.Maliev.AccountingService", "migrate"),
+                ("JobOffers", "Legacy.Maliev.CareerService", "migrate"), ("LocationData", "Legacy.Maliev.CatalogService", "migrate"),
+                ("Log", "Legacy.Maliev.CompatibilityContracts", "migrate"), ("MachineLearning", "Legacy.Maliev.CompatibilityContracts", "excluded"),
                 ("MachineLearningData", "Legacy.Maliev.CompatibilityContracts", "excluded"), ("Material", "Legacy.Maliev.CatalogService", "migrate"),
                 ("Message", "Legacy.Maliev.ContactService", "migrate"), ("Order", "Legacy.Maliev.OrderService", "migrate"),
                 ("OrderStatus", "Legacy.Maliev.OrderService", "migrate"), ("Payment", "Legacy.Maliev.AccountingService", "migrate"),
@@ -643,12 +644,19 @@ public sealed class PostgresMigrationEvidenceContractTests
         {
             JsonObject source = (JsonObject)root["source"]!;
             JsonObject target = (JsonObject)root["target"]!;
+            JsonObject executionNode = (JsonObject)root["execution"]!;
             JsonArray databases = (JsonArray)root["databases"]!;
             JsonObject first = (JsonObject)databases[0]!;
             switch (mutation)
             {
                 case "source-stale": source["capturedAtUtc"] = "2026-08-06T23:59:59.0000000+00:00"; break;
                 case "target-before-source": target["capturedAtUtc"] = "2026-08-07T00:04:59.0000000+00:00"; break;
+                case "target-before-authorization":
+                    target["capturedAtUtc"] = DateTimeOffset.Parse(executionNode["issuedAtUtc"]!.GetValue<string>()).AddSeconds(-1).ToString("O");
+                    break;
+                case "target-after-lease":
+                    target["capturedAtUtc"] = DateTimeOffset.Parse(executionNode["leaseExpiresAtUtc"]!.GetValue<string>()).AddSeconds(1).ToString("O");
+                    break;
                 case "row-count-drift": first["targetRowCount"] = 99L; break;
                 case "content-drift": first["targetContentSha256"] = new string('f', 64); break;
                 case "foreign-key-drift": ((JsonObject)((JsonArray)first["foreignKeys"]!)[0]!)["targetRelationshipCount"] = 1L; break;
@@ -658,8 +666,7 @@ public sealed class PostgresMigrationEvidenceContractTests
                 case "duplicate-database": databases.Add(Database(MigratedDatabases[0], mappingHash, 0)); break;
                 case "missing-database": databases.RemoveAt(0); break;
                 case "wrong-disposition": ((JsonObject)((JsonArray)root["inventory"]!)[1]!)["disposition"] = "excluded"; break;
-                case "archive-not-immutable": ((JsonObject)((JsonArray)root["archives"]!)[0]!)["immutable"] = false; break;
-                case "archive-missing": ((JsonArray)root["archives"]!).RemoveAt(0); break;
+                case "unexpected-archive": ((JsonArray)root["archives"]!).Add(Archive("Log", '2')); break;
                 case "unknown-field": root["unexpected"] = true; break;
                 case "sensitive-field": source["apiToken"] = "must-not-be-recorded"; break;
                 case "future-source": source["capturedAtUtc"] = "2099-08-07T00:05:00.0000000+00:00"; break;

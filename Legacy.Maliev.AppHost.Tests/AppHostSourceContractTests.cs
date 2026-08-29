@@ -1265,9 +1265,13 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("LegacyTopology.DatabaseNames", appHostSource, StringComparison.Ordinal);
         Assert.Contains("LEGACY_SNAPSHOT_DIRECTORY", appHostSource, StringComparison.Ordinal);
         Assert.Contains(
-            "if (localSnapshotMode)\r\n{\r\n    _ = AddSnapshotMigration(\"legacy-currency-snapshot\", \"Currency\");",
+            "if (localSnapshotMode)\r\n{\r\n    _ = AddSnapshotMigration(\"legacy-contact-request-snapshot\", \"ContactRequest\");",
             appHostSource.ReplaceLineEndings("\r\n"),
             StringComparison.Ordinal);
+        Assert.Contains("AddSnapshotMigration(\"legacy-contact-request-snapshot\", \"ContactRequest\")", appHostSource, StringComparison.Ordinal);
+        Assert.Contains("AddSnapshotMigration(\"legacy-location-data-snapshot\", \"LocationData\")", appHostSource, StringComparison.Ordinal);
+        Assert.Contains("AddSnapshotMigration(\"legacy-hangfire-archive-snapshot\", \"Hangfire\")", appHostSource, StringComparison.Ordinal);
+        Assert.Contains("AddSnapshotMigration(\"legacy-log-archive-snapshot\", \"Log\")", appHostSource, StringComparison.Ordinal);
         Assert.Contains("LegacyLocalSnapshot.Load(snapshotDirectory)", runnerSource, StringComparison.Ordinal);
         Assert.Contains("pg_restore", runnerSource, StringComparison.Ordinal);
         Assert.Contains("--no-owner", runnerSource, StringComparison.Ordinal);

@@ -259,8 +259,9 @@ $expiresAt = Get-RequiredUtc $evidence.execution.expiresAtUtc '$.execution.expir
 $leaseAcquiredAt = Get-RequiredUtc $evidence.execution.leaseAcquiredAtUtc '$.execution.leaseAcquiredAtUtc'
 $leaseExpiresAt = Get-RequiredUtc $evidence.execution.leaseExpiresAtUtc '$.execution.leaseExpiresAtUtc' -AllowFuture
 $nowUtc = [DateTimeOffset]::UtcNow
-if ($issuedAt -lt $targetCapturedAt -or $expiresAt -le $issuedAt -or $expiresAt - $issuedAt -gt [TimeSpan]::FromHours(1) -or
-    $nowUtc -gt $expiresAt -or $leaseAcquiredAt -lt $issuedAt -or $leaseExpiresAt -le $leaseAcquiredAt -or
+if ($targetCapturedAt -lt $issuedAt -or $expiresAt -le $issuedAt -or $expiresAt - $issuedAt -gt [TimeSpan]::FromHours(1) -or
+    $nowUtc -gt $expiresAt -or $leaseAcquiredAt -lt $issuedAt -or $targetCapturedAt -lt $leaseAcquiredAt -or
+    $leaseExpiresAt -le $leaseAcquiredAt -or $targetCapturedAt -gt $leaseExpiresAt -or
     $leaseExpiresAt -gt $expiresAt -or $nowUtc -gt $leaseExpiresAt) {
     throw 'Migration evidence or its one-time lease is stale, future-dated, expired, or exceeds the one-hour authorization window.'
 }
@@ -276,14 +277,14 @@ if ($evidence.constraints.productionDataWritesAllowed -isnot [bool] -or $evidenc
 }
 
 $approvedInventory = [ordered]@{
-    ContactRequest = @('Legacy.Maliev.CompatibilityContracts', 'review_hold')
+    ContactRequest = @('Legacy.Maliev.ContactService', 'migrate')
     Country = @('Legacy.Maliev.CatalogService', 'migrate'); Currency = @('Legacy.Maliev.CatalogService', 'migrate')
     Customer = @('Legacy.Maliev.CustomerService', 'migrate'); CustomerIdentity = @('Legacy.Maliev.AuthService', 'migrate')
     DataProtectionKeys = @('Legacy.Maliev.AuthService', 'migrate'); DataProtectionKeysEmployee = @('Legacy.Maliev.AuthService', 'migrate')
     Employee = @('Legacy.Maliev.EmployeeService', 'migrate'); EmployeeIdentity = @('Legacy.Maliev.AuthService', 'migrate')
-    Hangfire = @('Legacy.Maliev.CompatibilityContracts', 'archive_only'); Invoice = @('Legacy.Maliev.AccountingService', 'migrate')
-    JobOffers = @('Legacy.Maliev.CareerService', 'migrate'); LocationData = @('Legacy.Maliev.CompatibilityContracts', 'review_hold')
-    Log = @('Legacy.Maliev.CompatibilityContracts', 'archive_only'); MachineLearning = @('Legacy.Maliev.CompatibilityContracts', 'excluded')
+    Hangfire = @('Legacy.Maliev.CompatibilityContracts', 'migrate'); Invoice = @('Legacy.Maliev.AccountingService', 'migrate')
+    JobOffers = @('Legacy.Maliev.CareerService', 'migrate'); LocationData = @('Legacy.Maliev.CatalogService', 'migrate')
+    Log = @('Legacy.Maliev.CompatibilityContracts', 'migrate'); MachineLearning = @('Legacy.Maliev.CompatibilityContracts', 'excluded')
     MachineLearningData = @('Legacy.Maliev.CompatibilityContracts', 'excluded'); Material = @('Legacy.Maliev.CatalogService', 'migrate')
     Message = @('Legacy.Maliev.ContactService', 'migrate'); Order = @('Legacy.Maliev.OrderService', 'migrate')
     OrderStatus = @('Legacy.Maliev.OrderService', 'migrate'); Payment = @('Legacy.Maliev.AccountingService', 'migrate')
@@ -309,9 +310,9 @@ foreach ($entry in $evidence.inventory) {
 $approvedMigrated = @($approvedInventory.Keys | Where-Object { $approvedInventory[$_][1] -eq 'migrate' } | Sort-Object)
 $callerExpectedRaw = @($ExpectedDatabase | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $callerExpected = @($callerExpectedRaw | Sort-Object -Unique)
-if ($callerExpectedRaw.Count -ne $callerExpected.Count -or $callerExpected.Count -ne 21 -or
+if ($callerExpectedRaw.Count -ne $callerExpected.Count -or $callerExpected.Count -ne 25 -or
     (Compare-Object $approvedMigrated $callerExpected -CaseSensitive)) {
-    throw 'ExpectedDatabase must equal the approved 21-database migrated inventory.'
+    throw 'ExpectedDatabase must equal the approved 25-database migrated inventory.'
 }
 
 Assert-Sha256 $ExpectedApprovedBaselineSha256 'ExpectedApprovedBaselineSha256'
@@ -340,8 +341,8 @@ if ($approvedBaseline.sourceCommitSha -isnot [string] -or $approvedBaseline.sour
     $approvedBaseline.planSha256 -cne $evidence.mapping.planSha256) {
     throw 'The signed evidence mapping is not bound to the owner-approved source commit and plan hash.'
 }
-if ($approvedBaseline.databases -isnot [object[]] -or $approvedBaseline.databases.Count -ne 21) {
-    throw 'The independently approved baseline must describe all 21 migrated databases.'
+if ($approvedBaseline.databases -isnot [object[]] -or $approvedBaseline.databases.Count -ne 25) {
+    throw 'The independently approved baseline must describe all 25 migrated databases.'
 }
 $approvedBaselineDatabases = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
 foreach ($baselineDatabase in $approvedBaseline.databases) {
@@ -401,8 +402,8 @@ if ((Compare-Object @($approvedBaselineDatabases.Keys | Sort-Object) $approvedMi
     throw 'The independently approved baseline database inventory is incomplete.'
 }
 
-if ($evidence.mapping.databases -isnot [object[]] -or $evidence.mapping.databases.Count -ne 21) {
-    throw 'The signed mapping plan must explicitly describe all 21 migrated databases.'
+if ($evidence.mapping.databases -isnot [object[]] -or $evidence.mapping.databases.Count -ne 25) {
+    throw 'The signed mapping plan must explicitly describe all 25 migrated databases.'
 }
 $mappingPlans = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
 foreach ($databasePlan in $evidence.mapping.databases) {
@@ -489,7 +490,7 @@ if ((Compare-Object @($mappingPlans.Keys | Sort-Object) $approvedMigrated -CaseS
     throw 'The signed mapping-plan database inventory is incomplete.'
 }
 
-if ($evidence.archives -isnot [object[]] -or $evidence.archives.Count -ne 2) { throw 'Immutable archive provenance is incomplete.' }
+if ($evidence.archives -isnot [object[]] -or $evidence.archives.Count -ne 0) { throw 'Migrated inventory must not retain backup-only archive entries.' }
 $archiveNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
 foreach ($archive in $evidence.archives) {
     Assert-ExactKeys $archive @('name', 'disposition', 'backupArtifactSha256', 'sourceSchemaSha256', 'sourceContentSha256', 'immutable') '$.archives[]'
@@ -502,7 +503,7 @@ foreach ($archive in $evidence.archives) {
     Assert-Sha256 $archive.sourceContentSha256 '$.archives[].sourceContentSha256'
 }
 
-if ($evidence.databases -isnot [object[]] -or $evidence.databases.Count -ne 21) { throw 'Exactly 21 migrated database receipts are required.' }
+if ($evidence.databases -isnot [object[]] -or $evidence.databases.Count -ne 25) { throw 'Exactly 25 migrated database receipts are required.' }
 $databaseNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
 foreach ($database in $evidence.databases) {
     Assert-ExactKeys $database @('name', 'sourceSchemaSha256', 'mappingPlanSha256', 'targetSchemaSha256', 'sourceRowCount', 'targetRowCount', 'sourceContentSha256', 'targetContentSha256', 'tableInventorySha256', 'foreignKeyInventorySha256', 'sequenceInventorySha256', 'tableCount', 'foreignKeyCount', 'sequenceCount', 'tables', 'foreignKeys', 'sequences', 'parity') '$.databases[]'
@@ -652,4 +653,4 @@ catch {
     throw 'Migration evidence run, evidence, or lease identity was already consumed; replay is rejected.'
 }
 
-Write-Host "PASS: signed one-time SQL Server-to-PostgreSQL shadow evidence validated for 21 databases as of $($requiredAt.ToString('O'))."
+Write-Host "PASS: signed one-time SQL Server-to-PostgreSQL shadow evidence validated for 25 databases as of $($requiredAt.ToString('O'))."
