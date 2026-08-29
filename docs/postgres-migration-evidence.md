@@ -69,7 +69,9 @@ The root keys are exact and `schemaVersion` must be `2`:
       "sourceRowCount": 123, "targetRowCount": 123,
       "sourceContentSha256": "<64 lower-case hex>",
       "targetContentSha256": "<same canonical content hash>",
-      "foreignKeys": { "sourceCount": 5, "targetCount": 5, "orphanCount": 0 },
+      "foreignKeys": [
+        { "name": "fk_customer_company", "sourceRelationshipCount": 5, "targetRelationshipCount": 5, "orphanCount": 0 }
+      ],
       "sequences": [{ "name": "customer_id", "sourceNextValue": 124, "targetNextValue": 124 }],
       "parity": "exact"
     }
@@ -95,8 +97,9 @@ The root keys are exact and `schemaVersion` must be `2`:
 The abbreviated arrays document field shape only. A real receipt includes the exact 27-entry
 disposition inventory, both archive receipts, and all 21 migrated database receipts. Unknown
 fields, sensitive field names, stale timestamps, untrusted keys, invalid signatures, non-shadow
-targets, or any reconciliation drift are rejected. A database with no mapped sequence uses an
-empty `sequences` array.
+targets, or any reconciliation drift are rejected. Databases without mapped foreign keys or
+sequences use empty `foreignKeys` or `sequences` arrays; every non-empty array is reconciled by
+stable constraint/sequence name.
 
 The signed payload is the compact UTF-8 JSON root with `attestation` removed, every object key
 sorted by ordinal code-point order, array order preserved, and JSON strings emitted without HTML

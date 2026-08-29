@@ -285,7 +285,13 @@ public sealed class PostgresMigrationEvidenceContractTests
                 ["targetRowCount"] = 10L + index,
                 ["sourceContentSha256"] = new string(contentSeed, 64),
                 ["targetContentSha256"] = new string(contentSeed, 64),
-                ["foreignKeys"] = new JsonObject { ["sourceCount"] = 2L, ["targetCount"] = 2L, ["orphanCount"] = 0L },
+                ["foreignKeys"] = new JsonArray(new JsonObject
+                {
+                    ["name"] = "fk_parent",
+                    ["sourceRelationshipCount"] = 2L,
+                    ["targetRelationshipCount"] = 2L,
+                    ["orphanCount"] = 0L,
+                }),
                 ["sequences"] = new JsonArray(new JsonObject
                 {
                     ["name"] = "primary_id",
@@ -308,8 +314,8 @@ public sealed class PostgresMigrationEvidenceContractTests
                 case "target-before-source": target["capturedAtUtc"] = "2026-08-07T00:04:59.0000000+00:00"; break;
                 case "row-count-drift": first["targetRowCount"] = 99L; break;
                 case "content-drift": first["targetContentSha256"] = new string('f', 64); break;
-                case "foreign-key-drift": ((JsonObject)first["foreignKeys"]!)["targetCount"] = 1L; break;
-                case "foreign-key-orphan": ((JsonObject)first["foreignKeys"]!)["orphanCount"] = 1L; break;
+                case "foreign-key-drift": ((JsonObject)((JsonArray)first["foreignKeys"]!)[0]!)["targetRelationshipCount"] = 1L; break;
+                case "foreign-key-orphan": ((JsonObject)((JsonArray)first["foreignKeys"]!)[0]!)["orphanCount"] = 1L; break;
                 case "sequence-drift": ((JsonObject)((JsonArray)first["sequences"]!)[0]!)["targetNextValue"] = 999L; break;
                 case "mapping-hash-drift": first["mappingPlanSha256"] = new string('f', 64); break;
                 case "duplicate-database": databases.Add(Database(MigratedDatabases[0], mappingHash, 0)); break;

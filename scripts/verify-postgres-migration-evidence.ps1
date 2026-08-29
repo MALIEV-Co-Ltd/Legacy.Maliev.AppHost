@@ -259,12 +259,19 @@ foreach ($database in $evidence.databases) {
         $database.sourceContentSha256 -cne $database.targetContentSha256 -or $database.parity -ne 'exact') {
         throw "Database '$($database.name)' does not have exact row/content parity."
     }
-    Assert-ExactKeys $database.foreignKeys @('sourceCount', 'targetCount', 'orphanCount') '$.databases[].foreignKeys'
-    foreach ($field in @('sourceCount', 'targetCount', 'orphanCount')) {
-        if ($database.foreignKeys[$field] -isnot [long] -or $database.foreignKeys[$field] -lt 0) { throw "Database '$($database.name)' has invalid foreign-key evidence." }
-    }
-    if ($database.foreignKeys.sourceCount -ne $database.foreignKeys.targetCount -or $database.foreignKeys.orphanCount -ne 0) {
-        throw "Database '$($database.name)' does not have exact foreign-key parity."
+    if ($database.foreignKeys -isnot [object[]]) { throw "Database '$($database.name)' must include per-constraint foreign-key evidence (an empty array is allowed)." }
+    $foreignKeyNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($foreignKey in $database.foreignKeys) {
+        Assert-ExactKeys $foreignKey @('name', 'sourceRelationshipCount', 'targetRelationshipCount', 'orphanCount') '$.databases[].foreignKeys[]'
+        if (-not $foreignKeyNames.Add([string]$foreignKey.name) -or $foreignKey.name -notmatch '^[A-Za-z0-9_.:-]{1,128}$') {
+            throw "Database '$($database.name)' has duplicate or unsafe foreign-key evidence."
+        }
+        foreach ($field in @('sourceRelationshipCount', 'targetRelationshipCount', 'orphanCount')) {
+            if ($foreignKey[$field] -isnot [long] -or $foreignKey[$field] -lt 0) { throw "Database '$($database.name)' has invalid foreign-key evidence." }
+        }
+        if ($foreignKey.sourceRelationshipCount -ne $foreignKey.targetRelationshipCount -or $foreignKey.orphanCount -ne 0) {
+            throw "Database '$($database.name)' does not have exact foreign-key parity."
+        }
     }
     if ($database.sequences -isnot [object[]]) { throw "Database '$($database.name)' must include sequence evidence (an empty array is allowed)." }
     $sequenceNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
