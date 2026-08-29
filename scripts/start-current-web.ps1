@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [string] $WebRepositoryRoot,
+    [string] $SnapshotDirectory,
     [ValidateRange(1, 65535)]
     [int] $WebPort = 5088,
     [ValidateSet('Debug', 'Release')]
@@ -47,6 +48,27 @@ function Get-PortOwner {
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $appHostProject = Join-Path $repositoryRoot 'Legacy.Maliev.AppHost\Legacy.Maliev.AppHost.csproj'
 $workspaceRoot = Split-Path -Parent $repositoryRoot
+if ([string]::IsNullOrWhiteSpace($SnapshotDirectory)) {
+    $snapshotRoot = Join-Path $env:LOCALAPPDATA 'MALIEV\legacy-postgres-snapshots'
+    if (Test-Path -LiteralPath $snapshotRoot -PathType Container) {
+        $SnapshotDirectory = Get-ChildItem -LiteralPath $snapshotRoot -Directory |
+            Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'manifest.json') -PathType Leaf } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+    }
+}
+if ([string]::IsNullOrWhiteSpace($SnapshotDirectory)) {
+    throw 'Existing-credential local testing requires a validated migrated snapshot. Supply -SnapshotDirectory or create one under %LOCALAPPDATA%\MALIEV\legacy-postgres-snapshots.'
+}
+
+$SnapshotDirectory = (Resolve-Path -LiteralPath $SnapshotDirectory).Path
+if (-not (Test-Path -LiteralPath (Join-Path $SnapshotDirectory 'manifest.json') -PathType Leaf)) {
+    throw "Existing-credential local testing requires manifest.json in the snapshot directory: $SnapshotDirectory"
+}
+
+[Environment]::SetEnvironmentVariable('LEGACY_LOCAL_SNAPSHOT', 'true')
+[Environment]::SetEnvironmentVariable('LEGACY_LOCAL_SNAPSHOT_DIR', $SnapshotDirectory)
+[Environment]::SetEnvironmentVariable('LEGACY_LOCAL_FIXTURES', 'false')
 if (-not $WebRepositoryRoot) {
     $gitCommonDirectory = Invoke-Git -RepositoryRoot $repositoryRoot -Arguments @(
         'rev-parse', '--path-format=absolute', '--git-common-dir')
@@ -112,6 +134,7 @@ if (-not [string]::IsNullOrWhiteSpace($googleMapsApiKey)) {
 }
 
 Write-Host "Building Legacy Web source before port inspection: repo=$repository branch=$branch commit=$commitBeforeBuild project=$webProject"
+Write-Host "Using validated migrated snapshot for existing-credential local testing: $SnapshotDirectory"
 & dotnet build $appHostProject --configuration $Configuration --verbosity minimal `
     "-p:LegacyMalievWebProject=$webProject"
 if ($LASTEXITCODE -ne 0) {

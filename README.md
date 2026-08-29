@@ -6,7 +6,7 @@ cloud resource.
 
 ## Current topology
 
-- PostgreSQL 18 with the 21 legacy database names preserved exactly and a separate `Auth` database
+- PostgreSQL 18 with all 25 retained legacy database names preserved exactly and a separate `Auth` database
   for refresh sessions and single-use account-action tokens. Application traffic passes through a
   resource-bounded PgBouncer 1.25.2 container using the same transaction-pool limits as the dormant
   CloudNativePG Pooler; migration and bootstrap jobs keep direct PostgreSQL connections.
@@ -74,16 +74,16 @@ cluster and `maliev-legacy` namespace.
 - .NET SDK 10
 - Docker Desktop
 - `kubectl` (used only with Aspire DCP's generated temporary local kubeconfig)
-- Sibling repositories at `B:\maliev\Legacy.Maliev.AuthService`,
-  `B:\maliev\Legacy.Maliev.CountryService`, `B:\maliev\Legacy.Maliev.CustomerService`,
-  `B:\maliev\Legacy.Maliev.DocumentService`, `B:\maliev\Legacy.Maliev.EmployeeService`,
-  `B:\maliev\Legacy.Maliev.CatalogService`, `B:\maliev\Legacy.Maliev.ProcurementService`,
-  `B:\maliev\Legacy.Maliev.FileService`, `B:\maliev\Legacy.Maliev.NotificationService`,
-  `B:\maliev\Legacy.Maliev.CareerService`, `B:\maliev\Legacy.Maliev.ContactService`,
-  `B:\maliev\Legacy.Maliev.AccountingService`, `B:\maliev\Legacy.Maliev.Web`,
-  `B:\maliev\Legacy.Maliev.Intranet`,
-  `B:\maliev\Legacy.Maliev.ServiceDefaults`, and
-  `B:\maliev\Legacy.Maliev.CompatibilityContracts`.
+- Sibling repositories at `B:\maliev-legacy\Legacy.Maliev.AuthService`,
+  `B:\maliev-legacy\Legacy.Maliev.CountryService`, `B:\maliev-legacy\Legacy.Maliev.CustomerService`,
+  `B:\maliev-legacy\Legacy.Maliev.DocumentService`, `B:\maliev-legacy\Legacy.Maliev.EmployeeService`,
+  `B:\maliev-legacy\Legacy.Maliev.CatalogService`, `B:\maliev-legacy\Legacy.Maliev.ProcurementService`,
+  `B:\maliev-legacy\Legacy.Maliev.FileService`, `B:\maliev-legacy\Legacy.Maliev.NotificationService`,
+  `B:\maliev-legacy\Legacy.Maliev.CareerService`, `B:\maliev-legacy\Legacy.Maliev.ContactService`,
+  `B:\maliev-legacy\Legacy.Maliev.AccountingService`, `B:\maliev-legacy\Legacy.Maliev.Web`,
+  `B:\maliev-legacy\Legacy.Maliev.Intranet`,
+  `B:\maliev-legacy\Legacy.Maliev.ServiceDefaults`, and
+  `B:\maliev-legacy\Legacy.Maliev.CompatibilityContracts`.
 
 ## Verify locally
 
@@ -102,7 +102,7 @@ path above is ignored so the evidence artifact itself does not invalidate a late
 
 The verifier also requires a clean, named-branch `Legacy.Maliev.Web` checkout. Set
 `$env:MalievWorkspaceRoot` when reviewing isolated sibling worktrees; otherwise it resolves the
-normal `B:\maliev` sibling layout. Legacy Web is assigned disposable port `15088` by default so
+normal `B:\maliev-legacy` sibling layout. Legacy Web is assigned disposable port `15088` by default so
 the existing `5088` listener is never stopped, reused, or replaced during review. Override it only
 with another free local port via `-LegacyWebPort`.
 
@@ -113,7 +113,7 @@ service boundaries, renders the seeded Career listing through Web, persists a Co
 the create-only Web identity, keeps Accounting frontend-disconnected, validates the exact Intranet
 service-token permissions, signs into the
 Intranet, exercises Dashboard plus Customer/Employee/Material/Supplier/Order/PurchaseOrder pages,
-checks all 21
+checks all 25
 preserved database names plus the isolated Auth runtime database, proves a real Country query
 through PgBouncer, rejects ambient credential
 leakage, and removes the local containers in `finally` even when validation fails.
@@ -125,6 +125,16 @@ fail-closed local/no-cost constraints. It never retains exception text, credenti
 cookies, connection strings, provider responses, or temporary runtime paths. Attach the terminal
 JSON artifact to AppHost issue #33 and link it from Project #2; an absent, `running`, malformed, or
 failed artifact is rejected by the validation script and is not release evidence.
+
+For source-backed SQL Server-to-PostgreSQL shadow parity, prepare the signed v2 receipt described in
+[`docs/postgres-migration-evidence.md`](docs/postgres-migration-evidence.md) and run
+`scripts/verify-postgres-migration-evidence.ps1` with the complete database inventory,
+owner-approved `-RequiredAsOfUtc` cutoff, trusted P-256 public key, and expected key ID. The gate
+also requires the raw SHA-256 of an independently owner-approved plan/source/inventory baseline.
+It accepts distinct source and target schema hashes only when both are bound to that externally
+approved mapping plan and all row/content/foreign-key/sequence reconciliations pass. This is a read-only evidence
+gate for databases and cloud systems; its only write is the mandatory local one-time consumption
+ledger that rejects run/evidence/lease replay. It never authorizes cutover or writes to GKE/production.
 
 For interactive development, set the three `Parameters__legacy-*` environment variables to
 local-only values and run:
@@ -147,7 +157,7 @@ dotnet build .\Legacy.Maliev.AppHost\Legacy.Maliev.AppHost.csproj -c Release --n
   -SnapshotDirectory 'C:\Users\<you>\AppData\Local\MALIEV\legacy-postgres-snapshots\gke-<timestamp>'
 ```
 
-The snapshot directory must contain the manifest and all 21 custom-format archives produced by
+The snapshot directory must contain the manifest and all 25 custom-format archives produced by
 the read-only PostgreSQL export from `legacy-postgres-main`. AppHost validates the manifest,
 archive names, sizes, and SHA-256 checksums before creating any resources. Each local migration
 runner then restores its database with `pg_restore --clean --if-exists --single-transaction`; the
@@ -171,7 +181,7 @@ They may be added only for a deliberately isolated fixture test by passing
 The dashboard URL and dynamic Web/Intranet endpoints are printed by Aspire. Use the `/web/liveness`,
 `/web/readiness`, `/intranet-bff/liveness`, `/intranet-bff/readiness`, `/auth/liveness`, and
 `/auth/readiness` endpoints for the health gate. This mode does not change GKE or the current
-production SQL Server workload.
+production workload.
 
 ### PostgreSQL connection boundary
 
@@ -232,12 +242,16 @@ gate has direct evidence and the owner records approval in AppHost issue #33.
 ## Deterministic Legacy Web Aspire review
 
 Start Legacy Web through the guarded script so Aspire builds an exact clean source checkout, records the
-repository, branch, and commit in the dashboard environment and Web response headers, and refuses to reuse
-an occupied port. For a non-disruptive replacement review while the existing listener remains on `5088`, use:
+repository, branch, and commit in the dashboard environment and Web response headers, restores the latest
+validated migrated snapshot for existing employee credentials, and refuses to reuse an occupied port. The
+launcher fails closed when no snapshot containing `manifest.json` exists under
+`%LOCALAPPDATA%\MALIEV\legacy-postgres-snapshots`; use `-SnapshotDirectory` to select another approved
+snapshot explicitly. It never enables synthetic identities in this owner-review path. For a non-disruptive
+replacement review while the existing listener remains on `5088`, use:
 
 ```powershell
 .\scripts\start-current-web.ps1 `
-  -WebRepositoryRoot B:\maliev\Legacy.Maliev.Web\.worktrees\issue-154-build-identity `
+  -WebRepositoryRoot B:\maliev-legacy\Legacy.Maliev.Web\.worktrees\issue-154-build-identity `
   -WebPort 5188
 ```
 
@@ -249,7 +263,7 @@ For the owner-coordinated `5088` cutover, first compile and inspect the current 
 
 ```powershell
 .\scripts\start-current-web.ps1 `
-  -WebRepositoryRoot B:\maliev\Legacy.Maliev.Web `
+  -WebRepositoryRoot B:\maliev-legacy\Legacy.Maliev.Web `
   -WebPort 5088 `
   -PreflightOnly
 ```

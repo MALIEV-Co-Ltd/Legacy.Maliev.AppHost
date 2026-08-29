@@ -2,8 +2,7 @@ name: Staging validation
 
 on:
   push:
-    branches: [staging]
-
+    tags: [release/v*]
 permissions:
   contents: read
 

@@ -46,6 +46,23 @@ public sealed class LegacyWebOrchestrationSourceTests
     }
 
     [Fact]
+    public void StartScript_RequiresExactSnapshotSoExistingEmployeeCredentialsCanAuthenticate()
+    {
+        var script = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "scripts",
+            "start-current-web.ps1"));
+
+        Assert.Contains("[string] $SnapshotDirectory", script, StringComparison.Ordinal);
+        Assert.Contains("MALIEV\\legacy-postgres-snapshots", script, StringComparison.Ordinal);
+        Assert.Contains("manifest.json", script, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_LOCAL_SNAPSHOT', 'true'", script, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_LOCAL_SNAPSHOT_DIR', $SnapshotDirectory", script, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_LOCAL_FIXTURES', 'false'", script, StringComparison.Ordinal);
+        Assert.Contains("Existing-credential local testing requires", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Readme_DocumentsExactStartAndCoordinatedPortHandoff()
     {
         var readme = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "README.md"));
@@ -69,7 +86,7 @@ public sealed class LegacyWebOrchestrationSourceTests
             "workflows",
             "_build-and-test.yml"));
 
-        Assert.Contains("ref: f1dbbc5d4fe50fd1256a9371a1e9f14a8f012432", workflow, StringComparison.Ordinal);
+        Assert.Contains("ref: fd4849e0788011e97a62d6bd99eed962e0354ec9", workflow, StringComparison.Ordinal);
         Assert.Contains("export LEGACY_WEB_PROJECT=", workflow, StringComparison.Ordinal);
         Assert.Contains("export LEGACY_WEB_REPOSITORY=", workflow, StringComparison.Ordinal);
         Assert.Contains("LEGACY_WEB_BRANCH:", workflow, StringComparison.Ordinal);

@@ -24,6 +24,7 @@ public static class LegacyTopology
     /// <summary>Gets the legacy PostgreSQL database names without schema renaming.</summary>
     public static IReadOnlyList<string> DatabaseNames { get; } =
     [
+        "ContactRequest",
         "Country",
         "Currency",
         "Customer",
@@ -32,8 +33,11 @@ public static class LegacyTopology
         "DataProtectionKeysEmployee",
         "Employee",
         "EmployeeIdentity",
+        "Hangfire",
         "Invoice",
         "JobOffers",
+        "LocationData",
+        "Log",
         "Material",
         "Message",
         "Order",
@@ -142,6 +146,7 @@ public static class LegacyTopology
         "legacy.quotations.read",
         "legacy.customer-quotations.read",
         "legacy.quotations.create",
+        "legacy.quotations.update",
         "legacy.quotation-lines.write",
         "legacy.quotation-orders.read",
         "legacy.quotation-orders.write",

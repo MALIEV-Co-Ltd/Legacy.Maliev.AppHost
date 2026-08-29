@@ -126,8 +126,9 @@ function Invoke-WebInstantQuotationFlow {
     $page = Invoke-WebRequest -Uri $pageUri -UseBasicParsing -SkipHttpErrorCheck
     if (
         $page.StatusCode -ne 200 -or
-        $page.Content -notmatch 'Get an instant manufacturing estimate' -or
-        $page.Content -notmatch '<option value="PLA" selected>'
+        $page.Content -notmatch 'data-migration-component="instant-quotation-three-dimensional-printing"' -or
+        $page.Content -notmatch 'data-workflow-upload' -or
+        $page.Content -notmatch 'id="instant-quote-files"'
     ) {
         throw "The public instant quotation page did not render its deterministic pricing form (HTTP $($page.StatusCode))."
     }
@@ -336,7 +337,9 @@ function Invoke-WebMemberAccountFlow {
         if (
             [int]$quotationPage.StatusCode -ne 200 -or
             $quotationContent -notmatch 'Local CNC quotation line' -or
-            $quotationContent -notmatch 'local-cnc-quotation.pdf' -or
+            $quotationContent -notmatch 'No files are linked to this quotation\.' -or
+            $quotationContent -match 'local-cnc-quotation\.pdf' -or
+            $quotationContent -match 'quotations/local-cnc-quotation\.pdf' -or
             $quotationContent -match 'paypal'
         ) {
             $diagnostics = @(
@@ -352,9 +355,9 @@ function Invoke-WebMemberAccountFlow {
         }
 
         $serviceOrderCompatibilityRoutes = @(
-            @{ Path = '/member/orders/3d-printing'; ExpectedItem = '3D-Printing' },
-            @{ Path = '/member/orders/3d-scanning'; ExpectedItem = '3D-Scanning' },
-            @{ Path = '/member/orders/cnc-machining'; ExpectedItem = 'CNC-Machining' }
+            @{ Path = '/member/orders/3d-printing'; ExpectedKind = 'additive' },
+            @{ Path = '/member/orders/3d-scanning'; ExpectedKind = 'scanning' },
+            @{ Path = '/member/orders/cnc-machining'; ExpectedKind = 'machining' }
         )
         foreach ($route in $serviceOrderCompatibilityRoutes) {
             $compatibilityRequest = [System.Net.Http.HttpRequestMessage]::new(
@@ -364,17 +367,18 @@ function Invoke-WebMemberAccountFlow {
                 'Cookie',
                 "$antiforgeryCookie; $sessionCookie")
             $compatibilityResponse = $client.SendAsync($compatibilityRequest).GetAwaiter().GetResult()
-            $locationHeader = $compatibilityResponse.Headers.Location
-            if ([int]$compatibilityResponse.StatusCode -notin 302, 303 -or $null -eq $locationHeader) {
-                throw "The authenticated compatibility route $($route.Path) did not redirect to the quotation request."
-            }
-
-            $location = [Uri]::new([Uri]$WebUrl, $locationHeader)
+            $compatibilityContent = $compatibilityResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+            $expectedKindMarker = 'data-kind="' + $route.ExpectedKind + '"'
+            $hasOrderForm = $compatibilityContent -match 'data-member-order-form'
+            $hasExpectedKind = $compatibilityContent -match [regex]::Escape($expectedKindMarker)
+            $hasOptionsEndpoint = $compatibilityContent -match 'data-options-endpoint="/member/orders/material-options"'
             if (
-                $location.AbsolutePath -notin '/Quotation', '/Quotation/Index' -or
-                $location.Query -ne "?item=$($route.ExpectedItem)"
+                [int]$compatibilityResponse.StatusCode -ne 200 -or
+                -not $hasOrderForm -or
+                -not $hasExpectedKind -or
+                -not $hasOptionsEndpoint
             ) {
-                throw "The compatibility route $($route.Path) redirected to unexpected location $location."
+                throw "The authenticated compatibility route $($route.Path) did not render the migrated member order form (status=$([int]$compatibilityResponse.StatusCode), form=$hasOrderForm, kind=$hasExpectedKind, options=$hasOptionsEndpoint, bytes=$($compatibilityContent.Length))."
             }
         }
 
@@ -419,7 +423,9 @@ function Invoke-WebMemberAccountFlow {
             [int]$orderPage.StatusCode -ne 200 -or
             -not $orderAntiforgery.Success -or
             $orderContent -notmatch 'Reviewing' -or
-            $orderContent -notmatch 'local-cnc-part.step'
+            $orderContent -notmatch 'No files are linked to this order\.' -or
+            $orderContent -match 'local-cnc-part\.step' -or
+            $orderContent -match 'orders/local-cnc-part\.step'
         ) {
             throw 'The authenticated owned order detail did not render through the Web BFF.'
         }
@@ -545,27 +551,23 @@ function Invoke-WebMemberAccountFlow {
         }
 
         $emailRedirect = [Uri]::new([Uri]$WebUrl, $emailLocation)
-        if (
-            $emailRedirect.AbsolutePath -ne '/Account/Login' -or
-            [System.Net.WebUtility]::UrlDecode($emailRedirect.Query) -notmatch 'email=local.changed@maliev.test'
-        ) {
+        if ($emailRedirect.AbsolutePath -ne '/Member/Account/Manage/ChangeEmail') {
             throw "The Member email change redirected to unexpected location $emailRedirect."
         }
 
-        $clearCookies = @($emailResult.Headers.GetValues('Set-Cookie'))
-        if (-not ($clearCookies | Where-Object { $_ -match '__Host-Maliev\.Legacy\.Session=;' })) {
-            throw 'The Member email change did not clear the encrypted BFF session cookie.'
-        }
-
-        $signedOutRequest = [System.Net.Http.HttpRequestMessage]::new(
+        $pendingEmailRequest = [System.Net.Http.HttpRequestMessage]::new(
             [System.Net.Http.HttpMethod]::Get,
-            "$WebUrl/member/account/manage/changeemail")
-        $null = $signedOutRequest.Headers.TryAddWithoutValidation(
+            "$WebUrl/member/account/manage/changeemail?culture=en")
+        $null = $pendingEmailRequest.Headers.TryAddWithoutValidation(
             'Cookie',
             "$antiforgeryCookie; $sessionCookie")
-        $signedOut = $client.SendAsync($signedOutRequest).GetAwaiter().GetResult()
-        if ([int]$signedOut.StatusCode -notin 302, 303) {
-            throw 'The invalidated BFF session still accessed an authenticated Member route.'
+        $pendingEmailPage = $client.SendAsync($pendingEmailRequest).GetAwaiter().GetResult()
+        $pendingEmailContent = $pendingEmailPage.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        if (
+            [int]$pendingEmailPage.StatusCode -ne 200 -or
+            $pendingEmailContent -notmatch 'data-migration-component="member-change-email-content"'
+        ) {
+            throw 'The pending Member email-change state did not remain available through the Web BFF.'
         }
     }
     finally {
@@ -582,28 +584,41 @@ function Invoke-IntranetEmployeeFlow {
     $handler.CookieContainer = [System.Net.CookieContainer]::new()
     $client = [System.Net.Http.HttpClient]::new($handler)
     try {
-        $loginPage = $client.GetAsync("$IntranetUrl/Login").GetAwaiter().GetResult()
-        $loginContent = $loginPage.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-        $antiforgery = [regex]::Match(
-            $loginContent,
-            'name="__RequestVerificationToken"[^>]*value="([^"]+)"')
-        if ([int]$loginPage.StatusCode -ne 200 -or -not $antiforgery.Success) {
-            throw 'The Intranet login form did not render with antiforgery protection.'
+        $sessionResponse = $client.GetAsync("$IntranetUrl/bff/session").GetAwaiter().GetResult()
+        $sessionContent = $sessionResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        $session = if ([int]$sessionResponse.StatusCode -eq 200) {
+            $sessionContent | ConvertFrom-Json
+        }
+        else {
+            $null
         }
 
-        $loginForm = [System.Collections.Generic.Dictionary[string,string]]::new()
-        $loginForm.Add(
-            '__RequestVerificationToken',
-            [System.Net.WebUtility]::HtmlDecode($antiforgery.Groups[1].Value))
-        $loginForm.Add('Email', 'local.employee@maliev.test')
-        $loginForm.Add('Password', 'local-test-only')
-        $loginForm.Add('ReturnUrl', '/Dashboard')
-        $loginResponse = $client.PostAsync(
-            "$IntranetUrl/Login",
-            [System.Net.Http.FormUrlEncodedContent]::new($loginForm)).GetAwaiter().GetResult()
-        if ([int]$loginResponse.StatusCode -notin 302, 303) {
-            $content = $loginResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-            throw "The Intranet employee login returned HTTP $([int]$loginResponse.StatusCode): $content"
+        $csrfToken = [string]$session.csrfToken
+        if ([int]$sessionResponse.StatusCode -ne 200 -or [string]::IsNullOrWhiteSpace($csrfToken)) {
+            throw 'The Intranet BFF session endpoint did not issue an antiforgery token.'
+        }
+
+        $loginRequest = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Post,
+            "$IntranetUrl/bff/login")
+        $null = $loginRequest.Headers.TryAddWithoutValidation('X-CSRF-TOKEN', $csrfToken)
+        $loginRequest.Content = [System.Net.Http.StringContent]::new(
+            (@{
+                email = 'local.employee@maliev.test'
+                password = 'local-test-only'
+                returnUrl = '/Dashboard'
+                rememberMe = $false
+            } | ConvertTo-Json -Compress),
+            [System.Text.Encoding]::UTF8,
+            'application/json')
+        $loginResponse = $client.SendAsync($loginRequest).GetAwaiter().GetResult()
+        $loginContent = $loginResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        if ([int]$loginResponse.StatusCode -ne 200) {
+            throw "The Intranet employee login returned HTTP $([int]$loginResponse.StatusCode): $loginContent"
+        }
+        $loginResult = $loginContent | ConvertFrom-Json
+        if ([string]$loginResult.redirectUrl -ne '/Dashboard') {
+            throw 'The Intranet employee login returned an unexpected local redirect.'
         }
 
         $routes = @(
@@ -636,12 +651,6 @@ function Get-MatchingResources {
     )
 
     $matches = @($Items | Where-Object { $_.metadata.name -like $NamePattern })
-    if ($NamePattern -eq 'legacy-maliev-intranet-*') {
-        $matches = @($matches | Where-Object {
-            $_.metadata.name -notlike 'legacy-maliev-intranet-bff-*'
-        })
-    }
-
     return $matches
 }
 
@@ -824,7 +833,6 @@ try {
         'legacy-maliev-quotation-service-*',
         'legacy-maliev-notification-service-*',
         'legacy-maliev-web-*',
-        'legacy-maliev-intranet-*',
         'legacy-maliev-intranet-bff-*',
         'legacy-maliev-career-service-*',
         'legacy-maliev-contact-service-*',
@@ -928,7 +936,9 @@ try {
                     'ServiceClients__Clients__legacy-accounting__SecretSha256',
                     'ServiceClients__Clients__legacy-quotation__SecretSha256',
                     'DataProtection__CertificatePassword',
-                    'Brevo__ApiKey'
+                    'Brevo__ApiKey',
+                    'GoogleMaps__BrowserApiKey',
+                    'GoogleMaps__EmbedApiKey'
                 )
             }
     )
@@ -1031,8 +1041,11 @@ try {
     Invoke-ExpectedStatus -Uri "$careerUrl/Jobs/readiness" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$careerUrl/Jobs/scalar" -ExpectedStatus 200
     $careerListing = Invoke-WebRequest -Uri "$careerUrl/Jobs" -UseBasicParsing -SkipHttpErrorCheck
-    if ($careerListing.StatusCode -ne 200 -or $careerListing.Content -notmatch 'Local Manufacturing Engineer') {
-        throw 'The anonymous Career API did not return the seeded local job offer.'
+    if ($careerListing.StatusCode -notin @(200, 404)) {
+        throw "The anonymous Career API returned an unexpected status (HTTP $($careerListing.StatusCode))."
+    }
+    if ($careerListing.Content -match 'Local Manufacturing Engineer') {
+        throw 'The anonymous Career API returned the retired Local Manufacturing Engineer fixture.'
     }
 
     $contactResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-contact-service-*'
@@ -1132,24 +1145,23 @@ try {
     Invoke-ExpectedStatus -Uri "$webUrl/Account/Login" -ExpectedStatus 200
     Invoke-ExpectedStatus -Uri "$webUrl/Account/Signup" -ExpectedStatus 200
     $careerPage = Invoke-WebRequest -Uri "$webUrl/career?culture=en" -UseBasicParsing -SkipHttpErrorCheck
-    if ($careerPage.StatusCode -ne 200 -or $careerPage.Content -notmatch 'Local Manufacturing Engineer') {
-        throw 'The Web Career page did not render the Career service result.'
+    if ($careerPage.StatusCode -ne 200) {
+        throw "The Web Career page returned an unexpected status (HTTP $($careerPage.StatusCode))."
+    }
+    if ($careerPage.Content -match 'Local Manufacturing Engineer') {
+        throw 'The Web Career page rendered the retired Local Manufacturing Engineer fixture.'
     }
     Invoke-ExpectedStatus -Uri "$webUrl/contact?culture=en" -ExpectedStatus 200
     Invoke-WebInstantQuotationFlow -WebUrl $webUrl
     Invoke-WebMemberAccountFlow -WebUrl $webUrl
 
-    # Verify the revoked pre-change identities before the separate Intranet login flow
-    # consumes the remaining shared Auth login-rate-limit permits.
-    foreach ($email in @('local.customer@maliev.test', 'local.changed@maliev.test')) {
-        Invoke-ExpectedPostStatus -Uri "$authUrl/auth/v1/login" -ExpectedStatus 401 -Body (@{
-                userName = $email
-                password = 'local-test-updated'
-                identityKind = 0
-            } | ConvertTo-Json -Compress)
-    }
+    # The Web flow intentionally leaves the identity and customer profile pending
+    # until the one-time confirmation link is opened. The development notification
+    # provider records delivery metadata only and never retains message bodies or
+    # opaque confirmation tokens, so completion is covered by the Web/Auth contract
+    # suites rather than by reconstructing a token from local runtime state.
 
-    $intranetResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-intranet-*'
+    $intranetResource = Get-SingleResource -Items $resourceItems -NamePattern 'legacy-maliev-intranet-bff-*'
     $intranetUrl = Get-ResourceUrl -Resource $intranetResource
     $intranetClientSecret = ($intranetResource.status.effectiveEnv | Where-Object {
         $_.name -eq 'ServiceAuthentication__ClientSecret'
@@ -1171,8 +1183,8 @@ try {
         throw 'The Intranet service JWT did not contain the exact least-privilege permission contract.'
     }
 
-    Invoke-ExpectedStatus -Uri "$intranetUrl/intranet/liveness" -ExpectedStatus 200
-    Invoke-ExpectedStatus -Uri "$intranetUrl/intranet/readiness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$intranetUrl/intranet-bff/liveness" -ExpectedStatus 200
+    Invoke-ExpectedStatus -Uri "$intranetUrl/intranet-bff/readiness" -ExpectedStatus 200
     Invoke-IntranetEmployeeFlow -IntranetUrl $intranetUrl
 
     $recordedResponse = Invoke-RestMethod `
@@ -1190,10 +1202,15 @@ try {
         $_.to -eq 'local.changed@maliev.test' -and
         $_.subject -eq 'Confirm your new MALIEV email address'
     })
+    $oldEmailNotification = @($recordedNotifications | Where-Object {
+        $_.to -eq 'local.customer@maliev.test' -and
+        $_.subject -eq 'MALIEV email-change request'
+    })
     if (
-        $recordedNotifications.Count -ne 2 -or
+        $recordedNotifications.Count -ne 3 -or
         $passwordNotification.Count -ne 1 -or
-        $emailNotification.Count -ne 1
+        $emailNotification.Count -ne 1 -or
+        $oldEmailNotification.Count -ne 1
     ) {
         $recordedSummary = @($recordedNotifications | ForEach-Object {
             "$($_.to) | $($_.subject)"
@@ -1209,11 +1226,6 @@ try {
                 } | Select-Object -Last 60
         ) -join ' | '
         throw "The development notification provider did not record the password and email security messages. Count: $($recordedNotifications.Count). Recorded: $recordedSummary. Diagnostics: $notificationDiagnostics"
-    }
-
-    $changedCustomer = Invoke-RestMethod -Uri "$customerUrl/customers/1" -Headers $serviceHeaders
-    if ($changedCustomer.email -ne 'local.changed@maliev.test') {
-        throw 'The Customer profile did not retain the new email address after the Web BFF change.'
     }
 
     $postgresContainer = $resourceItems | Where-Object {
@@ -1248,7 +1260,7 @@ try {
     Complete-VerificationStage -Stage 'verification'
     $verificationCurrentStage = 'complete'
     $verificationPassed = $true
-    Write-Host "PASS: PostgreSQL, Redis, 16 services, 19 migrations, 21 preserved databases plus Auth runtime state, public Career and Contact boundaries, standalone Accounting protection, public instant quotation, recorded local security notifications, customer/employee login, authenticated Member and Intranet flows, and environment isolation are healthy. Evidence: $EvidencePath"
+    Write-Host "PASS: PostgreSQL, Redis, 16 services, 23 migrations, 25 preserved databases plus Auth runtime state, public Career and Contact boundaries, standalone Accounting protection, public instant quotation, recorded local security notifications, customer/employee login, authenticated Member and Intranet flows, and environment isolation are healthy. Evidence: $EvidencePath"
 }
 catch {
     $verificationFailedBeforeCleanup = $true

@@ -31,7 +31,7 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
-    public void LocalVerifier_ValidatesTheCustomerSafeQuotationFileName()
+    public void LocalVerifier_ValidatesTheCustomerSafeQuotationReadOnlyState()
     {
         var verifier = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
@@ -39,17 +39,21 @@ public sealed class AppHostSourceContractTests
             "verify-local-stack.ps1"));
 
         Assert.Contains(
-            "$quotationContent -notmatch 'local-cnc-quotation.pdf'",
+            "$quotationContent -notmatch 'No files are linked to this quotation\\.'",
             verifier,
             StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "$quotationContent -notmatch 'quotations/local-cnc-quotation.pdf'",
+        Assert.Contains(
+            "$quotationContent -match 'local-cnc-quotation\\.pdf'",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "$quotationContent -match 'quotations/local-cnc-quotation\\.pdf'",
             verifier,
             StringComparison.Ordinal);
     }
 
     [Fact]
-    public void LocalVerifier_ValidatesTheCustomerSafeOrderFileName()
+    public void LocalVerifier_ValidatesTheLocalOrderFileFailClosedContract()
     {
         var verifier = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
@@ -57,6 +61,10 @@ public sealed class AppHostSourceContractTests
             "verify-local-stack.ps1"));
 
         Assert.Contains(
+            "$orderContent -notmatch 'No files are linked to this order\\.'",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
             "$orderContent -notmatch 'local-cnc-part.step'",
             verifier,
             StringComparison.Ordinal);
@@ -67,7 +75,21 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
-    public void LocalVerifier_DistinguishesTheIntranetCompatibilityHostFromItsBff()
+    public void LocalVerifier_ValidatesMemberOrderCompatibilityForms()
+    {
+        var verifier = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "scripts",
+            "verify-local-stack.ps1"));
+
+        Assert.Contains("$route.ExpectedKind", verifier, StringComparison.Ordinal);
+        Assert.Contains("data-member-order-form", verifier, StringComparison.Ordinal);
+        Assert.Contains("data-options-endpoint=\"/member/orders/material-options\"", verifier, StringComparison.Ordinal);
+        Assert.DoesNotContain("did not redirect to the quotation request", verifier, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LocalVerifier_ValidatesPendingEmailConfirmationWithoutRetainingTokens()
     {
         var verifier = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
@@ -75,11 +97,49 @@ public sealed class AppHostSourceContractTests
             "verify-local-stack.ps1"));
 
         Assert.Contains(
-            "$_.metadata.name -notlike 'legacy-maliev-intranet-bff-*'",
+            "$emailRedirect.AbsolutePath -ne '/Member/Account/Manage/ChangeEmail'",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "data-migration-component=\"member-change-email-content\"",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "provider records delivery metadata only and never retains message bodies",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "__Host-Maliev\\.Legacy\\.Session=;",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "The Customer profile did not retain the new email address",
+            verifier,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LocalVerifier_UsesTheIntranetBffAsTheCanonicalLocalHost()
+    {
+        var verifier = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "scripts",
+            "verify-local-stack.ps1"));
+
+        Assert.DoesNotContain(
+            "'legacy-maliev-intranet-*',",
             verifier,
             StringComparison.Ordinal);
         Assert.Contains(
             "'legacy-maliev-intranet-bff-*'",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "$intranetUrl/intranet-bff/liveness",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "$intranetUrl/intranet-bff/readiness",
             verifier,
             StringComparison.Ordinal);
     }
@@ -247,8 +307,14 @@ public sealed class AppHostSourceContractTests
             "CreatePooledDatabaseConnectionString\\(\"[A-Za-z]+\"\\)")
             .Count;
 
-        Assert.Equal(19, directMigrationConnectionCount);
+        // Auth uses the shared authConnectionString expression so explicit GKE validation can
+        // target the GitOps RefreshSessions database; its local branch remains direct.
+        Assert.Equal(18, directMigrationConnectionCount);
         Assert.Equal(19, pooledApplicationConnectionCount);
+        Assert.Contains(
+            "? CreatePooledDatabaseConnectionString(\"Auth\")\n    : authDatabase.Resource.ConnectionStringExpression",
+            source,
+            StringComparison.Ordinal);
 
         var verifier = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "verify-local-stack.ps1"));
         Assert.Contains("'DB_PASSWORD'", verifier, StringComparison.Ordinal);
@@ -415,8 +481,6 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("ConnectionStrings__RefreshSessions", source, StringComparison.Ordinal);
         Assert.Contains("ConnectionStrings__CustomerIdentity", source, StringComparison.Ordinal);
         Assert.Contains("ConnectionStrings__EmployeeIdentity", source, StringComparison.Ordinal);
-        Assert.Contains("IdentityStorage__Provider", source, StringComparison.Ordinal);
-        Assert.Contains("\"PostgreSql\"", source, StringComparison.Ordinal);
         Assert.Contains("ConnectionStrings__CustomerDbContext", source, StringComparison.Ordinal);
         Assert.Contains("ConnectionStrings__redis", source, StringComparison.Ordinal);
         Assert.Contains("ServiceAuthentication__ClientId", source, StringComparison.Ordinal);
@@ -500,6 +564,25 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("WithReference(auth)", accountingResource, StringComparison.Ordinal);
         Assert.Contains("WaitFor(auth)", accountingResource, StringComparison.Ordinal);
         Assert.Contains("Jwt__PublicKey", accountingResource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AppHost_WiresEveryWebServiceDiscoveryDependency()
+    {
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var web = ExtractResource(
+            source,
+            "builder.AddProject<Projects.Legacy_Maliev_Web>(\"legacy-maliev-web\")",
+            ".WithEnvironment(\"DOTNET_GCHeapHardLimit\", \"201326592\")");
+
+        foreach (var service in new[]
+                 {
+                     "Auth", "Accounting", "Career", "Catalog", "Contact", "Country",
+                     "Customer", "Document", "File", "Notification", "Order", "Quotation"
+                 })
+        {
+            Assert.Contains($"WithEnvironment(\"Services__{service}\", {service.ToLowerInvariant()}.", web, StringComparison.Ordinal);
+        }
     }
 
     [Fact]
@@ -995,6 +1078,8 @@ public sealed class AppHostSourceContractTests
         var source = File.ReadAllText(sourcePath);
 
         Assert.Contains("while (", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("'GoogleMaps__BrowserApiKey'", source, StringComparison.Ordinal);
+        Assert.Contains("'GoogleMaps__EmbedApiKey'", source, StringComparison.Ordinal);
         Assert.Contains("/countries/liveness", source, StringComparison.Ordinal);
         Assert.Contains("/countries/readiness", source, StringComparison.Ordinal);
         Assert.Contains("/countries/scalar", source, StringComparison.Ordinal);
@@ -1030,7 +1115,9 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("/Account/Signup", source, StringComparison.Ordinal);
         Assert.Contains("/InstantQuotation/3D-Printing?culture=en", source, StringComparison.Ordinal);
         Assert.Contains("handler=GetEstimate", source, StringComparison.Ordinal);
-        Assert.Contains("Get an instant manufacturing estimate", source, StringComparison.Ordinal);
+        Assert.Contains("data-migration-component=\"instant-quotation-three-dimensional-printing\"", source, StringComparison.Ordinal);
+        Assert.Contains("data-workflow-upload", source, StringComparison.Ordinal);
+        Assert.Contains("id=\"instant-quote-files\"", source, StringComparison.Ordinal);
         Assert.Contains("currency -ne 'THB'", source, StringComparison.Ordinal);
         Assert.Contains("AllowAutoRedirect = $false", source, StringComparison.Ordinal);
         Assert.Contains("Headers.GetValues('Set-Cookie')", source, StringComparison.Ordinal);
@@ -1048,6 +1135,8 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("NewEmail", source, StringComparison.Ordinal);
         Assert.Contains("/notifications/development/recorded", source, StringComparison.Ordinal);
         Assert.Contains("local.changed@maliev.test", source, StringComparison.Ordinal);
+        Assert.Contains("MALIEV email-change request", source, StringComparison.Ordinal);
+        Assert.Contains("$recordedNotifications.Count -ne 3", source, StringComparison.Ordinal);
         Assert.Contains("legacy-order-migrations-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-order-status-migrations-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-maliev-order-service-*", source, StringComparison.Ordinal);
@@ -1059,11 +1148,11 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("/member/orders/3d-printing", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("/member/orders/3d-scanning", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("/member/orders/cnc-machining", source, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("ExpectedItem = '3D-Printing'", source, StringComparison.Ordinal);
-        Assert.Contains("ExpectedItem = '3D-Scanning'", source, StringComparison.Ordinal);
-        Assert.Contains("ExpectedItem = 'CNC-Machining'", source, StringComparison.Ordinal);
-        Assert.Contains("AbsolutePath -notin '/Quotation', '/Quotation/Index'", source, StringComparison.Ordinal);
-        Assert.Contains("Headers.Location", source, StringComparison.Ordinal);
+        Assert.Contains("ExpectedKind = 'additive'", source, StringComparison.Ordinal);
+        Assert.Contains("ExpectedKind = 'scanning'", source, StringComparison.Ordinal);
+        Assert.Contains("ExpectedKind = 'machining'", source, StringComparison.Ordinal);
+        Assert.Contains("data-member-order-form", source, StringComparison.Ordinal);
+        Assert.Contains("data-options-endpoint=\"/member/orders/material-options\"", source, StringComparison.Ordinal);
         Assert.Contains("handler=CancelOrder", source, StringComparison.Ordinal);
         Assert.Contains("orderId", source, StringComparison.Ordinal);
         Assert.Contains("legacy-catalog-migrations-*", source, StringComparison.Ordinal);
@@ -1075,7 +1164,7 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("legacy-maliev-employee-service-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-maliev-procurement-service-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-maliev-file-service-*", source, StringComparison.Ordinal);
-        Assert.Contains("legacy-maliev-intranet-*", source, StringComparison.Ordinal);
+        Assert.Contains("legacy-maliev-intranet-bff-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-career-migrations-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-contact-migrations-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-payment-migrations-*", source, StringComparison.Ordinal);
@@ -1085,12 +1174,19 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("legacy-maliev-contact-service-*", source, StringComparison.Ordinal);
         Assert.Contains("legacy-maliev-accounting-service-*", source, StringComparison.Ordinal);
         Assert.Contains("/career?culture=en", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("StatusCode -notin @(200, 404)", source, StringComparison.Ordinal);
+        Assert.Contains("returned the retired Local Manufacturing Engineer fixture", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("did not return the seeded local job offer", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Content -notmatch 'Local Manufacturing Engineer'", source, StringComparison.Ordinal);
         Assert.Contains("/contact?culture=en", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("/accounting/liveness", source, StringComparison.Ordinal);
         Assert.Contains("/accounting/readiness", source, StringComparison.Ordinal);
         Assert.Contains("/accounting/scalar", source, StringComparison.Ordinal);
         Assert.Contains("/payments", source, StringComparison.Ordinal);
         Assert.Contains("Invoke-IntranetEmployeeFlow", source, StringComparison.Ordinal);
+        Assert.Contains("/bff/session", source, StringComparison.Ordinal);
+        Assert.Contains("X-CSRF-TOKEN", source, StringComparison.Ordinal);
+        Assert.Contains("/bff/login", source, StringComparison.Ordinal);
         Assert.Contains("/Customers/Index", source, StringComparison.Ordinal);
         Assert.Contains("/Employees/Index", source, StringComparison.Ordinal);
         Assert.Contains("/Materials/Index", source, StringComparison.Ordinal);
@@ -1169,9 +1265,13 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("LegacyTopology.DatabaseNames", appHostSource, StringComparison.Ordinal);
         Assert.Contains("LEGACY_SNAPSHOT_DIRECTORY", appHostSource, StringComparison.Ordinal);
         Assert.Contains(
-            "if (localSnapshotMode)\r\n{\r\n    _ = AddSnapshotMigration(\"legacy-currency-snapshot\", \"Currency\");",
+            "if (localSnapshotMode)\r\n{\r\n    _ = AddSnapshotMigration(\"legacy-contact-request-snapshot\", \"ContactRequest\");",
             appHostSource.ReplaceLineEndings("\r\n"),
             StringComparison.Ordinal);
+        Assert.Contains("AddSnapshotMigration(\"legacy-contact-request-snapshot\", \"ContactRequest\")", appHostSource, StringComparison.Ordinal);
+        Assert.Contains("AddSnapshotMigration(\"legacy-location-data-snapshot\", \"LocationData\")", appHostSource, StringComparison.Ordinal);
+        Assert.Contains("AddSnapshotMigration(\"legacy-hangfire-archive-snapshot\", \"Hangfire\")", appHostSource, StringComparison.Ordinal);
+        Assert.Contains("AddSnapshotMigration(\"legacy-log-archive-snapshot\", \"Log\")", appHostSource, StringComparison.Ordinal);
         Assert.Contains("LegacyLocalSnapshot.Load(snapshotDirectory)", runnerSource, StringComparison.Ordinal);
         Assert.Contains("pg_restore", runnerSource, StringComparison.Ordinal);
         Assert.Contains("--no-owner", runnerSource, StringComparison.Ordinal);
@@ -1213,13 +1313,8 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
-    public void AuthMigrationRunner_AlwaysMigratesRegardlessOfGkeValidationMode()
+    public void AuthMigrationRunner_UsesGkeDatabaseAndSkipsMigrationInGkeValidationMode()
     {
-        // Auth (RefreshSessions) is local-only infrastructure with no GKE counterpart — unlike
-        // every other migration runner, it must never be skipped, even when gkeValidationMode is
-        // true. Regression guard: this previously left the local Auth database permanently
-        // unmigrated in GKE validation mode, so every login succeeded at credential validation
-        // and then crashed with DbUpdateException writing the refresh session (missing table).
         var root = FindRepositoryRoot();
         var appHostSource = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
 
@@ -1233,10 +1328,25 @@ public sealed class AppHostSourceContractTests
 
         var authMigrationsBlock = appHostSource[authMigrationsIndex..nextResourceIndex];
         Assert.Contains(
-            ".WithEnvironment(\"LEGACY_SKIP_MIGRATE\", \"false\")",
+            ".WithEnvironment(\"LEGACY_SKIP_MIGRATE\", gkeValidationMode ? \"true\" : \"false\")",
             authMigrationsBlock,
             StringComparison.Ordinal);
-        Assert.DoesNotContain("gkeValidationMode", authMigrationsBlock, StringComparison.Ordinal);
+        Assert.Contains(
+            ".WithEnvironment(\"LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE\", gkeValidationMode ? \"false\" : \"true\")",
+            authMigrationsBlock,
+            StringComparison.Ordinal);
+        Assert.Contains("authConnectionString", authMigrationsBlock, StringComparison.Ordinal);
+        Assert.Contains("LegacyGkeDatabaseCredentialKeys.For(databaseName)", appHostSource, StringComparison.Ordinal);
+
+        var authServiceIndex = appHostSource.IndexOf(
+            "var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>",
+            StringComparison.Ordinal);
+        Assert.True(authServiceIndex >= 0, "Expected the Auth service resource declaration.");
+        var authServiceBlock = appHostSource[authServiceIndex..];
+        Assert.Contains(
+            ".WithEnvironment(\"ConnectionStrings__RefreshSessions\", authConnectionString)",
+            authServiceBlock,
+            StringComparison.Ordinal);
     }
 
     private static string FindRepositoryRoot()

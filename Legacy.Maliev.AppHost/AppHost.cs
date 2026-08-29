@@ -209,17 +209,14 @@ var pgbouncer = builder.AddContainer("legacy-postgres-pooler-rw", "edoburu/pgbou
 
 ReferenceExpression CreatePooledDatabaseConnectionString(string databaseName)
 {
-    // "Auth" (RefreshSessions) is new infrastructure for the rotating-refresh-token design,
-    // not part of the legacy SQL Server migration — it has no GKE database or secret entry,
-    // unlike every name in LegacyTopology.DatabaseNames. Always run it locally.
-    if (gkeValidationMode && databaseName != "Auth")
+    if (gkeValidationMode)
     {
-        var key = ToKebabCase(databaseName);
-        if (!gkeSecrets!.TryGetValue($"legacy-postgres-{key}-username", out var gkeUsername)
-            || !gkeSecrets.TryGetValue($"legacy-postgres-{key}-password", out var gkePassword))
+        var credentialKeys = LegacyGkeDatabaseCredentialKeys.For(databaseName);
+        if (!gkeSecrets!.TryGetValue(credentialKeys.Username, out var gkeUsername)
+            || !gkeSecrets.TryGetValue(credentialKeys.Password, out var gkePassword))
         {
             throw new InvalidOperationException(
-                $"LEGACY_GKE_VALIDATION is set but the loaded GKE secret bundle has no credentials for database '{databaseName}' (expected keys legacy-postgres-{key}-username/-password).");
+                $"LEGACY_GKE_VALIDATION is set but the loaded GKE secret bundle has no credentials for database '{databaseName}' (expected keys {credentialKeys.Username}/{credentialKeys.Password}).");
         }
 
         return ReferenceExpression.Create(
@@ -265,6 +262,7 @@ var countryDatabase = databases["Country"];
 var countryMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-country-migrations")
     .WithArgs("country")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__CountryDbContext", countryDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -309,13 +307,16 @@ var document = builder.AddProject<Projects.Legacy_Maliev_DocumentService_Api>("l
         url.DisplayText = "Document Scalar";
     });
 
-// Auth (RefreshSessions) is local-only infrastructure with no GKE counterpart (see the
-// comment on CreatePooledDatabaseConnectionString above) — it must always be migrated,
-// even in GKE validation mode, unlike every other workload here which targets real GKE data.
+// Auth is local in normal and snapshot modes, but explicit GKE validation must exercise the
+// GitOps-managed Auth/RefreshSessions database without running migrations or writes against it.
+var authConnectionString = gkeValidationMode
+    ? CreatePooledDatabaseConnectionString("Auth")
+    : authDatabase.Resource.ConnectionStringExpression;
 var authMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-auth-migrations")
     .WithArgs("auth")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", "false")
-    .WithEnvironment("ConnectionStrings__RefreshSessions", authDatabase.Resource.ConnectionStringExpression)
+    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", gkeValidationMode ? "false" : "true")
+    .WithEnvironment("ConnectionStrings__RefreshSessions", authConnectionString)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
     .WaitFor(authDatabase);
@@ -324,6 +325,7 @@ var customerIdentityMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHo
         "legacy-customer-identity-migrations")
     .WithArgs("customer-identity")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
     .WithEnvironment("LEGACY_LOCAL_FIXTURES", localFixtures ? "true" : "false")
     .WithEnvironment("ConnectionStrings__CustomerIdentity", customerIdentityDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
@@ -334,23 +336,28 @@ var employeeIdentityMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHo
         "legacy-employee-identity-migrations")
     .WithArgs("employee-identity")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
     .WithEnvironment("LEGACY_LOCAL_FIXTURES", localFixtures ? "true" : "false")
     .WithEnvironment("ConnectionStrings__EmployeeIdentity", employeeIdentityDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
     .WaitFor(employeeIdentityDatabase);
 
-// Currency and the two data-protection stores are preserved legacy databases but
-// do not have an extracted service-owned EF migration runner. In local exact-data
-// mode they still need to be restored so the snapshot represents the complete
-// migrated production inventory rather than only the databases with active APIs.
+// These preserved stores do not have an extracted service-owned EF migration
+// runner. In local exact-data mode they still need to be restored so the snapshot
+// represents the complete migrated production inventory, including retired
+// Hangfire/log data, rather than only databases with active APIs.
 if (localSnapshotMode)
 {
+    _ = AddSnapshotMigration("legacy-contact-request-snapshot", "ContactRequest");
     _ = AddSnapshotMigration("legacy-currency-snapshot", "Currency");
     _ = AddSnapshotMigration("legacy-data-protection-keys-snapshot", "DataProtectionKeys");
     _ = AddSnapshotMigration(
         "legacy-data-protection-keys-employee-snapshot",
         "DataProtectionKeysEmployee");
+    _ = AddSnapshotMigration("legacy-hangfire-archive-snapshot", "Hangfire");
+    _ = AddSnapshotMigration("legacy-location-data-snapshot", "LocationData");
+    _ = AddSnapshotMigration("legacy-log-archive-snapshot", "Log");
 }
 
 IResourceBuilder<ProjectResource> AddSnapshotMigration(string resourceName, string databaseName)
@@ -359,6 +366,7 @@ IResourceBuilder<ProjectResource> AddSnapshotMigration(string resourceName, stri
     return builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(resourceName)
         .WithArgs("snapshot", databaseName)
         .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+        .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", "false")
         .WithEnvironment("ConnectionStrings__SnapshotDb", database.Resource.ConnectionStringExpression)
         .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
         .WithEnvironment("PGGSSENCMODE", "disable")
@@ -368,10 +376,9 @@ IResourceBuilder<ProjectResource> AddSnapshotMigration(string resourceName, stri
 var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>("legacy-maliev-auth-service")
     .WithHttpEndpoint(name: "http")
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
-    .WithEnvironment("IdentityStorage__Provider", "PostgreSql")
     .WithEnvironment("ConnectionStrings__CustomerIdentity", CreatePooledDatabaseConnectionString("CustomerIdentity"))
     .WithEnvironment("ConnectionStrings__EmployeeIdentity", CreatePooledDatabaseConnectionString("EmployeeIdentity"))
-    .WithEnvironment("ConnectionStrings__RefreshSessions", CreatePooledDatabaseConnectionString("Auth"))
+    .WithEnvironment("ConnectionStrings__RefreshSessions", authConnectionString)
     .WithEnvironment("Jwt__Issuer", jwtIssuer)
     .WithEnvironment("Jwt__Audience", jwtAudience)
     .WithEnvironment("Jwt__PrivateKeyPem", jwt.PrivateKeyPem)
@@ -438,6 +445,7 @@ var customerDatabase = databases["Customer"];
 var customerMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-customer-migrations")
     .WithArgs("customer")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
     .WithEnvironment("LEGACY_LOCAL_FIXTURES", localFixtures ? "true" : "false")
     .WithEnvironment("ConnectionStrings__CustomerDbContext", customerDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
@@ -476,6 +484,7 @@ var employeeDatabase = databases["Employee"];
 var employeeMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-employee-migrations")
     .WithArgs("employee")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__EmployeeDbContext", employeeDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -514,6 +523,7 @@ var catalogDatabase = databases["Material"];
 var catalogMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-catalog-migrations")
     .WithArgs("catalog")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__CatalogDbContext", catalogDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -551,6 +561,7 @@ var purchaseOrderDatabase = databases["PurchaseOrder"];
 var supplierMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-supplier-migrations")
     .WithArgs("supplier")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__SupplierDbContext", supplierDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -558,6 +569,7 @@ var supplierMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_Migra
 var purchaseOrderMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-purchase-order-migrations")
     .WithArgs("purchase-order")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__PurchaseOrderDbContext", purchaseOrderDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -598,6 +610,7 @@ var fileDatabase = databases["Upload"];
 var fileMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-file-migrations")
     .WithArgs("file")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__FileDbContext", fileDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -655,6 +668,7 @@ var orderStatusDatabase = databases["OrderStatus"];
 var orderMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-order-migrations")
     .WithArgs("order")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__OrderDbContext", orderDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -663,6 +677,7 @@ var orderStatusMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_Mi
         "legacy-order-status-migrations")
     .WithArgs("order-status")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__OrderStatusDbContext", orderStatusDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -704,6 +719,7 @@ var quotationMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_Migr
         "legacy-quotation-migrations")
     .WithArgs("quotation")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__QuotationDbContext", quotationDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -712,6 +728,7 @@ var quotationRequestMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHo
         "legacy-quotation-request-migrations")
     .WithArgs("quotation-request")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__QuotationRequestDbContext", quotationRequestDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -759,6 +776,7 @@ var careerDatabase = databases["JobOffers"];
 var careerMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-career-migrations")
     .WithArgs("career")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__CareerDbContext", careerDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -793,6 +811,7 @@ var contactDatabase = databases["Message"];
 var contactMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-contact-migrations")
     .WithArgs("contact")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__ContactRequestDbContext", contactDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -829,6 +848,7 @@ var receiptDatabase = databases["Receipt"];
 var paymentMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-payment-migrations")
     .WithArgs("payment")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__PaymentDbContext", paymentDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -836,6 +856,7 @@ var paymentMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_Migrat
 var invoiceMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-invoice-migrations")
     .WithArgs("invoice")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__InvoiceDbContext", invoiceDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -843,6 +864,7 @@ var invoiceMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_Migrat
 var receiptMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-receipt-migrations")
     .WithArgs("receipt")
     .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
     .WithEnvironment("ConnectionStrings__ReceiptDbContext", receiptDatabase.Resource.ConnectionStringExpression)
     .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
     .WithEnvironment("PGGSSENCMODE", "disable")
@@ -920,6 +942,9 @@ builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WithEnvironment("Services__Notification", notification.GetEndpoint("http"))
     .WithEnvironment("Services__Country", country.GetEndpoint("http"))
     .WithEnvironment("Services__Document", document.GetEndpoint("http"))
+    .WithEnvironment("Services__Catalog", catalog.GetEndpoint("http"))
+    .WithEnvironment("Services__File", file.GetEndpoint("http"))
+    .WithEnvironment("Services__Accounting", accounting.GetEndpoint("http"))
     .WithEnvironment("Services__Order", order.GetEndpoint("http"))
     .WithEnvironment("Services__Quotation", quotation.GetEndpoint("http"))
     .WithEnvironment("Services__Career", career.GetEndpoint("http"))

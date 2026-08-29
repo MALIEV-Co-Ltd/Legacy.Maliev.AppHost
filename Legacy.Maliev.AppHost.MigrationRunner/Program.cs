@@ -1,5 +1,6 @@
 using DiagnosticsProcess = System.Diagnostics.Process;
 using DiagnosticsProcessStartInfo = System.Diagnostics.ProcessStartInfo;
+using Legacy.Maliev.AppHost.MigrationRunner;
 using Legacy.Maliev.AuthService.Infrastructure;
 using Legacy.Maliev.AppHost.Topology;
 using Legacy.Maliev.CountryService.Data;
@@ -73,6 +74,7 @@ if (string.IsNullOrWhiteSpace(connectionString))
     throw new InvalidOperationException($"The {connectionName} connection string is required.");
 }
 
+await SchemaBaselineGate.EnsureSafeToMigrateAsync(workload, connectionString);
 await MigrateAsync(workload, connectionString);
 
 static string ConnectionNameForWorkload(string workload) => workload switch
