@@ -132,7 +132,8 @@ For source-backed SQL Server-to-PostgreSQL shadow parity, prepare the signed v2 
 owner-approved `-RequiredAsOfUtc` cutoff, trusted P-256 public key, and expected key ID. The gate
 accepts distinct source and target schema hashes only when both are bound to the signed mapping
 plan and all row/content/foreign-key/sequence reconciliations pass. This is a read-only evidence
-gate; it never authorizes cutover or writes to GKE/production.
+gate for databases and cloud systems; its only write is the mandatory local one-time consumption
+ledger that rejects run/evidence replay. It never authorizes cutover or writes to GKE/production.
 
 For interactive development, set the three `Parameters__legacy-*` environment variables to
 local-only values and run:

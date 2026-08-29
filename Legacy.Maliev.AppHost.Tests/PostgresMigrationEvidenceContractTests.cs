@@ -21,7 +21,7 @@ public sealed class PostgresMigrationEvidenceContractTests
     public async Task Validator_AcceptsSignedMappedSchemaAndReconciledContent()
     {
         using var evidence = TemporaryEvidence.Create();
-        var result = await RunValidatorAsync(evidence, "2026-08-07T00:00:00Z");
+        var result = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
         Assert.True(result.ExitCode == 0, result.StandardError);
     }
 
@@ -44,10 +44,33 @@ public sealed class PostgresMigrationEvidenceContractTests
     [InlineData("future-source")]
     [InlineData("unsupported-version")]
     [InlineData("non-shadow-target")]
+    [InlineData("table-row-drift")]
+    [InlineData("column-null-drift")]
+    [InlineData("aggregate-drift")]
+    [InlineData("batch-hash-drift")]
+    [InlineData("missing-table")]
+    [InlineData("missing-column")]
+    [InlineData("missing-aggregate")]
+    [InlineData("missing-batch")]
+    [InlineData("table-inventory-hash-drift")]
+    [InlineData("foreign-key-inventory-hash-drift")]
+    [InlineData("sequence-inventory-hash-drift")]
+    [InlineData("batch-inventory-hash-drift")]
+    [InlineData("signed-inventory-count-drift")]
+    [InlineData("observed-inventory-count-drift")]
+    [InlineData("foreign-key-inventory-omitted")]
+    [InlineData("foreign-key-inventory-added")]
+    [InlineData("sequence-inventory-omitted")]
+    [InlineData("sequence-inventory-added")]
+    [InlineData("expired-evidence")]
+    [InlineData("foreign-target-generation")]
+    [InlineData("foreign-restore-id")]
+    [InlineData("tampered-run-id")]
+    [InlineData("database-case-drift")]
     public async Task Validator_RejectsSignedButIncompleteOrUnsafeEvidence(string mutation)
     {
         using var evidence = TemporaryEvidence.Create(mutation);
-        var result = await RunValidatorAsync(evidence, "2026-08-07T00:00:00Z");
+        var result = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
         Assert.NotEqual(0, result.ExitCode);
     }
 
@@ -58,7 +81,7 @@ public sealed class PostgresMigrationEvidenceContractTests
     public async Task Validator_RejectsUntrustedOrTamperedAttestation(string mutation)
     {
         using var evidence = TemporaryEvidence.Create(mutation);
-        var result = await RunValidatorAsync(evidence, "2026-08-07T00:00:00Z");
+        var result = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
         Assert.NotEqual(0, result.ExitCode);
     }
 
@@ -66,7 +89,15 @@ public sealed class PostgresMigrationEvidenceContractTests
     public async Task Validator_AllowsDifferentSourceAndTargetSchemaHashes()
     {
         using var evidence = TemporaryEvidence.Create("different-schema-hashes");
-        var result = await RunValidatorAsync(evidence, "2026-08-07T00:00:00Z");
+        var result = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
+        Assert.True(result.ExitCode == 0, result.StandardError);
+    }
+
+    [Fact]
+    public async Task Validator_AllowsEmptyRelationshipInventoriesOnlyWhenSignedPlanExpectsNone()
+    {
+        using var evidence = TemporaryEvidence.Create("planned-empty-relations");
+        var result = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
         Assert.True(result.ExitCode == 0, result.StandardError);
     }
 
@@ -76,6 +107,17 @@ public sealed class PostgresMigrationEvidenceContractTests
         using var evidence = TemporaryEvidence.Create();
         var result = await RunValidatorAsync(evidence, "2026-08-07T07:00:00+07:00");
         Assert.NotEqual(0, result.ExitCode);
+    }
+
+    [Fact]
+    public async Task Validator_AtomicallyRejectsReceiptReplay()
+    {
+        using var evidence = TemporaryEvidence.Create();
+        var first = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
+        var replay = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
+
+        Assert.True(first.ExitCode == 0, first.StandardError);
+        Assert.NotEqual(0, replay.ExitCode);
     }
 
     [Fact]
@@ -92,6 +134,9 @@ public sealed class PostgresMigrationEvidenceContractTests
         Assert.Contains("foreignKeys", script, StringComparison.Ordinal);
         Assert.Contains("sequences", script, StringComparison.Ordinal);
         Assert.Contains("VerifyHash", script, StringComparison.Ordinal);
+        Assert.Contains("ConsumptionLedgerPath", script, StringComparison.Ordinal);
+        Assert.Contains("sourceNullCount", script, StringComparison.Ordinal);
+        Assert.Contains("batchInventorySha256", script, StringComparison.Ordinal);
         Assert.Contains("productionDataWritesAllowed", script, StringComparison.Ordinal);
         Assert.Contains("Assert-NoSensitiveKeys", script, StringComparison.Ordinal);
         Assert.DoesNotContain("kubectl", script, StringComparison.OrdinalIgnoreCase);
@@ -116,6 +161,10 @@ public sealed class PostgresMigrationEvidenceContractTests
             "-RequiredAsOfUtc", requiredAsOfUtc,
             "-TrustedPublicKeyPath", evidence.PublicKeyPath,
             "-ExpectedAttestationKeyId", "migration-review-2026-08",
+            "-ConsumptionLedgerPath", evidence.LedgerPath,
+            "-ExpectedRunId", "11111111-1111-4111-8111-111111111111",
+            "-ExpectedTargetGeneration", "shadow-generation-1",
+            "-ExpectedRestoreId", "restore-current",
         })
         {
             startInfo.ArgumentList.Add(argument);
@@ -141,22 +190,27 @@ public sealed class PostgresMigrationEvidenceContractTests
     {
         private readonly string _directory;
 
-        private TemporaryEvidence(string path, string publicKeyPath, string directory)
+        private TemporaryEvidence(string path, string publicKeyPath, string ledgerPath, string requiredAsOfUtc, string directory)
         {
             Path = path;
             PublicKeyPath = publicKeyPath;
+            LedgerPath = ledgerPath;
+            RequiredAsOfUtc = requiredAsOfUtc;
             _directory = directory;
         }
 
         public string Path { get; }
         public string PublicKeyPath { get; }
+        public string LedgerPath { get; }
+        public string RequiredAsOfUtc { get; }
 
         public static TemporaryEvidence Create(string? mutation = null)
         {
             var directory = Directory.CreateTempSubdirectory("legacy-postgres-evidence-v2-");
             using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
             string mappingHash = new('c', 64);
-            var root = BuildRoot(mappingHash);
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            var root = BuildRoot(mappingHash, now);
             ApplyMutation(root, mutation, mappingHash);
             Sign(root, key, mutation == "unknown-key" ? "untrusted-key" : "migration-review-2026-08");
 
@@ -171,9 +225,10 @@ public sealed class PostgresMigrationEvidenceContractTests
 
             string path = System.IO.Path.Combine(directory.FullName, "evidence.json");
             string publicKeyPath = System.IO.Path.Combine(directory.FullName, "trusted-public-key.pem");
+            string ledgerPath = System.IO.Path.Combine(directory.FullName, "consumed");
             File.WriteAllText(path, root.ToJsonString());
             File.WriteAllText(publicKeyPath, key.ExportSubjectPublicKeyInfoPem());
-            return new TemporaryEvidence(path, publicKeyPath, directory.FullName);
+            return new TemporaryEvidence(path, publicKeyPath, ledgerPath, now.AddMinutes(-30).ToString("O"), directory.FullName);
         }
 
         public void Dispose()
@@ -184,14 +239,14 @@ public sealed class PostgresMigrationEvidenceContractTests
             }
         }
 
-        private static JsonObject BuildRoot(string mappingHash) => new()
+        private static JsonObject BuildRoot(string mappingHash, DateTimeOffset now) => new()
         {
             ["schemaVersion"] = 2,
             ["source"] = new JsonObject
             {
                 ["system"] = "sqlserver",
-                ["snapshotId"] = "source-2026-08-07",
-                ["capturedAtUtc"] = "2026-08-07T00:05:00.0000000+00:00",
+                ["snapshotId"] = "source-current",
+                ["capturedAtUtc"] = now.AddMinutes(-20).ToString("O"),
                 ["backup"] = new JsonObject
                 {
                     ["uri"] = "gs://maliev.com/database/full/2026-08-07/",
@@ -207,6 +262,7 @@ public sealed class PostgresMigrationEvidenceContractTests
                 ["planSha256"] = mappingHash,
                 ["sourceCommitSha"] = new string('d', 40),
                 ["runnerDigestSha256"] = new string('e', 64),
+                ["databases"] = new JsonArray(MigratedDatabases.Select(name => DatabasePlan(name)).ToArray()),
             },
             ["target"] = new JsonObject
             {
@@ -215,8 +271,21 @@ public sealed class PostgresMigrationEvidenceContractTests
                 ["namespace"] = "maliev-legacy",
                 ["mode"] = "shadow",
                 ["generation"] = "shadow-generation-1",
-                ["capturedAtUtc"] = "2026-08-07T00:30:00.0000000+00:00",
-                ["restoreId"] = "restore-2026-08-07",
+                ["capturedAtUtc"] = now.AddMinutes(-10).ToString("O"),
+                ["restoreId"] = "restore-current",
+            },
+            ["execution"] = new JsonObject
+            {
+                ["runId"] = "11111111-1111-4111-8111-111111111111",
+                ["evidenceId"] = "22222222-2222-4222-8222-222222222222",
+                ["issuedAtUtc"] = now.AddMinutes(-5).ToString("O"),
+                ["expiresAtUtc"] = now.AddMinutes(15).ToString("O"),
+                ["leaseId"] = "33333333-3333-4333-8333-333333333333",
+                ["leaseAcquiredAtUtc"] = now.AddMinutes(-4).ToString("O"),
+                ["leaseExpiresAtUtc"] = now.AddMinutes(10).ToString("O"),
+                ["targetGeneration"] = "shadow-generation-1",
+                ["restoreId"] = "restore-current",
+                ["state"] = "completed",
             },
             ["inventory"] = BuildInventory(),
             ["archives"] = new JsonArray(Archive("Hangfire", '1'), Archive("Log", '2')),
@@ -270,6 +339,29 @@ public sealed class PostgresMigrationEvidenceContractTests
             ["immutable"] = true,
         };
 
+        private static JsonObject DatabasePlan(string name) => new()
+        {
+            ["name"] = name,
+            ["tableInventorySha256"] = new string('f', 64),
+            ["foreignKeyInventorySha256"] = new string('a', 64),
+            ["sequenceInventorySha256"] = new string('b', 64),
+            ["expectedTableCount"] = 1L,
+            ["expectedForeignKeyCount"] = 1L,
+            ["expectedSequenceCount"] = 1L,
+            ["tables"] = new JsonArray(new JsonObject
+            {
+                ["name"] = "dbo.records",
+                ["columns"] = new JsonArray("id", "value"),
+                ["approvedAggregates"] = new JsonArray("id_range"),
+                ["expectedColumnCount"] = 2L,
+                ["expectedAggregateCount"] = 1L,
+                ["expectedBatchCount"] = 1L,
+                ["batchInventorySha256"] = new string('c', 64),
+            }),
+            ["foreignKeys"] = new JsonArray("fk_parent"),
+            ["sequences"] = new JsonArray("primary_id"),
+        };
+
         private static JsonObject Database(string name, string mappingHash, int index)
         {
             char sourceSchemaSeed = (char)('a' + (index % 6));
@@ -285,6 +377,40 @@ public sealed class PostgresMigrationEvidenceContractTests
                 ["targetRowCount"] = 10L + index,
                 ["sourceContentSha256"] = new string(contentSeed, 64),
                 ["targetContentSha256"] = new string(contentSeed, 64),
+                ["tableInventorySha256"] = new string('f', 64),
+                ["foreignKeyInventorySha256"] = new string('a', 64),
+                ["sequenceInventorySha256"] = new string('b', 64),
+                ["tableCount"] = 1L,
+                ["foreignKeyCount"] = 1L,
+                ["sequenceCount"] = 1L,
+                ["tables"] = new JsonArray(new JsonObject
+                {
+                    ["name"] = "dbo.records",
+                    ["sourceRowCount"] = 10L + index,
+                    ["targetRowCount"] = 10L + index,
+                    ["columnCount"] = 2L,
+                    ["aggregateCount"] = 1L,
+                    ["batchCount"] = 1L,
+                    ["columns"] = new JsonArray(
+                        Column("id", 0),
+                        Column("value", 1)),
+                    ["aggregates"] = new JsonArray(new JsonObject
+                    {
+                        ["name"] = "id_range",
+                        ["sourceValueSha256"] = new string('d', 64),
+                        ["targetValueSha256"] = new string('d', 64),
+                    }),
+                    ["batchInventorySha256"] = new string('c', 64),
+                    ["batches"] = new JsonArray(new JsonObject
+                    {
+                        ["ordinal"] = 0L,
+                        ["sourceRowCount"] = 10L + index,
+                        ["targetRowCount"] = 10L + index,
+                        ["sourceContentSha256"] = new string(contentSeed, 64),
+                        ["targetContentSha256"] = new string(contentSeed, 64),
+                    }),
+                    ["parity"] = "exact",
+                }),
                 ["foreignKeys"] = new JsonArray(new JsonObject
                 {
                     ["name"] = "fk_parent",
@@ -301,6 +427,13 @@ public sealed class PostgresMigrationEvidenceContractTests
                 ["parity"] = "exact",
             };
         }
+
+        private static JsonObject Column(string name, long nullCount) => new()
+        {
+            ["name"] = name,
+            ["sourceNullCount"] = nullCount,
+            ["targetNullCount"] = nullCount,
+        };
 
         private static void ApplyMutation(JsonObject root, string? mutation, string mappingHash)
         {
@@ -328,6 +461,40 @@ public sealed class PostgresMigrationEvidenceContractTests
                 case "future-source": source["capturedAtUtc"] = "2099-08-07T00:05:00.0000000+00:00"; break;
                 case "unsupported-version": root["schemaVersion"] = 99; break;
                 case "non-shadow-target": target["mode"] = "canonical"; break;
+                case "table-row-drift": ((JsonObject)((JsonArray)first["tables"]!)[0]!)["targetRowCount"] = 9L; break;
+                case "column-null-drift": ((JsonObject)((JsonArray)((JsonObject)((JsonArray)first["tables"]!)[0]!)["columns"]!)[1]!)["targetNullCount"] = 2L; break;
+                case "aggregate-drift": ((JsonObject)((JsonArray)((JsonObject)((JsonArray)first["tables"]!)[0]!)["aggregates"]!)[0]!)["targetValueSha256"] = new string('e', 64); break;
+                case "batch-hash-drift": ((JsonObject)((JsonArray)((JsonObject)((JsonArray)first["tables"]!)[0]!)["batches"]!)[0]!)["targetContentSha256"] = new string('e', 64); break;
+                case "missing-table": ((JsonArray)first["tables"]!).Clear(); break;
+                case "missing-column": ((JsonArray)((JsonObject)((JsonArray)first["tables"]!)[0]!)["columns"]!).RemoveAt(0); break;
+                case "missing-aggregate": ((JsonArray)((JsonObject)((JsonArray)first["tables"]!)[0]!)["aggregates"]!).Clear(); break;
+                case "missing-batch": ((JsonArray)((JsonObject)((JsonArray)first["tables"]!)[0]!)["batches"]!).Clear(); break;
+                case "table-inventory-hash-drift": first["tableInventorySha256"] = new string('e', 64); break;
+                case "foreign-key-inventory-hash-drift": first["foreignKeyInventorySha256"] = new string('e', 64); break;
+                case "sequence-inventory-hash-drift": first["sequenceInventorySha256"] = new string('e', 64); break;
+                case "batch-inventory-hash-drift": ((JsonObject)((JsonArray)first["tables"]!)[0]!)["batchInventorySha256"] = new string('e', 64); break;
+                case "signed-inventory-count-drift": ((JsonObject)((JsonArray)((JsonObject)root["mapping"]!)["databases"]!)[0]!)["expectedForeignKeyCount"] = 0L; break;
+                case "observed-inventory-count-drift": first["sequenceCount"] = 0L; break;
+                case "foreign-key-inventory-omitted": ((JsonArray)first["foreignKeys"]!).Clear(); break;
+                case "foreign-key-inventory-added": ((JsonArray)first["foreignKeys"]!).Add(new JsonObject { ["name"] = "fk_unknown", ["sourceRelationshipCount"] = 0L, ["targetRelationshipCount"] = 0L, ["orphanCount"] = 0L }); break;
+                case "sequence-inventory-omitted": ((JsonArray)first["sequences"]!).Clear(); break;
+                case "sequence-inventory-added": ((JsonArray)first["sequences"]!).Add(new JsonObject { ["name"] = "unknown", ["sourceNextValue"] = 1L, ["targetNextValue"] = 1L }); break;
+                case "expired-evidence": ((JsonObject)root["execution"]!)["expiresAtUtc"] = DateTimeOffset.UtcNow.AddMinutes(-1).ToString("O"); break;
+                case "foreign-target-generation": ((JsonObject)root["execution"]!)["targetGeneration"] = "foreign-generation"; break;
+                case "foreign-restore-id": ((JsonObject)root["execution"]!)["restoreId"] = "foreign-restore"; break;
+                case "tampered-run-id": ((JsonObject)root["execution"]!)["runId"] = "44444444-4444-4444-8444-444444444444"; break;
+                case "database-case-drift": first["name"] = "country"; break;
+                case "planned-empty-relations":
+                    JsonObject firstPlan = (JsonObject)((JsonArray)((JsonObject)root["mapping"]!)["databases"]!)[0]!;
+                    ((JsonArray)firstPlan["foreignKeys"]!).Clear();
+                    ((JsonArray)firstPlan["sequences"]!).Clear();
+                    firstPlan["expectedForeignKeyCount"] = 0L;
+                    firstPlan["expectedSequenceCount"] = 0L;
+                    ((JsonArray)first["foreignKeys"]!).Clear();
+                    ((JsonArray)first["sequences"]!).Clear();
+                    first["foreignKeyCount"] = 0L;
+                    first["sequenceCount"] = 0L;
+                    break;
                 case "different-schema-hashes": first["sourceSchemaSha256"] = new string('a', 64); first["targetSchemaSha256"] = new string('b', 64); break;
             }
         }

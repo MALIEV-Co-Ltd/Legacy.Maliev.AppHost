@@ -1,124 +1,157 @@
 # Signed PostgreSQL shadow-migration evidence v2
 
-`verify-postgres-migration-evidence.ps1` is a read-only, fail-closed acceptance gate for a
-SQL Server-to-PostgreSQL **shadow** migration receipt. It reads only a JSON receipt and a trusted
-P-256 public key. It never connects to SQL Server, PostgreSQL, GKE, Cloud Storage, or Secret
-Manager, and it cannot authorize deployment, cutover, or canonical database writes.
+`verify-postgres-migration-evidence.ps1` is a fail-closed local acceptance gate for a SQL
+Server-to-PostgreSQL **shadow** migration receipt. It reads a signed JSON receipt and a trusted
+P-256 public key, then atomically records the run/evidence IDs in a local consumption ledger. It
+never connects to SQL Server, PostgreSQL, GKE, Cloud Storage, or Secret Manager and cannot
+authorize deployment, cutover, or canonical database writes.
 
-Version 2 deliberately does not compare source and target schema hashes. SQL Server and
-PostgreSQL schemas are different representations. Instead, every migrated database records its
-source schema hash, exact signed mapping-plan hash, resulting target schema hash, row/content
-reconciliation, foreign-key reconciliation, and mapped sequence/identity reconciliation.
+## What the receipt proves
 
-The receipt freezes the complete 27-database disposition inventory. Exactly 21 databases must
-have `migrate` receipts. `Hangfire` and `Log` require immutable archive provenance;
-`MachineLearning` and `MachineLearningData` remain excluded; `ContactRequest` and `LocationData`
-remain on review hold. Missing, duplicate, renamed, unknown, or differently owned entries fail.
+SQL Server and PostgreSQL schemas are different representations, so their schema hashes are not
+expected to match. Every database instead binds its source schema hash and resulting target schema
+hash to one signed mapping-plan hash. The signed plan explicitly lists every expected table,
+column, approved aggregate, content-hash batch, foreign key, and sequence. Empty relationship or
+sequence arrays are accepted only when the signed plan explicitly expects none.
 
-## Receipt shape
+For all 21 migrated databases the receipt must reconcile:
 
-The root keys are exact and `schemaVersion` must be `2`:
+- database and table row counts;
+- per-column null counts;
+- each named, pre-approved aggregate as a canonical value hash;
+- contiguous batches, their row counts, inventory hash, and canonical content hash;
+- every planned foreign key, relationship count, and zero target orphans; and
+- every planned sequence or identity next value.
+
+Database totals must equal the sum of all planned table and batch receipts. Missing, extra,
+duplicated, or renamed evidence fails. The complete 27-database disposition inventory is also
+signed: 21 migrate, `Hangfire` and `Log` immutable archive-only, both machine-learning databases
+excluded, and `ContactRequest`/`LocationData` held for review.
+
+## Signed execution and replay boundary
+
+The exact root contains `schemaVersion`, `source`, `mapping`, `target`, `execution`, `inventory`,
+`archives`, `databases`, `parity`, `constraints`, and `attestation`.
+
+`execution` contains exact canonical GUIDs for `runId`, `evidenceId`, and `leaseId`; `issuedAtUtc`
+and `expiresAtUtc`; lease acquisition/expiry timestamps; `targetGeneration`; `restoreId`; and
+`state=completed`. The issue-to-expiry window cannot exceed one hour. Both the evidence and lease
+must still be valid when checked. Run, generation, and restore values must match the independently
+supplied expected values and the signed target.
+
+After every cryptographic and reconciliation check passes, the verifier atomically creates
+`run-<runId>` and `evidence-<evidenceId>` directories under `-ConsumptionLedgerPath`. Reusing either
+ID fails. The ledger must be durable for the complete review/release period and must not be cleared
+to make a receipt pass again. The ledger contains identifiers only, never credentials or data.
+
+## Mapping and database receipt shape
+
+Each entry in `mapping.databases` has this form:
 
 ```json
 {
-  "schemaVersion": 2,
-  "source": {
-    "system": "sqlserver",
-    "snapshotId": "source-2026-08-29",
-    "capturedAtUtc": "2026-08-29T00:05:00.0000000+00:00",
-    "backup": {
-      "uri": "gs://maliev.com/database/full/2026-08-29/",
-      "manifestSha256": "<64 lower-case hex>",
-      "databaseInventorySha256": "<64 lower-case hex>",
-      "objectGeneration": "<immutable object generation identifier>",
-      "immutable": true
-    }
-  },
-  "mapping": {
-    "schemaPlanVersion": "2.0",
-    "planSha256": "<64 lower-case hex>",
-    "sourceCommitSha": "<40 lower-case hex>",
-    "runnerDigestSha256": "<64 lower-case hex>"
-  },
-  "target": {
-    "system": "postgresql",
-    "cluster": "legacy-postgres-main",
-    "namespace": "maliev-legacy",
-    "mode": "shadow",
-    "generation": "<shadow generation>",
-    "capturedAtUtc": "2026-08-29T00:30:00.0000000+00:00",
-    "restoreId": "<restore identifier>"
-  },
-  "inventory": [
-    { "name": "Customer", "owner": "Legacy.Maliev.CustomerService", "disposition": "migrate" }
-  ],
-  "archives": [
-    {
-      "name": "Hangfire", "disposition": "archive_only", "immutable": true,
-      "backupArtifactSha256": "<64 lower-case hex>",
-      "sourceSchemaSha256": "<64 lower-case hex>",
-      "sourceContentSha256": "<64 lower-case hex>"
-    }
-  ],
-  "databases": [
-    {
-      "name": "Customer",
-      "sourceSchemaSha256": "<64 lower-case hex>",
-      "mappingPlanSha256": "<same mapping.planSha256>",
-      "targetSchemaSha256": "<64 lower-case hex; may differ from source>",
-      "sourceRowCount": 123, "targetRowCount": 123,
-      "sourceContentSha256": "<64 lower-case hex>",
-      "targetContentSha256": "<same canonical content hash>",
-      "foreignKeys": [
-        { "name": "fk_customer_company", "sourceRelationshipCount": 5, "targetRelationshipCount": 5, "orphanCount": 0 }
-      ],
-      "sequences": [{ "name": "customer_id", "sourceNextValue": 124, "targetNextValue": 124 }],
-      "parity": "exact"
-    }
-  ],
-  "parity": "exact",
-  "constraints": {
-    "productionDataWritesAllowed": false,
-    "canonicalTargetMutationAllowed": false,
-    "cutoverPercent": 0,
-    "newNodePoolAllowed": false,
-    "cloudSqlAllowed": false,
-    "additionalInfrastructureCostAllowed": false
-  },
-  "attestation": {
-    "algorithm": "ECDSA_P256_SHA256",
-    "keyId": "<approved key id>",
-    "payloadSha256": "<SHA-256 of canonical root without attestation>",
-    "signatureBase64": "<P-256 signature over payload hash bytes>"
-  }
+  "name": "Customer",
+  "tableInventorySha256": "<64 lower-case hex>",
+  "foreignKeyInventorySha256": "<64 lower-case hex>",
+  "sequenceInventorySha256": "<64 lower-case hex>",
+  "expectedTableCount": 1,
+  "expectedForeignKeyCount": 1,
+  "expectedSequenceCount": 1,
+  "tables": [{
+    "name": "dbo.customers",
+    "columns": ["id", "email"],
+    "approvedAggregates": ["id_range"],
+    "expectedColumnCount": 2,
+    "expectedAggregateCount": 1,
+    "expectedBatchCount": 2,
+    "batchInventorySha256": "<64 lower-case hex>"
+  }],
+  "foreignKeys": ["fk_customer_company"],
+  "sequences": ["customer_id"]
 }
 ```
 
-The abbreviated arrays document field shape only. A real receipt includes the exact 27-entry
-disposition inventory, both archive receipts, and all 21 migrated database receipts. Unknown
-fields, sensitive field names, stale timestamps, untrusted keys, invalid signatures, non-shadow
-targets, or any reconciliation drift are rejected. Databases without mapped foreign keys or
-sequences use empty `foreignKeys` or `sequences` arrays; every non-empty array is reconciled by
-stable constraint/sequence name.
+The matching `databases` entry contains the three identical inventory hashes plus exhaustive
+receipts:
 
-The signed payload is the compact UTF-8 JSON root with `attestation` removed, every object key
-sorted by ordinal code-point order, array order preserved, and JSON strings emitted without HTML
-escaping. `payloadSha256` is the lower-case SHA-256 of those bytes. `signatureBase64` is the P-256
-ECDSA signature over the 32 hash bytes. Producers must use those rules exactly; the verifier never
-normalizes or signs evidence on their behalf.
+```json
+{
+  "name": "Customer",
+  "sourceSchemaSha256": "<64 lower-case hex>",
+  "mappingPlanSha256": "<mapping.planSha256>",
+  "targetSchemaSha256": "<64 lower-case hex; may differ from source>",
+  "sourceRowCount": 123,
+  "targetRowCount": 123,
+  "sourceContentSha256": "<64 lower-case hex>",
+  "targetContentSha256": "<same canonical hash>",
+  "tableInventorySha256": "<signed plan value>",
+  "foreignKeyInventorySha256": "<signed plan value>",
+  "sequenceInventorySha256": "<signed plan value>",
+  "tableCount": 1,
+  "foreignKeyCount": 1,
+  "sequenceCount": 1,
+  "tables": [{
+    "name": "dbo.customers",
+    "sourceRowCount": 123,
+    "targetRowCount": 123,
+    "columnCount": 2,
+    "aggregateCount": 1,
+    "batchCount": 1,
+    "columns": [{"name":"email","sourceNullCount":2,"targetNullCount":2}],
+    "aggregates": [{
+      "name": "id_range",
+      "sourceValueSha256": "<64 lower-case hex>",
+      "targetValueSha256": "<same hash>"
+    }],
+    "batchInventorySha256": "<signed plan value>",
+    "batches": [{
+      "ordinal": 0,
+      "sourceRowCount": 123,
+      "targetRowCount": 123,
+      "sourceContentSha256": "<64 lower-case hex>",
+      "targetContentSha256": "<same hash>"
+    }],
+    "parity": "exact"
+  }],
+  "foreignKeys": [{
+    "name": "fk_customer_company",
+    "sourceRelationshipCount": 120,
+    "targetRelationshipCount": 120,
+    "orphanCount": 0
+  }],
+  "sequences": [{"name":"customer_id","sourceNextValue":124,"targetNextValue":124}],
+  "parity": "exact"
+}
+```
 
-## Run the local acceptance gate
+The source backup includes its credential-free `gs://` URI, manifest and database-inventory
+hashes, immutable object generation, and `immutable=true`. `Hangfire` and `Log` each have a signed
+archive artifact, source schema/content hashes, and `immutable=true`. Constraints remain zero
+cutover, no canonical/production writes, no new node pool, no Cloud SQL, and no added cost.
+
+## Attestation canonicalization
+
+The signed payload is compact UTF-8 JSON with root `attestation` removed, all object keys sorted by
+ordinal code-point order, array order preserved, and strings emitted without HTML escaping.
+`payloadSha256` is the lower-case SHA-256 of those bytes. `signatureBase64` is the P-256 ECDSA
+signature over the 32 hash bytes. Producers must use those rules exactly.
+
+## Run the local gate
 
 ```powershell
 pwsh ./scripts/verify-postgres-migration-evidence.ps1 `
-  -EvidencePath ./.evidence/postgres-shadow-2026-08-29.json `
+  -EvidencePath C:/review/postgres-shadow.json `
   -ExpectedDatabase Country,Currency,Customer,CustomerIdentity,DataProtectionKeys,DataProtectionKeysEmployee,Employee,EmployeeIdentity,Invoice,JobOffers,Material,Message,Order,OrderStatus,Payment,PurchaseOrder,Quotation,QuotationRequest,Receipt,Supplier,Upload `
   -RequiredAsOfUtc 2026-08-29T00:00:00Z `
-  -TrustedPublicKeyPath C:/trusted/migration-review-public.pem `
-  -ExpectedAttestationKeyId migration-review-2026-08
+  -TrustedPublicKeyPath C:/review/migration-review-public.pem `
+  -ExpectedAttestationKeyId migration-review-2026-08 `
+  -ConsumptionLedgerPath C:/review/consumed `
+  -ExpectedRunId 11111111-1111-4111-8111-111111111111 `
+  -ExpectedTargetGeneration shadow-generation-1 `
+  -ExpectedRestoreId restore-current
 ```
 
-Keep real receipts and public keys outside the repository. Never store private attestation keys,
-credentials, connection strings, tokens, or raw production data in the receipt or repository. A
-pass is Aspire review evidence only; explicit owner approval remains required before deployment or
-cutover.
+Keep production-derived receipts, the public key, and the consumption ledger outside Git. Never
+store private keys, credentials, connection strings, tokens, or raw production data in evidence.
+A pass is Aspire review evidence only; explicit owner approval remains required before deployment
+or cutover.
