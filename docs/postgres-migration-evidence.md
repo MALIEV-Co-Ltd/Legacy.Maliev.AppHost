@@ -1,8 +1,9 @@
 # Signed PostgreSQL shadow-migration evidence v2
 
 `verify-postgres-migration-evidence.ps1` is a fail-closed local acceptance gate for a SQL
-Server-to-PostgreSQL **shadow** migration receipt. It reads a signed JSON receipt and a trusted
-P-256 public key, then atomically records the run/evidence IDs in a local consumption ledger. It
+Server-to-PostgreSQL **shadow** migration receipt. It reads a signed JSON receipt, a trusted
+P-256 public key, and an independently owner-approved baseline whose raw file hash is supplied on
+the command line. It then atomically records the run/evidence/lease IDs in a local consumption ledger. It
 never connects to SQL Server, PostgreSQL, GKE, Cloud Storage, or Secret Manager and cannot
 authorize deployment, cutover, or canonical database writes.
 
@@ -11,8 +12,10 @@ authorize deployment, cutover, or canonical database writes.
 SQL Server and PostgreSQL schemas are different representations, so their schema hashes are not
 expected to match. Every database instead binds its source schema hash and resulting target schema
 hash to one signed mapping-plan hash. The signed plan explicitly lists every expected table,
-column, approved aggregate, content-hash batch, foreign key, and sequence. Empty relationship or
-sequence arrays are accepted only when the signed plan explicitly expects none.
+column, approved aggregate, content-hash batch, foreign key, and sequence. The plan hash, source
+commit, and exact table/foreign-key/sequence inventories must also equal the independently approved
+baseline. Empty relationship or sequence arrays are accepted only when that external baseline
+explicitly expects none.
 
 For all 21 migrated databases the receipt must reconcile:
 
@@ -39,12 +42,21 @@ and `expiresAtUtc`; lease acquisition/expiry timestamps; `targetGeneration`; `re
 must still be valid when checked. Run, generation, and restore values must match the independently
 supplied expected values and the signed target.
 
-After every cryptographic and reconciliation check passes, the verifier atomically creates
-`run-<runId>` and `evidence-<evidenceId>` directories under `-ConsumptionLedgerPath`. Reusing either
-ID fails. The ledger must be durable for the complete review/release period and must not be cleared
+After every cryptographic and reconciliation check passes, the verifier creates
+`run-<runId>`, `evidence-<evidenceId>`, and `lease-<leaseId>` directories under
+`-ConsumptionLedgerPath` as one rollback-safe operation. Reusing any identity fails, including lease
+reuse by a differently signed receipt. The ledger must be durable for the complete review/release period and must not be cleared
 to make a receipt pass again. The ledger contains identifiers only, never credentials or data.
 
 ## Mapping and database receipt shape
+
+The external baseline has exact root keys `schemaVersion=1`, `sourceCommitSha`, `planSha256`, and
+`databases`. Each database freezes its name, the explicit table/foreign-key/sequence name arrays,
+and their canonical inventory hashes. The baseline file itself is accepted only when its raw
+SHA-256 equals `-ExpectedApprovedBaselineSha256`. Inventory hashing sorts names ordinally, joins
+them with a single LF byte, and hashes the UTF-8 bytes; the empty inventory is SHA-256 of zero
+bytes. Both baseline and receipt inventories are recomputed before comparison, preventing an
+arbitrary self-attested hash or planned-empty omission from becoming its own authority.
 
 Each entry in `mapping.databases` has this form:
 
@@ -145,6 +157,8 @@ pwsh ./scripts/verify-postgres-migration-evidence.ps1 `
   -RequiredAsOfUtc 2026-08-29T00:00:00Z `
   -TrustedPublicKeyPath C:/review/migration-review-public.pem `
   -ExpectedAttestationKeyId migration-review-2026-08 `
+  -ApprovedBaselinePath C:/review/owner-approved-migration-baseline.json `
+  -ExpectedApprovedBaselineSha256 <owner-recorded-64-lower-case-hex> `
   -ConsumptionLedgerPath C:/review/consumed `
   -ExpectedRunId 11111111-1111-4111-8111-111111111111 `
   -ExpectedTargetGeneration shadow-generation-1 `

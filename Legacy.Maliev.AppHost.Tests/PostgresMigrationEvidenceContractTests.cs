@@ -67,6 +67,13 @@ public sealed class PostgresMigrationEvidenceContractTests
     [InlineData("foreign-restore-id")]
     [InlineData("tampered-run-id")]
     [InlineData("database-case-drift")]
+    [InlineData("self-attested-plan-drift")]
+    [InlineData("self-attested-source-commit-drift")]
+    [InlineData("self-attested-table-omission")]
+    [InlineData("self-attested-foreign-key-omission")]
+    [InlineData("self-attested-sequence-omission")]
+    [InlineData("approved-baseline-tamper")]
+    [InlineData("approved-baseline-foreign-key-omission")]
     public async Task Validator_RejectsSignedButIncompleteOrUnsafeEvidence(string mutation)
     {
         using var evidence = TemporaryEvidence.Create(mutation);
@@ -120,6 +127,45 @@ public sealed class PostgresMigrationEvidenceContractTests
         Assert.NotEqual(0, replay.ExitCode);
     }
 
+    [Theory]
+    [InlineData("reuse-run")]
+    [InlineData("reuse-evidence")]
+    [InlineData("reuse-lease")]
+    public async Task Validator_RejectsCrossReceiptIdentityReuse(string mutation)
+    {
+        using var firstEvidence = TemporaryEvidence.Create();
+        var first = await RunValidatorAsync(firstEvidence, firstEvidence.RequiredAsOfUtc);
+        using var reusedIdentityEvidence = TemporaryEvidence.Create(mutation, firstEvidence.LedgerPath);
+        var replay = await RunValidatorAsync(reusedIdentityEvidence, reusedIdentityEvidence.RequiredAsOfUtc);
+
+        Assert.True(first.ExitCode == 0, first.StandardError);
+        Assert.NotEqual(0, replay.ExitCode);
+        if (reusedIdentityEvidence.RunId != firstEvidence.RunId)
+        {
+            Assert.False(Directory.Exists(Path.Combine(firstEvidence.LedgerPath, $"run-{reusedIdentityEvidence.RunId}")));
+        }
+        if (reusedIdentityEvidence.EvidenceId != firstEvidence.EvidenceId)
+        {
+            Assert.False(Directory.Exists(Path.Combine(firstEvidence.LedgerPath, $"evidence-{reusedIdentityEvidence.EvidenceId}")));
+        }
+        if (reusedIdentityEvidence.LeaseId != firstEvidence.LeaseId)
+        {
+            Assert.False(Directory.Exists(Path.Combine(firstEvidence.LedgerPath, $"lease-{reusedIdentityEvidence.LeaseId}")));
+        }
+    }
+
+    [Fact]
+    public async Task Validator_ConsumesRunEvidenceAndLeaseIdentities()
+    {
+        using var evidence = TemporaryEvidence.Create();
+        var result = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
+
+        Assert.True(result.ExitCode == 0, result.StandardError);
+        Assert.True(Directory.Exists(Path.Combine(evidence.LedgerPath, $"run-{evidence.RunId}")));
+        Assert.True(Directory.Exists(Path.Combine(evidence.LedgerPath, $"evidence-{evidence.EvidenceId}")));
+        Assert.True(Directory.Exists(Path.Combine(evidence.LedgerPath, $"lease-{evidence.LeaseId}")));
+    }
+
     [Fact]
     public void WorkflowAndDocs_ExposeTheReadOnlySignedV2Gate()
     {
@@ -135,6 +181,8 @@ public sealed class PostgresMigrationEvidenceContractTests
         Assert.Contains("sequences", script, StringComparison.Ordinal);
         Assert.Contains("VerifyHash", script, StringComparison.Ordinal);
         Assert.Contains("ConsumptionLedgerPath", script, StringComparison.Ordinal);
+        Assert.Contains("ApprovedBaselinePath", script, StringComparison.Ordinal);
+        Assert.Contains("ExpectedApprovedBaselineSha256", script, StringComparison.Ordinal);
         Assert.Contains("sourceNullCount", script, StringComparison.Ordinal);
         Assert.Contains("batchInventorySha256", script, StringComparison.Ordinal);
         Assert.Contains("productionDataWritesAllowed", script, StringComparison.Ordinal);
@@ -161,8 +209,10 @@ public sealed class PostgresMigrationEvidenceContractTests
             "-RequiredAsOfUtc", requiredAsOfUtc,
             "-TrustedPublicKeyPath", evidence.PublicKeyPath,
             "-ExpectedAttestationKeyId", "migration-review-2026-08",
+            "-ApprovedBaselinePath", evidence.ApprovedBaselinePath,
+            "-ExpectedApprovedBaselineSha256", evidence.ApprovedBaselineSha256,
             "-ConsumptionLedgerPath", evidence.LedgerPath,
-            "-ExpectedRunId", "11111111-1111-4111-8111-111111111111",
+            "-ExpectedRunId", evidence.ExpectedRunId,
             "-ExpectedTargetGeneration", "shadow-generation-1",
             "-ExpectedRestoreId", "restore-current",
         })
@@ -190,21 +240,44 @@ public sealed class PostgresMigrationEvidenceContractTests
     {
         private readonly string _directory;
 
-        private TemporaryEvidence(string path, string publicKeyPath, string ledgerPath, string requiredAsOfUtc, string directory)
+        private TemporaryEvidence(
+            string path,
+            string publicKeyPath,
+            string approvedBaselinePath,
+            string approvedBaselineSha256,
+            string ledgerPath,
+            string requiredAsOfUtc,
+            string expectedRunId,
+            string runId,
+            string evidenceId,
+            string leaseId,
+            string directory)
         {
             Path = path;
             PublicKeyPath = publicKeyPath;
+            ApprovedBaselinePath = approvedBaselinePath;
+            ApprovedBaselineSha256 = approvedBaselineSha256;
             LedgerPath = ledgerPath;
             RequiredAsOfUtc = requiredAsOfUtc;
+            ExpectedRunId = expectedRunId;
+            RunId = runId;
+            EvidenceId = evidenceId;
+            LeaseId = leaseId;
             _directory = directory;
         }
 
         public string Path { get; }
         public string PublicKeyPath { get; }
+        public string ApprovedBaselinePath { get; }
+        public string ApprovedBaselineSha256 { get; }
         public string LedgerPath { get; }
         public string RequiredAsOfUtc { get; }
+        public string ExpectedRunId { get; }
+        public string RunId { get; }
+        public string EvidenceId { get; }
+        public string LeaseId { get; }
 
-        public static TemporaryEvidence Create(string? mutation = null)
+        public static TemporaryEvidence Create(string? mutation = null, string? sharedLedgerPath = null)
         {
             var directory = Directory.CreateTempSubdirectory("legacy-postgres-evidence-v2-");
             using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -212,6 +285,24 @@ public sealed class PostgresMigrationEvidenceContractTests
             DateTimeOffset now = DateTimeOffset.UtcNow;
             var root = BuildRoot(mappingHash, now);
             ApplyMutation(root, mutation, mappingHash);
+            var approvedBaseline = BuildApprovedBaseline(root);
+            if (mutation is not "planned-empty-relations")
+            {
+                approvedBaseline = BuildApprovedBaseline(BuildRoot(mappingHash, now));
+            }
+            if (mutation == "approved-baseline-foreign-key-omission")
+            {
+                JsonObject firstBaseline = (JsonObject)((JsonArray)approvedBaseline["databases"]!)[0]!;
+                ((JsonArray)firstBaseline["foreignKeys"]!).Clear();
+                firstBaseline["foreignKeyInventorySha256"] = InventoryHash();
+            }
+            byte[] approvedBaselineBytes = Encoding.UTF8.GetBytes(approvedBaseline.ToJsonString());
+            string approvedBaselineSha256 = Convert.ToHexString(SHA256.HashData(approvedBaselineBytes)).ToLowerInvariant();
+            if (mutation == "approved-baseline-tamper")
+            {
+                approvedBaseline["planSha256"] = new string('9', 64);
+                approvedBaselineBytes = Encoding.UTF8.GetBytes(approvedBaseline.ToJsonString());
+            }
             Sign(root, key, mutation == "unknown-key" ? "untrusted-key" : "migration-review-2026-08");
 
             if (mutation == "payload-tamper")
@@ -225,10 +316,26 @@ public sealed class PostgresMigrationEvidenceContractTests
 
             string path = System.IO.Path.Combine(directory.FullName, "evidence.json");
             string publicKeyPath = System.IO.Path.Combine(directory.FullName, "trusted-public-key.pem");
-            string ledgerPath = System.IO.Path.Combine(directory.FullName, "consumed");
+            string approvedBaselinePath = System.IO.Path.Combine(directory.FullName, "approved-baseline.json");
+            string ledgerPath = sharedLedgerPath ?? System.IO.Path.Combine(directory.FullName, "consumed");
             File.WriteAllText(path, root.ToJsonString());
             File.WriteAllText(publicKeyPath, key.ExportSubjectPublicKeyInfoPem());
-            return new TemporaryEvidence(path, publicKeyPath, ledgerPath, now.AddMinutes(-30).ToString("O"), directory.FullName);
+            File.WriteAllBytes(approvedBaselinePath, approvedBaselineBytes);
+            JsonObject execution = (JsonObject)root["execution"]!;
+            return new TemporaryEvidence(
+                path,
+                publicKeyPath,
+                approvedBaselinePath,
+                approvedBaselineSha256,
+                ledgerPath,
+                now.AddMinutes(-30).ToString("O"),
+                mutation is "reuse-run" or "reuse-evidence" or "reuse-lease"
+                    ? execution["runId"]!.GetValue<string>()
+                    : "11111111-1111-4111-8111-111111111111",
+                execution["runId"]!.GetValue<string>(),
+                execution["evidenceId"]!.GetValue<string>(),
+                execution["leaseId"]!.GetValue<string>(),
+                directory.FullName);
         }
 
         public void Dispose()
@@ -342,9 +449,9 @@ public sealed class PostgresMigrationEvidenceContractTests
         private static JsonObject DatabasePlan(string name) => new()
         {
             ["name"] = name,
-            ["tableInventorySha256"] = new string('f', 64),
-            ["foreignKeyInventorySha256"] = new string('a', 64),
-            ["sequenceInventorySha256"] = new string('b', 64),
+            ["tableInventorySha256"] = InventoryHash("dbo.records"),
+            ["foreignKeyInventorySha256"] = InventoryHash("fk_parent"),
+            ["sequenceInventorySha256"] = InventoryHash("primary_id"),
             ["expectedTableCount"] = 1L,
             ["expectedForeignKeyCount"] = 1L,
             ["expectedSequenceCount"] = 1L,
@@ -377,9 +484,9 @@ public sealed class PostgresMigrationEvidenceContractTests
                 ["targetRowCount"] = 10L + index,
                 ["sourceContentSha256"] = new string(contentSeed, 64),
                 ["targetContentSha256"] = new string(contentSeed, 64),
-                ["tableInventorySha256"] = new string('f', 64),
-                ["foreignKeyInventorySha256"] = new string('a', 64),
-                ["sequenceInventorySha256"] = new string('b', 64),
+                ["tableInventorySha256"] = InventoryHash("dbo.records"),
+                ["foreignKeyInventorySha256"] = InventoryHash("fk_parent"),
+                ["sequenceInventorySha256"] = InventoryHash("primary_id"),
                 ["tableCount"] = 1L,
                 ["foreignKeyCount"] = 1L,
                 ["sequenceCount"] = 1L,
@@ -435,6 +542,42 @@ public sealed class PostgresMigrationEvidenceContractTests
             ["targetNullCount"] = nullCount,
         };
 
+        private static JsonObject BuildApprovedBaseline(JsonObject root)
+        {
+            JsonObject mapping = (JsonObject)root["mapping"]!;
+            JsonArray plans = (JsonArray)mapping["databases"]!;
+            return new JsonObject
+            {
+                ["schemaVersion"] = 1,
+                ["sourceCommitSha"] = mapping["sourceCommitSha"]!.GetValue<string>(),
+                ["planSha256"] = mapping["planSha256"]!.GetValue<string>(),
+                ["databases"] = new JsonArray(plans.Select(node =>
+                {
+                    JsonObject plan = (JsonObject)node!;
+                    JsonArray tables = (JsonArray)plan["tables"]!;
+                    return new JsonObject
+                    {
+                        ["name"] = plan["name"]!.GetValue<string>(),
+                        ["tableInventorySha256"] = plan["tableInventorySha256"]!.GetValue<string>(),
+                        ["foreignKeyInventorySha256"] = plan["foreignKeyInventorySha256"]!.GetValue<string>(),
+                        ["sequenceInventorySha256"] = plan["sequenceInventorySha256"]!.GetValue<string>(),
+                        ["tables"] = new JsonArray(tables
+                            .Select(table => ((JsonObject)table!)["name"]!.GetValue<string>())
+                            .Select(name => JsonValue.Create(name))
+                            .ToArray()),
+                        ["foreignKeys"] = ((JsonArray)plan["foreignKeys"]!).DeepClone(),
+                        ["sequences"] = ((JsonArray)plan["sequences"]!).DeepClone(),
+                    };
+                }).ToArray()),
+            };
+        }
+
+        private static string InventoryHash(params string[] names)
+        {
+            string canonical = string.Join('\n', names.Order(StringComparer.Ordinal));
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
+        }
+
         private static void ApplyMutation(JsonObject root, string? mutation, string mappingHash)
         {
             JsonObject source = (JsonObject)root["source"]!;
@@ -484,16 +627,77 @@ public sealed class PostgresMigrationEvidenceContractTests
                 case "foreign-restore-id": ((JsonObject)root["execution"]!)["restoreId"] = "foreign-restore"; break;
                 case "tampered-run-id": ((JsonObject)root["execution"]!)["runId"] = "44444444-4444-4444-8444-444444444444"; break;
                 case "database-case-drift": first["name"] = "country"; break;
+                case "self-attested-plan-drift":
+                    ((JsonObject)root["mapping"]!)["planSha256"] = new string('9', 64);
+                    foreach (JsonNode? database in databases)
+                    {
+                        ((JsonObject)database!)["mappingPlanSha256"] = new string('9', 64);
+                    }
+                    break;
+                case "self-attested-source-commit-drift":
+                    ((JsonObject)root["mapping"]!)["sourceCommitSha"] = new string('9', 40);
+                    break;
+                case "self-attested-table-omission":
+                    {
+                        JsonObject plan = (JsonObject)((JsonArray)((JsonObject)root["mapping"]!)["databases"]!)[0]!;
+                        ((JsonArray)plan["tables"]!).Clear();
+                        plan["expectedTableCount"] = 0L;
+                        plan["tableInventorySha256"] = InventoryHash();
+                        ((JsonArray)first["tables"]!).Clear();
+                        first["tableCount"] = 0L;
+                        first["tableInventorySha256"] = InventoryHash();
+                        first["sourceRowCount"] = 0L;
+                        first["targetRowCount"] = 0L;
+                    }
+                    break;
+                case "self-attested-foreign-key-omission":
+                    {
+                        JsonObject plan = (JsonObject)((JsonArray)((JsonObject)root["mapping"]!)["databases"]!)[0]!;
+                        ((JsonArray)plan["foreignKeys"]!).Clear();
+                        plan["expectedForeignKeyCount"] = 0L;
+                        plan["foreignKeyInventorySha256"] = InventoryHash();
+                        ((JsonArray)first["foreignKeys"]!).Clear();
+                        first["foreignKeyCount"] = 0L;
+                        first["foreignKeyInventorySha256"] = InventoryHash();
+                    }
+                    break;
+                case "self-attested-sequence-omission":
+                    {
+                        JsonObject plan = (JsonObject)((JsonArray)((JsonObject)root["mapping"]!)["databases"]!)[0]!;
+                        ((JsonArray)plan["sequences"]!).Clear();
+                        plan["expectedSequenceCount"] = 0L;
+                        plan["sequenceInventorySha256"] = InventoryHash();
+                        ((JsonArray)first["sequences"]!).Clear();
+                        first["sequenceCount"] = 0L;
+                        first["sequenceInventorySha256"] = InventoryHash();
+                    }
+                    break;
+                case "reuse-run":
+                    ((JsonObject)root["execution"]!)["evidenceId"] = "55555555-5555-4555-8555-555555555555";
+                    ((JsonObject)root["execution"]!)["leaseId"] = "66666666-6666-4666-8666-666666666666";
+                    break;
+                case "reuse-evidence":
+                    ((JsonObject)root["execution"]!)["runId"] = "44444444-4444-4444-8444-444444444444";
+                    ((JsonObject)root["execution"]!)["leaseId"] = "66666666-6666-4666-8666-666666666666";
+                    break;
+                case "reuse-lease":
+                    ((JsonObject)root["execution"]!)["runId"] = "44444444-4444-4444-8444-444444444444";
+                    ((JsonObject)root["execution"]!)["evidenceId"] = "55555555-5555-4555-8555-555555555555";
+                    break;
                 case "planned-empty-relations":
                     JsonObject firstPlan = (JsonObject)((JsonArray)((JsonObject)root["mapping"]!)["databases"]!)[0]!;
                     ((JsonArray)firstPlan["foreignKeys"]!).Clear();
                     ((JsonArray)firstPlan["sequences"]!).Clear();
                     firstPlan["expectedForeignKeyCount"] = 0L;
                     firstPlan["expectedSequenceCount"] = 0L;
+                    firstPlan["foreignKeyInventorySha256"] = InventoryHash();
+                    firstPlan["sequenceInventorySha256"] = InventoryHash();
                     ((JsonArray)first["foreignKeys"]!).Clear();
                     ((JsonArray)first["sequences"]!).Clear();
                     first["foreignKeyCount"] = 0L;
                     first["sequenceCount"] = 0L;
+                    first["foreignKeyInventorySha256"] = InventoryHash();
+                    first["sequenceInventorySha256"] = InventoryHash();
                     break;
                 case "different-schema-hashes": first["sourceSchemaSha256"] = new string('a', 64); first["targetSchemaSha256"] = new string('b', 64); break;
             }

@@ -5,6 +5,8 @@ param(
     [Parameter(Mandatory = $true)] [DateTimeOffset]$RequiredAsOfUtc,
     [Parameter(Mandatory = $true)] [ValidateNotNullOrEmpty()] [string]$TrustedPublicKeyPath,
     [Parameter(Mandatory = $true)] [ValidateNotNullOrEmpty()] [string]$ExpectedAttestationKeyId,
+    [Parameter(Mandatory = $true)] [ValidateNotNullOrEmpty()] [string]$ApprovedBaselinePath,
+    [Parameter(Mandatory = $true)] [ValidateNotNullOrEmpty()] [string]$ExpectedApprovedBaselineSha256,
     [Parameter(Mandatory = $true)] [ValidateNotNullOrEmpty()] [string]$ConsumptionLedgerPath,
     [Parameter(Mandatory = $true)] [ValidateNotNullOrEmpty()] [string]$ExpectedRunId,
     [Parameter(Mandatory = $true)] [ValidateNotNullOrEmpty()] [string]$ExpectedTargetGeneration,
@@ -47,6 +49,14 @@ function Assert-Sha256 {
     if ($Value -isnot [string] -or $Value -notmatch '^[0-9a-f]{64}$') {
         throw "$Path must be a lower-case 64-character SHA-256 hex value."
     }
+}
+
+function Get-InventorySha256 {
+    param([string[]]$Names)
+    [string[]]$sorted = @($Names)
+    [Array]::Sort($sorted, [StringComparer]::Ordinal)
+    $bytes = [Text.Encoding]::UTF8.GetBytes(($sorted -join "`n"))
+    return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
 }
 
 function Assert-SafeIdentifier {
@@ -281,6 +291,64 @@ if ($callerExpectedRaw.Count -ne $callerExpected.Count -or $callerExpected.Count
     throw 'ExpectedDatabase must equal the approved 21-database migrated inventory.'
 }
 
+Assert-Sha256 $ExpectedApprovedBaselineSha256 'ExpectedApprovedBaselineSha256'
+if (-not (Test-Path -LiteralPath $ApprovedBaselinePath -PathType Leaf)) {
+    throw 'The independently approved migration baseline file is missing.'
+}
+$approvedBaselineBytes = [IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $ApprovedBaselinePath))
+$approvedBaselineHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($approvedBaselineBytes)).ToLowerInvariant()
+if ($approvedBaselineHash -cne $ExpectedApprovedBaselineSha256) {
+    throw 'The independently approved migration baseline file hash does not match the owner-approved hash.'
+}
+try {
+    $approvedBaseline = [Text.Encoding]::UTF8.GetString($approvedBaselineBytes) | ConvertFrom-Json -AsHashtable -Depth 100
+}
+catch {
+    throw 'The independently approved migration baseline is not valid JSON.'
+}
+Assert-ExactKeys $approvedBaseline @('schemaVersion', 'sourceCommitSha', 'planSha256', 'databases') '$baseline'
+Assert-NoSensitiveKeys $approvedBaseline '$baseline'
+if ($approvedBaseline.schemaVersion -isnot [long] -or $approvedBaseline.schemaVersion -ne 1) {
+    throw 'The independently approved migration baseline has an unsupported schema version.'
+}
+Assert-Sha256 $approvedBaseline.planSha256 '$baseline.planSha256'
+if ($approvedBaseline.sourceCommitSha -isnot [string] -or $approvedBaseline.sourceCommitSha -notmatch '^[0-9a-f]{40}$' -or
+    $approvedBaseline.sourceCommitSha -cne $evidence.mapping.sourceCommitSha -or
+    $approvedBaseline.planSha256 -cne $evidence.mapping.planSha256) {
+    throw 'The signed evidence mapping is not bound to the owner-approved source commit and plan hash.'
+}
+if ($approvedBaseline.databases -isnot [object[]] -or $approvedBaseline.databases.Count -ne 21) {
+    throw 'The independently approved baseline must describe all 21 migrated databases.'
+}
+$approvedBaselineDatabases = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+foreach ($baselineDatabase in $approvedBaseline.databases) {
+    Assert-ExactKeys $baselineDatabase @('name', 'tableInventorySha256', 'foreignKeyInventorySha256', 'sequenceInventorySha256', 'tables', 'foreignKeys', 'sequences') '$baseline.databases[]'
+    if ($baselineDatabase.name -isnot [string] -or $approvedMigrated -cnotcontains $baselineDatabase.name -or
+        $approvedBaselineDatabases.ContainsKey($baselineDatabase.name)) {
+        throw 'The independently approved baseline contains a duplicate or unknown database.'
+    }
+    $baselineTables = @(Get-ExactNameInventory $baselineDatabase.tables '$baseline.databases[].tables' $false)
+    $baselineForeignKeys = @(Get-ExactNameInventory $baselineDatabase.foreignKeys '$baseline.databases[].foreignKeys')
+    $baselineSequences = @(Get-ExactNameInventory $baselineDatabase.sequences '$baseline.databases[].sequences')
+    foreach ($field in @('tableInventorySha256', 'foreignKeyInventorySha256', 'sequenceInventorySha256')) {
+        Assert-Sha256 $baselineDatabase[$field] "`$baseline.databases[].$field"
+    }
+    if ($baselineDatabase.tableInventorySha256 -cne (Get-InventorySha256 $baselineTables) -or
+        $baselineDatabase.foreignKeyInventorySha256 -cne (Get-InventorySha256 $baselineForeignKeys) -or
+        $baselineDatabase.sequenceInventorySha256 -cne (Get-InventorySha256 $baselineSequences)) {
+        throw 'The independently approved baseline inventory hashes do not match its canonical explicit inventories.'
+    }
+    $approvedBaselineDatabases[$baselineDatabase.name] = [ordered]@{
+        Receipt = $baselineDatabase
+        Tables = $baselineTables
+        ForeignKeys = $baselineForeignKeys
+        Sequences = $baselineSequences
+    }
+}
+if ((Compare-Object @($approvedBaselineDatabases.Keys | Sort-Object) $approvedMigrated -CaseSensitive)) {
+    throw 'The independently approved baseline database inventory is incomplete.'
+}
+
 if ($evidence.mapping.databases -isnot [object[]] -or $evidence.mapping.databases.Count -ne 21) {
     throw 'The signed mapping plan must explicitly describe all 21 migrated databases.'
 }
@@ -329,6 +397,21 @@ foreach ($databasePlan in $evidence.mapping.databases) {
             ExpectedBatchCount = $tablePlan.expectedBatchCount
             BatchInventorySha256 = $tablePlan.batchInventorySha256
         }
+    }
+    $tablePlanNames = @($tablePlans.Keys | Sort-Object)
+    if ($databasePlan.tableInventorySha256 -cne (Get-InventorySha256 $tablePlanNames) -or
+        $databasePlan.foreignKeyInventorySha256 -cne (Get-InventorySha256 $foreignKeyPlanNames) -or
+        $databasePlan.sequenceInventorySha256 -cne (Get-InventorySha256 $sequencePlanNames)) {
+        throw 'The signed mapping-plan inventory hashes do not match its canonical explicit inventories.'
+    }
+    $approvedPlan = $approvedBaselineDatabases[$databasePlan.name]
+    if ($databasePlan.tableInventorySha256 -cne $approvedPlan.Receipt.tableInventorySha256 -or
+        $databasePlan.foreignKeyInventorySha256 -cne $approvedPlan.Receipt.foreignKeyInventorySha256 -or
+        $databasePlan.sequenceInventorySha256 -cne $approvedPlan.Receipt.sequenceInventorySha256 -or
+        (Compare-Object $tablePlanNames $approvedPlan.Tables -CaseSensitive) -or
+        (Compare-Object $foreignKeyPlanNames $approvedPlan.ForeignKeys -CaseSensitive) -or
+        (Compare-Object $sequencePlanNames $approvedPlan.Sequences -CaseSensitive)) {
+        throw 'The signed mapping-plan inventories differ from the independently owner-approved baseline.'
     }
     $mappingPlans[$databasePlan.name] = [ordered]@{
         Receipt = $databasePlan
@@ -489,15 +572,19 @@ if ([string]::IsNullOrWhiteSpace($ConsumptionLedgerPath)) { throw 'A local one-t
 $null = New-Item -ItemType Directory -Path $ConsumptionLedgerPath -Force
 $runMarker = Join-Path $ConsumptionLedgerPath "run-$($evidence.execution.runId)"
 $evidenceMarker = Join-Path $ConsumptionLedgerPath "evidence-$($evidence.execution.evidenceId)"
-$runCreated = $false
+$leaseMarker = Join-Path $ConsumptionLedgerPath "lease-$($evidence.execution.leaseId)"
+$createdMarkers = [Collections.Generic.List[string]]::new()
 try {
-    $null = New-Item -ItemType Directory -Path $runMarker -ErrorAction Stop
-    $runCreated = $true
-    $null = New-Item -ItemType Directory -Path $evidenceMarker -ErrorAction Stop
+    foreach ($marker in @($runMarker, $evidenceMarker, $leaseMarker)) {
+        $null = New-Item -ItemType Directory -Path $marker -ErrorAction Stop
+        $createdMarkers.Add($marker)
+    }
 }
 catch {
-    if ($runCreated -and -not (Test-Path -LiteralPath $evidenceMarker)) { Remove-Item -LiteralPath $runMarker -Force -ErrorAction SilentlyContinue }
-    throw 'Migration evidence run or evidence identity was already consumed; replay is rejected.'
+    for ($index = $createdMarkers.Count - 1; $index -ge 0; $index--) {
+        Remove-Item -LiteralPath $createdMarkers[$index] -Force -ErrorAction SilentlyContinue
+    }
+    throw 'Migration evidence run, evidence, or lease identity was already consumed; replay is rejected.'
 }
 
 Write-Host "PASS: signed one-time SQL Server-to-PostgreSQL shadow evidence validated for 21 databases as of $($requiredAt.ToString('O'))."
