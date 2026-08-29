@@ -36,13 +36,14 @@ excluded, and `ContactRequest`/`LocationData` held for review.
 The exact root contains `schemaVersion`, `source`, `mapping`, `target`, `execution`, `inventory`,
 `archives`, `databases`, `parity`, `constraints`, and `attestation`.
 
-`execution` contains exact canonical GUIDs for `runId`, `evidenceId`, and `leaseId`; `issuedAtUtc`
+`execution` contains D-format GUIDs for `runId`, `evidenceId`, and `leaseId`; `issuedAtUtc`
 and `expiresAtUtc`; lease acquisition/expiry timestamps; `targetGeneration`; `restoreId`; and
 `state=completed`. The issue-to-expiry window cannot exceed one hour. Both the evidence and lease
 must still be valid when checked. Run, generation, and restore values must match the independently
 supplied expected values and the signed target.
 
-After every cryptographic and reconciliation check passes, the verifier creates
+Before authorization, uniqueness checks, and ledger naming, every parsed GUID is normalized to its
+lower-case D representation. After every cryptographic and reconciliation check passes, the verifier creates
 `run-<runId>`, `evidence-<evidenceId>`, and `lease-<leaseId>` directories under
 `-ConsumptionLedgerPath` as one rollback-safe operation. Reusing any identity fails, including lease
 reuse by a differently signed receipt. The ledger must be durable for the complete review/release period and must not be cleared
@@ -50,13 +51,30 @@ to make a receipt pass again. The ledger contains identifiers only, never creden
 
 ## Mapping and database receipt shape
 
-The external baseline has exact root keys `schemaVersion=1`, `sourceCommitSha`, `planSha256`, and
-`databases`. Each database freezes its name, the explicit table/foreign-key/sequence name arrays,
-and their canonical inventory hashes. The baseline file itself is accepted only when its raw
+The external baseline has exact root keys `schemaVersion=2`, `sourceCommitSha`, `planSha256`, and
+`databases`. Each database freezes its name, the explicit foreign-key/sequence name arrays, and a
+per-table object containing the exact column and approved-aggregate inventories, expected batch
+count, batch inventory hash, and recomputed `tablePlanSha256`. The baseline file itself is accepted only when its raw
 SHA-256 equals `-ExpectedApprovedBaselineSha256`. Inventory hashing sorts names ordinally, joins
 them with a single LF byte, and hashes the UTF-8 bytes; the empty inventory is SHA-256 of zero
 bytes. Both baseline and receipt inventories are recomputed before comparison, preventing an
-arbitrary self-attested hash or planned-empty omission from becoming its own authority.
+arbitrary self-attested hash or planned-empty omission from becoming its own authority. A table-plan
+hash is SHA-256 over UTF-8 LF-separated `name`, column-inventory hash, aggregate-inventory hash,
+expected batch count, and batch inventory hash fields. The verifier recomputes it for the baseline
+and for the signed receipt before comparing the exact nested values.
+
+An approved baseline database therefore contains table entries shaped like this:
+
+```json
+{
+  "name": "dbo.customers",
+  "columns": ["id", "email"],
+  "approvedAggregates": ["id_range"],
+  "expectedBatchCount": 2,
+  "batchInventorySha256": "<64 lower-case hex>",
+  "tablePlanSha256": "<recomputed 64 lower-case hex>"
+}
+```
 
 Each entry in `mapping.databases` has this form:
 

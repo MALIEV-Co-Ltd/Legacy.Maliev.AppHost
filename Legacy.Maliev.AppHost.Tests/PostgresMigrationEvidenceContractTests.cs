@@ -70,6 +70,10 @@ public sealed class PostgresMigrationEvidenceContractTests
     [InlineData("self-attested-plan-drift")]
     [InlineData("self-attested-source-commit-drift")]
     [InlineData("self-attested-table-omission")]
+    [InlineData("self-attested-column-omission")]
+    [InlineData("self-attested-aggregate-omission")]
+    [InlineData("self-attested-batch-count-drift")]
+    [InlineData("self-attested-batch-inventory-drift")]
     [InlineData("self-attested-foreign-key-omission")]
     [InlineData("self-attested-sequence-omission")]
     [InlineData("approved-baseline-tamper")]
@@ -164,6 +168,38 @@ public sealed class PostgresMigrationEvidenceContractTests
         Assert.True(Directory.Exists(Path.Combine(evidence.LedgerPath, $"run-{evidence.RunId}")));
         Assert.True(Directory.Exists(Path.Combine(evidence.LedgerPath, $"evidence-{evidence.EvidenceId}")));
         Assert.True(Directory.Exists(Path.Combine(evidence.LedgerPath, $"lease-{evidence.LeaseId}")));
+    }
+
+    [Fact]
+    public async Task Validator_NormalizesGuidMarkerNamesBeforeConsumption()
+    {
+        using var evidence = TemporaryEvidence.Create("uppercase-identities");
+        var result = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
+
+        Assert.True(result.ExitCode == 0, result.StandardError);
+        string[] markerNames = Directory.GetDirectories(evidence.LedgerPath)
+            .Select(Path.GetFileName)
+            .Order(StringComparer.Ordinal)
+            .ToArray()!;
+        Assert.Equal(
+        [
+            $"evidence-{evidence.EvidenceId.ToLowerInvariant()}",
+            $"lease-{evidence.LeaseId.ToLowerInvariant()}",
+            $"run-{evidence.RunId.ToLowerInvariant()}",
+        ],
+            markerNames);
+    }
+
+    [Fact]
+    public async Task Validator_RejectsReplayWhenGuidCasingChanges()
+    {
+        using var firstEvidence = TemporaryEvidence.Create("uppercase-identities");
+        var first = await RunValidatorAsync(firstEvidence, firstEvidence.RequiredAsOfUtc);
+        using var lowerCaseReplay = TemporaryEvidence.Create("lowercase-identity-replay", firstEvidence.LedgerPath);
+        var replay = await RunValidatorAsync(lowerCaseReplay, lowerCaseReplay.RequiredAsOfUtc);
+
+        Assert.True(first.ExitCode == 0, first.StandardError);
+        Assert.NotEqual(0, replay.ExitCode);
     }
 
     [Fact]
@@ -329,7 +365,7 @@ public sealed class PostgresMigrationEvidenceContractTests
                 approvedBaselineSha256,
                 ledgerPath,
                 now.AddMinutes(-30).ToString("O"),
-                mutation is "reuse-run" or "reuse-evidence" or "reuse-lease"
+                mutation is "reuse-run" or "reuse-evidence" or "reuse-lease" or "uppercase-identities" or "lowercase-identity-replay"
                     ? execution["runId"]!.GetValue<string>()
                     : "11111111-1111-4111-8111-111111111111",
                 execution["runId"]!.GetValue<string>(),
@@ -548,7 +584,7 @@ public sealed class PostgresMigrationEvidenceContractTests
             JsonArray plans = (JsonArray)mapping["databases"]!;
             return new JsonObject
             {
-                ["schemaVersion"] = 1,
+                ["schemaVersion"] = 2,
                 ["sourceCommitSha"] = mapping["sourceCommitSha"]!.GetValue<string>(),
                 ["planSha256"] = mapping["planSha256"]!.GetValue<string>(),
                 ["databases"] = new JsonArray(plans.Select(node =>
@@ -561,10 +597,19 @@ public sealed class PostgresMigrationEvidenceContractTests
                         ["tableInventorySha256"] = plan["tableInventorySha256"]!.GetValue<string>(),
                         ["foreignKeyInventorySha256"] = plan["foreignKeyInventorySha256"]!.GetValue<string>(),
                         ["sequenceInventorySha256"] = plan["sequenceInventorySha256"]!.GetValue<string>(),
-                        ["tables"] = new JsonArray(tables
-                            .Select(table => ((JsonObject)table!)["name"]!.GetValue<string>())
-                            .Select(name => JsonValue.Create(name))
-                            .ToArray()),
+                        ["tables"] = new JsonArray(tables.Select(tableNode =>
+                        {
+                            JsonObject table = (JsonObject)tableNode!;
+                            return new JsonObject
+                            {
+                                ["name"] = table["name"]!.GetValue<string>(),
+                                ["columns"] = ((JsonArray)table["columns"]!).DeepClone(),
+                                ["approvedAggregates"] = ((JsonArray)table["approvedAggregates"]!).DeepClone(),
+                                ["expectedBatchCount"] = table["expectedBatchCount"]!.GetValue<long>(),
+                                ["batchInventorySha256"] = table["batchInventorySha256"]!.GetValue<string>(),
+                                ["tablePlanSha256"] = TablePlanHash(table),
+                            };
+                        }).ToArray()),
                         ["foreignKeys"] = ((JsonArray)plan["foreignKeys"]!).DeepClone(),
                         ["sequences"] = ((JsonArray)plan["sequences"]!).DeepClone(),
                     };
@@ -575,6 +620,22 @@ public sealed class PostgresMigrationEvidenceContractTests
         private static string InventoryHash(params string[] names)
         {
             string canonical = string.Join('\n', names.Order(StringComparer.Ordinal));
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
+        }
+
+        private static string TablePlanHash(JsonObject table)
+        {
+            string name = table["name"]!.GetValue<string>();
+            string[] columns = ((JsonArray)table["columns"]!).Select(node => node!.GetValue<string>()).ToArray();
+            string[] aggregates = ((JsonArray)table["approvedAggregates"]!).Select(node => node!.GetValue<string>()).ToArray();
+            long expectedBatchCount = table["expectedBatchCount"]!.GetValue<long>();
+            string batchInventorySha256 = table["batchInventorySha256"]!.GetValue<string>();
+            string canonical = string.Join('\n',
+                $"name={name}",
+                $"columnsSha256={InventoryHash(columns)}",
+                $"approvedAggregatesSha256={InventoryHash(aggregates)}",
+                $"expectedBatchCount={expectedBatchCount}",
+                $"batchInventorySha256={batchInventorySha256}");
             return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
         }
 
@@ -650,6 +711,60 @@ public sealed class PostgresMigrationEvidenceContractTests
                         first["targetRowCount"] = 0L;
                     }
                     break;
+                case "self-attested-column-omission":
+                    {
+                        JsonObject plan = (JsonObject)((JsonArray)((JsonObject)root["mapping"]!)["databases"]!)[0]!;
+                        JsonObject tablePlan = (JsonObject)((JsonArray)plan["tables"]!)[0]!;
+                        ((JsonArray)tablePlan["columns"]!).RemoveAt(1);
+                        tablePlan["expectedColumnCount"] = 1L;
+                        JsonObject table = (JsonObject)((JsonArray)first["tables"]!)[0]!;
+                        ((JsonArray)table["columns"]!).RemoveAt(1);
+                        table["columnCount"] = 1L;
+                    }
+                    break;
+                case "self-attested-aggregate-omission":
+                    {
+                        JsonObject plan = (JsonObject)((JsonArray)((JsonObject)root["mapping"]!)["databases"]!)[0]!;
+                        JsonObject tablePlan = (JsonObject)((JsonArray)plan["tables"]!)[0]!;
+                        ((JsonArray)tablePlan["approvedAggregates"]!).Clear();
+                        tablePlan["expectedAggregateCount"] = 0L;
+                        JsonObject table = (JsonObject)((JsonArray)first["tables"]!)[0]!;
+                        ((JsonArray)table["aggregates"]!).Clear();
+                        table["aggregateCount"] = 0L;
+                    }
+                    break;
+                case "self-attested-batch-count-drift":
+                    {
+                        JsonObject plan = (JsonObject)((JsonArray)((JsonObject)root["mapping"]!)["databases"]!)[0]!;
+                        JsonObject tablePlan = (JsonObject)((JsonArray)plan["tables"]!)[0]!;
+                        tablePlan["expectedBatchCount"] = 2L;
+                        tablePlan["batchInventorySha256"] = new string('e', 64);
+                        JsonObject table = (JsonObject)((JsonArray)first["tables"]!)[0]!;
+                        table["batchCount"] = 2L;
+                        table["batchInventorySha256"] = new string('e', 64);
+                        JsonArray batches = (JsonArray)table["batches"]!;
+                        JsonObject firstBatch = (JsonObject)batches[0]!;
+                        firstBatch["sourceRowCount"] = 5L;
+                        firstBatch["targetRowCount"] = 5L;
+                        batches.Add(new JsonObject
+                        {
+                            ["ordinal"] = 1L,
+                            ["sourceRowCount"] = 5L,
+                            ["targetRowCount"] = 5L,
+                            ["sourceContentSha256"] = firstBatch["sourceContentSha256"]!.GetValue<string>(),
+                            ["targetContentSha256"] = firstBatch["targetContentSha256"]!.GetValue<string>(),
+                        });
+                    }
+                    break;
+                case "self-attested-batch-inventory-drift":
+                    {
+                        JsonObject plan = (JsonObject)((JsonArray)((JsonObject)root["mapping"]!)["databases"]!)[0]!;
+                        JsonObject tablePlan = (JsonObject)((JsonArray)plan["tables"]!)[0]!;
+                        tablePlan["batchInventorySha256"] = new string('e', 64);
+                        JsonObject table = (JsonObject)((JsonArray)first["tables"]!)[0]!;
+                        table["batchInventorySha256"] = new string('e', 64);
+                    }
+                    break;
                 case "self-attested-foreign-key-omission":
                     {
                         JsonObject plan = (JsonObject)((JsonArray)((JsonObject)root["mapping"]!)["databases"]!)[0]!;
@@ -683,6 +798,22 @@ public sealed class PostgresMigrationEvidenceContractTests
                 case "reuse-lease":
                     ((JsonObject)root["execution"]!)["runId"] = "44444444-4444-4444-8444-444444444444";
                     ((JsonObject)root["execution"]!)["evidenceId"] = "55555555-5555-4555-8555-555555555555";
+                    break;
+                case "uppercase-identities":
+                    {
+                        JsonObject execution = (JsonObject)root["execution"]!;
+                        execution["runId"] = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA";
+                        execution["evidenceId"] = "BBBBBBBB-BBBB-4BBB-8BBB-BBBBBBBBBBBB";
+                        execution["leaseId"] = "CCCCCCCC-CCCC-4CCC-8CCC-CCCCCCCCCCCC";
+                    }
+                    break;
+                case "lowercase-identity-replay":
+                    {
+                        JsonObject execution = (JsonObject)root["execution"]!;
+                        execution["runId"] = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+                        execution["evidenceId"] = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+                        execution["leaseId"] = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+                    }
                     break;
                 case "planned-empty-relations":
                     JsonObject firstPlan = (JsonObject)((JsonArray)((JsonObject)root["mapping"]!)["databases"]!)[0]!;

@@ -66,12 +66,13 @@ function Assert-SafeIdentifier {
     }
 }
 
-function Assert-GuidIdentifier {
+function ConvertTo-NormalizedGuid {
     param([object]$Value, [string]$Path)
     $parsed = [Guid]::Empty
     if ($Value -isnot [string] -or -not [Guid]::TryParseExact($Value, 'D', [ref]$parsed) -or $parsed -eq [Guid]::Empty) {
         throw "$Path must be a non-empty canonical GUID."
     }
+    return $parsed.ToString('D').ToLowerInvariant()
 }
 
 function Assert-SafeBackupUri {
@@ -93,6 +94,25 @@ function Get-ExactNameInventory {
         }
     }
     return @($names | Sort-Object)
+}
+
+function Get-TablePlanSha256 {
+    param(
+        [string]$Name,
+        [string[]]$Columns,
+        [string[]]$ApprovedAggregates,
+        [long]$ExpectedBatchCount,
+        [string]$BatchInventorySha256
+    )
+    $canonical = @(
+        "name=$Name"
+        "columnsSha256=$(Get-InventorySha256 $Columns)"
+        "approvedAggregatesSha256=$(Get-InventorySha256 $ApprovedAggregates)"
+        "expectedBatchCount=$ExpectedBatchCount"
+        "batchInventorySha256=$BatchInventorySha256"
+    ) -join "`n"
+    return [Convert]::ToHexString(
+        [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($canonical))).ToLowerInvariant()
 }
 
 function Get-RequiredUtc {
@@ -210,8 +230,11 @@ Assert-Sha256 $evidence.mapping.planSha256 '$.mapping.planSha256'
 Assert-Sha256 $evidence.mapping.runnerDigestSha256 '$.mapping.runnerDigestSha256'
 Assert-SafeIdentifier $evidence.target.generation '$.target.generation'
 Assert-SafeIdentifier $evidence.target.restoreId '$.target.restoreId'
-foreach ($field in @('runId', 'evidenceId', 'leaseId')) { Assert-GuidIdentifier $evidence.execution[$field] "$.execution.$field" }
-if ($evidence.execution.runId -cne $ExpectedRunId -or
+$normalizedRunId = ConvertTo-NormalizedGuid $evidence.execution.runId '$.execution.runId'
+$normalizedEvidenceId = ConvertTo-NormalizedGuid $evidence.execution.evidenceId '$.execution.evidenceId'
+$normalizedLeaseId = ConvertTo-NormalizedGuid $evidence.execution.leaseId '$.execution.leaseId'
+$normalizedExpectedRunId = ConvertTo-NormalizedGuid $ExpectedRunId 'ExpectedRunId'
+if ($normalizedRunId -cne $normalizedExpectedRunId -or
     $evidence.execution.targetGeneration -cne $ExpectedTargetGeneration -or
     $evidence.execution.restoreId -cne $ExpectedRestoreId -or
     $evidence.execution.targetGeneration -cne $evidence.target.generation -or
@@ -219,9 +242,9 @@ if ($evidence.execution.runId -cne $ExpectedRunId -or
     $evidence.execution.state -ne 'completed') {
     throw 'Migration execution identity does not match the authorized run, target generation, restore, or terminal state.'
 }
-if ($evidence.execution.runId -eq $evidence.execution.evidenceId -or
-    $evidence.execution.runId -eq $evidence.execution.leaseId -or
-    $evidence.execution.evidenceId -eq $evidence.execution.leaseId) {
+if ($normalizedRunId -ceq $normalizedEvidenceId -or
+    $normalizedRunId -ceq $normalizedLeaseId -or
+    $normalizedEvidenceId -ceq $normalizedLeaseId) {
     throw 'Run, evidence, and lease identifiers must be unique.'
 }
 
@@ -308,7 +331,7 @@ catch {
 }
 Assert-ExactKeys $approvedBaseline @('schemaVersion', 'sourceCommitSha', 'planSha256', 'databases') '$baseline'
 Assert-NoSensitiveKeys $approvedBaseline '$baseline'
-if ($approvedBaseline.schemaVersion -isnot [long] -or $approvedBaseline.schemaVersion -ne 1) {
+if ($approvedBaseline.schemaVersion -isnot [long] -or $approvedBaseline.schemaVersion -ne 2) {
     throw 'The independently approved migration baseline has an unsupported schema version.'
 }
 Assert-Sha256 $approvedBaseline.planSha256 '$baseline.planSha256'
@@ -327,7 +350,36 @@ foreach ($baselineDatabase in $approvedBaseline.databases) {
         $approvedBaselineDatabases.ContainsKey($baselineDatabase.name)) {
         throw 'The independently approved baseline contains a duplicate or unknown database.'
     }
-    $baselineTables = @(Get-ExactNameInventory $baselineDatabase.tables '$baseline.databases[].tables' $false)
+    if ($baselineDatabase.tables -isnot [object[]] -or $baselineDatabase.tables.Count -eq 0) {
+        throw 'Every independently approved database baseline must include explicit per-table plans.'
+    }
+    $baselineTablePlans = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+    foreach ($baselineTable in $baselineDatabase.tables) {
+        Assert-ExactKeys $baselineTable @('name', 'columns', 'approvedAggregates', 'expectedBatchCount', 'batchInventorySha256', 'tablePlanSha256') '$baseline.databases[].tables[]'
+        if ($baselineTable.name -isnot [string] -or $baselineTable.name -notmatch '^[A-Za-z0-9_.:-]{1,128}$' -or
+            $baselineTablePlans.ContainsKey($baselineTable.name)) {
+            throw 'The independently approved baseline contains a duplicate or unsafe table plan.'
+        }
+        $baselineColumns = @(Get-ExactNameInventory $baselineTable.columns '$baseline.databases[].tables[].columns' $false)
+        $baselineAggregates = @(Get-ExactNameInventory $baselineTable.approvedAggregates '$baseline.databases[].tables[].approvedAggregates')
+        if ($baselineTable.expectedBatchCount -isnot [long] -or $baselineTable.expectedBatchCount -lt 0) {
+            throw 'The independently approved baseline contains an invalid expected batch count.'
+        }
+        Assert-Sha256 $baselineTable.batchInventorySha256 '$baseline.databases[].tables[].batchInventorySha256'
+        Assert-Sha256 $baselineTable.tablePlanSha256 '$baseline.databases[].tables[].tablePlanSha256'
+        $recomputedTablePlanSha256 = Get-TablePlanSha256 $baselineTable.name $baselineColumns $baselineAggregates $baselineTable.expectedBatchCount $baselineTable.batchInventorySha256
+        if ($baselineTable.tablePlanSha256 -cne $recomputedTablePlanSha256) {
+            throw 'The independently approved baseline table-plan hash does not match its exact nested evidence.'
+        }
+        $baselineTablePlans[$baselineTable.name] = [ordered]@{
+            Columns = $baselineColumns
+            Aggregates = $baselineAggregates
+            ExpectedBatchCount = $baselineTable.expectedBatchCount
+            BatchInventorySha256 = $baselineTable.batchInventorySha256
+            TablePlanSha256 = $recomputedTablePlanSha256
+        }
+    }
+    $baselineTables = @($baselineTablePlans.Keys | Sort-Object)
     $baselineForeignKeys = @(Get-ExactNameInventory $baselineDatabase.foreignKeys '$baseline.databases[].foreignKeys')
     $baselineSequences = @(Get-ExactNameInventory $baselineDatabase.sequences '$baseline.databases[].sequences')
     foreach ($field in @('tableInventorySha256', 'foreignKeyInventorySha256', 'sequenceInventorySha256')) {
@@ -340,7 +392,7 @@ foreach ($baselineDatabase in $approvedBaseline.databases) {
     }
     $approvedBaselineDatabases[$baselineDatabase.name] = [ordered]@{
         Receipt = $baselineDatabase
-        Tables = $baselineTables
+        Tables = $baselineTablePlans
         ForeignKeys = $baselineForeignKeys
         Sequences = $baselineSequences
     }
@@ -389,6 +441,7 @@ foreach ($databasePlan in $evidence.mapping.databases) {
             throw 'The signed table-plan column or aggregate count does not match its inventory.'
         }
         Assert-Sha256 $tablePlan.batchInventorySha256 '$.mapping.databases[].tables[].batchInventorySha256'
+        $tablePlanSha256 = Get-TablePlanSha256 $tablePlan.name $columns $aggregates $tablePlan.expectedBatchCount $tablePlan.batchInventorySha256
         $tablePlans[$tablePlan.name] = [ordered]@{
             Columns = $columns
             Aggregates = $aggregates
@@ -396,6 +449,7 @@ foreach ($databasePlan in $evidence.mapping.databases) {
             ExpectedAggregateCount = $tablePlan.expectedAggregateCount
             ExpectedBatchCount = $tablePlan.expectedBatchCount
             BatchInventorySha256 = $tablePlan.batchInventorySha256
+            TablePlanSha256 = $tablePlanSha256
         }
     }
     $tablePlanNames = @($tablePlans.Keys | Sort-Object)
@@ -408,10 +462,21 @@ foreach ($databasePlan in $evidence.mapping.databases) {
     if ($databasePlan.tableInventorySha256 -cne $approvedPlan.Receipt.tableInventorySha256 -or
         $databasePlan.foreignKeyInventorySha256 -cne $approvedPlan.Receipt.foreignKeyInventorySha256 -or
         $databasePlan.sequenceInventorySha256 -cne $approvedPlan.Receipt.sequenceInventorySha256 -or
-        (Compare-Object $tablePlanNames $approvedPlan.Tables -CaseSensitive) -or
+        (Compare-Object $tablePlanNames @($approvedPlan.Tables.Keys | Sort-Object) -CaseSensitive) -or
         (Compare-Object $foreignKeyPlanNames $approvedPlan.ForeignKeys -CaseSensitive) -or
         (Compare-Object $sequencePlanNames $approvedPlan.Sequences -CaseSensitive)) {
         throw 'The signed mapping-plan inventories differ from the independently owner-approved baseline.'
+    }
+    foreach ($tablePlanName in $tablePlanNames) {
+        $tablePlan = $tablePlans[$tablePlanName]
+        $approvedTablePlan = $approvedPlan.Tables[$tablePlanName]
+        if ($tablePlan.TablePlanSha256 -cne $approvedTablePlan.TablePlanSha256 -or
+            $tablePlan.ExpectedBatchCount -ne $approvedTablePlan.ExpectedBatchCount -or
+            $tablePlan.BatchInventorySha256 -cne $approvedTablePlan.BatchInventorySha256 -or
+            (Compare-Object $tablePlan.Columns $approvedTablePlan.Columns -CaseSensitive) -or
+            (Compare-Object $tablePlan.Aggregates $approvedTablePlan.Aggregates -CaseSensitive)) {
+            throw "The signed table plan '$tablePlanName' differs from the independently owner-approved nested evidence."
+        }
     }
     $mappingPlans[$databasePlan.name] = [ordered]@{
         Receipt = $databasePlan
@@ -570,9 +635,9 @@ if ((Compare-Object @($databaseNames | Sort-Object) $approvedMigrated -CaseSensi
 
 if ([string]::IsNullOrWhiteSpace($ConsumptionLedgerPath)) { throw 'A local one-time consumption ledger is required.' }
 $null = New-Item -ItemType Directory -Path $ConsumptionLedgerPath -Force
-$runMarker = Join-Path $ConsumptionLedgerPath "run-$($evidence.execution.runId)"
-$evidenceMarker = Join-Path $ConsumptionLedgerPath "evidence-$($evidence.execution.evidenceId)"
-$leaseMarker = Join-Path $ConsumptionLedgerPath "lease-$($evidence.execution.leaseId)"
+$runMarker = Join-Path $ConsumptionLedgerPath "run-$normalizedRunId"
+$evidenceMarker = Join-Path $ConsumptionLedgerPath "evidence-$normalizedEvidenceId"
+$leaseMarker = Join-Path $ConsumptionLedgerPath "lease-$normalizedLeaseId"
 $createdMarkers = [Collections.Generic.List[string]]::new()
 try {
     foreach ($marker in @($runMarker, $evidenceMarker, $leaseMarker)) {
