@@ -102,7 +102,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.Web
-          ref: fd4849e0788011e97a62d6bd99eed962e0354ec9
+          ref: c029ab07d58aec856cceac3942846835780a110e
           path: Legacy.Maliev.Web
           persist-credentials: false
       - name: Check out Employee service
