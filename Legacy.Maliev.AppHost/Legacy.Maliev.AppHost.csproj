@@ -6,9 +6,10 @@
     <LegacyMalievWebProject Condition="'$(LegacyMalievWebProject)' == ''">$(MalievWorkspaceRoot)\Legacy.Maliev.Web\Legacy.Maliev.Web\Legacy.Maliev.Web.csproj</LegacyMalievWebProject>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.4.6" />
-    <PackageReference Include="Aspire.Hosting.Redis" Version="13.4.6" />
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.5.3" />
+    <PackageReference Include="Aspire.Hosting.Redis" Version="13.5.3" />
     <PackageReference Include="Google.Cloud.SecretManager.V1" Version="2.8.0" />
+    <PackageReference Include="StackExchange.Redis" Version="2.13.17" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Legacy.Maliev.AppHost.Topology\Legacy.Maliev.AppHost.Topology.csproj" IsAspireProjectResource="false" />
