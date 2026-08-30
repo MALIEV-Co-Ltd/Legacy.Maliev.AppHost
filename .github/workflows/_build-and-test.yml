@@ -39,49 +39,49 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.CountryService
-          ref: 670f6c41a9fa6d2792bc4ce4e199d7cf5e67f4ae
+          ref: b643ce6480409d38935956a9db6f2a5908d326de
           path: Legacy.Maliev.CountryService
           persist-credentials: false
       - name: Check out Document service
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.DocumentService
-          ref: 755e9236114fb5cab73cc1667f3773eea32ba167
+          ref: 632c8494439815b91b01e7b69b325790e91a2355
           path: Legacy.Maliev.DocumentService
           persist-credentials: false
       - name: Check out Auth service
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.AuthService
-          ref: 9817cebd37354505073e75bf1954886a44bf74a8
+          ref: ad49105da8ddf416b1f097f607d475b1c634589c
           path: Legacy.Maliev.AuthService
           persist-credentials: false
       - name: Check out Customer service
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.CustomerService
-          ref: 1c488b344b3c97f8c0b3f356db8291ac3676f138
+          ref: de5de156276b7380ae2de1c95fbec19af59a43b1
           path: Legacy.Maliev.CustomerService
           persist-credentials: false
       - name: Check out Notification service
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.NotificationService
-          ref: 313c3fdc5568422218873e73b6f42c73763649e9
+          ref: 218170e2d398ffe5837173f9e0912618d7532406
           path: Legacy.Maliev.NotificationService
           persist-credentials: false
       - name: Check out Order service
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.OrderService
-          ref: bc880a1da771051b8caf8c135c0633ea43d1257e
+          ref: 2766fd61a556277e1911f2696cfb9a66dc53e0d2
           path: Legacy.Maliev.OrderService
           persist-credentials: false
       - name: Check out Quotation service
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.QuotationService
-          ref: fb4a28ab530f68ea9857643549afc909da381a47
+          ref: 14fa0cae2779f80a75cc0c3cfb09cbedbeed76fc
           path: Legacy.Maliev.QuotationService
           persist-credentials: false
       - name: Check out legacy service defaults
@@ -95,7 +95,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.CompatibilityContracts
-          ref: 78e48ffc4ee000df0510cba5e7c7a3c4c4d539d7
+          ref: 13eefdb44cad42b46216bb0378af8c76e3672c2c
           path: Legacy.Maliev.CompatibilityContracts
           persist-credentials: false
       - name: Check out Web BFF
@@ -109,56 +109,56 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.EmployeeService
-          ref: 0e2e8d6c35cee95857a8b6f324623c4bf4530fdc
+          ref: e5b6f8ad12964d6f57713b375c65de52bb44ca9d
           path: Legacy.Maliev.EmployeeService
           persist-credentials: false
       - name: Check out Catalog service
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.CatalogService
-          ref: d0e9cd8abd54c4a6d86ff20a64cff0520ffd3687
+          ref: 66342d5543373b17d309ac125216b959ea9e626f
           path: Legacy.Maliev.CatalogService
           persist-credentials: false
       - name: Check out Procurement service
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.ProcurementService
-          ref: 615208f72e91e44fa7703a67d07e8152977f23b4
+          ref: 26d7ab3e3963ea5127998e53a98af82d4a54176f
           path: Legacy.Maliev.ProcurementService
           persist-credentials: false
       - name: Check out File service
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.FileService
-          ref: 1fd9a8ef8713945984c3d17d1a327f086246976f
+          ref: 20f7c65d6ac5c7456a771287b0a1728a280d0e41
           path: Legacy.Maliev.FileService
           persist-credentials: false
       - name: Check out Intranet
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.Intranet
-          ref: d239ed6fd4f9d1ad591545546fbc074e60071b80
+          ref: 440af8feaf5fdf09b435e70a1bdf6c8cf706ea44
           path: Legacy.Maliev.Intranet
           persist-credentials: false
       - name: Check out Career service
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.CareerService
-          ref: 22f3697a42b89cbc2aabff85e80b276f281c1e92
+          ref: 56b052d577b8ff83d36204df01c5c2241660c57b
           path: Legacy.Maliev.CareerService
           persist-credentials: false
       - name: Check out Contact service
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.ContactService
-          ref: 21c34697c08af93455b8753c9c360f9d9724024d
+          ref: 1d145919a9e89e56b36c44b43e43b606f38a3de5
           path: Legacy.Maliev.ContactService
           persist-credentials: false
       - name: Check out Accounting service
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.AccountingService
-          ref: 01573c0d027e347b5fbdc8a2468c7100757ba502
+          ref: 332f77e8550f4deae1efab60931b4f6505ea69a9
           path: Legacy.Maliev.AccountingService
           persist-credentials: false
       - name: Validate .NET solution
