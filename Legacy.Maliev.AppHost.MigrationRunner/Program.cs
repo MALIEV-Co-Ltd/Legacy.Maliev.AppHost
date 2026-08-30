@@ -32,6 +32,18 @@ var workload = args.FirstOrDefault()
     ?? throw new InvalidOperationException("A migration workload is required.");
 var snapshotDirectory = Environment.GetEnvironmentVariable("LEGACY_SNAPSHOT_DIRECTORY");
 
+if (workload == "snapshot-preflight")
+{
+    if (string.IsNullOrWhiteSpace(snapshotDirectory))
+    {
+        throw new InvalidOperationException("LEGACY_SNAPSHOT_DIRECTORY is required for snapshot preflight.");
+    }
+
+    VerifySnapshot(snapshotDirectory);
+    Console.WriteLine("Authenticated encrypted exact-25 snapshot preflight passed.");
+    return;
+}
+
 if (string.Equals(Environment.GetEnvironmentVariable("LEGACY_SKIP_MIGRATE"), "true", StringComparison.OrdinalIgnoreCase))
 {
     if (string.IsNullOrWhiteSpace(snapshotDirectory))
@@ -156,6 +168,23 @@ static async Task RestoreSnapshotAsync(
     }
 
     Console.WriteLine($"Restored the verified encrypted local PostgreSQL snapshot for database '{databaseName}'.");
+}
+
+static void VerifySnapshot(string snapshotDirectory)
+{
+    string keyFile = Environment.GetEnvironmentVariable("LEGACY_SNAPSHOT_ENCRYPTION_KEY_FILE")
+        ?? throw new InvalidOperationException("LEGACY_SNAPSHOT_ENCRYPTION_KEY_FILE is required for snapshot preflight.");
+    string expectedSnapshotId = Environment.GetEnvironmentVariable("LEGACY_SNAPSHOT_ID")
+        ?? throw new InvalidOperationException("LEGACY_SNAPSHOT_ID is required for snapshot preflight.");
+    byte[] key = SnapshotEncryptionKey.Load(keyFile);
+    try
+    {
+        _ = LegacyLocalSnapshot.Load(snapshotDirectory, key, expectedSnapshotId);
+    }
+    finally
+    {
+        CryptographicOperations.ZeroMemory(key);
+    }
 }
 
 static async Task SeedLocalSnapshotFixtureAsync(string databaseName, string connectionString)

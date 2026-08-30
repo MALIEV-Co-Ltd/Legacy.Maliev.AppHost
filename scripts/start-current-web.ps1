@@ -2,6 +2,12 @@
 param(
     [string] $WebRepositoryRoot,
     [string] $SnapshotDirectory,
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$SnapshotEncryptionKeyFile,
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')]
+    [string]$SnapshotId,
     [ValidateRange(1, 65535)]
     [int] $WebPort = 5088,
     [ValidateSet('Debug', 'Release')]
@@ -47,12 +53,28 @@ function Get-PortOwner {
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $appHostProject = Join-Path $repositoryRoot 'Legacy.Maliev.AppHost\Legacy.Maliev.AppHost.csproj'
+$migrationRunnerProject = Join-Path $repositoryRoot 'Legacy.Maliev.AppHost.MigrationRunner\Legacy.Maliev.AppHost.MigrationRunner.csproj'
 $workspaceRoot = Split-Path -Parent $repositoryRoot
 if ([string]::IsNullOrWhiteSpace($SnapshotDirectory)) {
     $snapshotRoot = Join-Path $env:LOCALAPPDATA 'MALIEV\legacy-postgres-snapshots'
     if (Test-Path -LiteralPath $snapshotRoot -PathType Container) {
         $SnapshotDirectory = Get-ChildItem -LiteralPath $snapshotRoot -Directory |
-            Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'manifest.json') -PathType Leaf } |
+            Where-Object {
+                $manifestPath = Join-Path $_.FullName 'manifest.json'
+                if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+                    return $false
+                }
+                try {
+                    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+                    return $manifest.SchemaVersion -eq 2 -and
+                        $manifest.Format -eq 'MLVSNP02' -and
+                        $manifest.Encryption -eq 'AES-256-GCM-chunked-v2' -and
+                        $manifest.SnapshotId -eq $SnapshotId
+                }
+                catch {
+                    return $false
+                }
+            } |
             Sort-Object LastWriteTime -Descending |
             Select-Object -First 1 -ExpandProperty FullName
     }
@@ -65,10 +87,38 @@ $SnapshotDirectory = (Resolve-Path -LiteralPath $SnapshotDirectory).Path
 if (-not (Test-Path -LiteralPath (Join-Path $SnapshotDirectory 'manifest.json') -PathType Leaf)) {
     throw "Existing-credential local testing requires manifest.json in the snapshot directory: $SnapshotDirectory"
 }
+$manifest = Get-Content -LiteralPath (Join-Path $SnapshotDirectory 'manifest.json') -Raw | ConvertFrom-Json
+if ($manifest.SchemaVersion -ne 2 -or $manifest.Format -ne 'MLVSNP02' -or
+    $manifest.Encryption -ne 'AES-256-GCM-chunked-v2' -or $manifest.SnapshotId -ne $SnapshotId) {
+    throw "The selected snapshot is not the authenticated v2 snapshot '$SnapshotId': $SnapshotDirectory"
+}
+if (-not (Test-Path -LiteralPath $SnapshotEncryptionKeyFile -PathType Leaf)) {
+    throw "Snapshot encryption key file does not exist: $SnapshotEncryptionKeyFile"
+}
+$SnapshotEncryptionKeyFile = (Resolve-Path -LiteralPath $SnapshotEncryptionKeyFile).Path
 
 [Environment]::SetEnvironmentVariable('LEGACY_LOCAL_SNAPSHOT', 'true')
 [Environment]::SetEnvironmentVariable('LEGACY_LOCAL_SNAPSHOT_DIR', $SnapshotDirectory)
+[Environment]::SetEnvironmentVariable('LEGACY_MIGRATION_SNAPSHOT_ENCRYPTION_KEY_FILE', $SnapshotEncryptionKeyFile)
+[Environment]::SetEnvironmentVariable('LEGACY_LOCAL_SNAPSHOT_ID', $SnapshotId)
 [Environment]::SetEnvironmentVariable('LEGACY_LOCAL_FIXTURES', 'false')
+$previousSnapshotDirectory = [Environment]::GetEnvironmentVariable('LEGACY_SNAPSHOT_DIRECTORY')
+$previousSnapshotKeyFile = [Environment]::GetEnvironmentVariable('LEGACY_SNAPSHOT_ENCRYPTION_KEY_FILE')
+$previousSnapshotId = [Environment]::GetEnvironmentVariable('LEGACY_SNAPSHOT_ID')
+try {
+    [Environment]::SetEnvironmentVariable('LEGACY_SNAPSHOT_DIRECTORY', $SnapshotDirectory)
+    [Environment]::SetEnvironmentVariable('LEGACY_SNAPSHOT_ENCRYPTION_KEY_FILE', $SnapshotEncryptionKeyFile)
+    [Environment]::SetEnvironmentVariable('LEGACY_SNAPSHOT_ID', $SnapshotId)
+    & dotnet run --project $migrationRunnerProject --configuration $Configuration -- snapshot-preflight
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Authenticated encrypted exact-25 snapshot preflight failed.'
+    }
+}
+finally {
+    [Environment]::SetEnvironmentVariable('LEGACY_SNAPSHOT_DIRECTORY', $previousSnapshotDirectory)
+    [Environment]::SetEnvironmentVariable('LEGACY_SNAPSHOT_ENCRYPTION_KEY_FILE', $previousSnapshotKeyFile)
+    [Environment]::SetEnvironmentVariable('LEGACY_SNAPSHOT_ID', $previousSnapshotId)
+}
 if (-not $WebRepositoryRoot) {
     $gitCommonDirectory = Invoke-Git -RepositoryRoot $repositoryRoot -Arguments @(
         'rev-parse', '--path-format=absolute', '--git-common-dir')

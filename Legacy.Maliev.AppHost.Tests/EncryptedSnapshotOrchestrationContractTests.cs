@@ -46,16 +46,32 @@ public sealed class EncryptedSnapshotOrchestrationContractTests
         Assert.DoesNotContain("Path.GetTempPath", topology, StringComparison.Ordinal);
         Assert.DoesNotContain("CreatePlaintextOptions", topology, StringComparison.Ordinal);
         Assert.Contains("CryptographicOperations.ZeroMemory(plain)", topology, StringComparison.Ordinal);
+        Assert.Contains("workload == \"snapshot-preflight\"", source, StringComparison.Ordinal);
+        Assert.Contains("VerifySnapshot(snapshotDirectory)", source, StringComparison.Ordinal);
+        Assert.Contains("LegacyLocalSnapshot.Load(snapshotDirectory, key, expectedSnapshotId)", source, StringComparison.Ordinal);
     }
 
     [Fact]
     public void StartScript_RequiresKeyFileReferenceAndNeverAcceptsInlineKey()
     {
-        string source = File.ReadAllText(Path.Combine(Root, "scripts", "start-local-snapshot-aspire.ps1"));
-        Assert.Contains("[string]$SnapshotEncryptionKeyFile", source, StringComparison.Ordinal);
-        Assert.Contains("LEGACY_MIGRATION_SNAPSHOT_ENCRYPTION_KEY_FILE", source, StringComparison.Ordinal);
-        Assert.Contains("[string]$SnapshotId", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("SnapshotEncryptionKey =", source, StringComparison.Ordinal);
+        foreach (string script in new[] { "start-local-snapshot-aspire.ps1", "start-current-web.ps1" })
+        {
+            string source = File.ReadAllText(Path.Combine(Root, "scripts", script));
+            Assert.Contains("[string]$SnapshotEncryptionKeyFile", source, StringComparison.Ordinal);
+            Assert.Contains("LEGACY_MIGRATION_SNAPSHOT_ENCRYPTION_KEY_FILE", source, StringComparison.Ordinal);
+            Assert.Contains("[string]$SnapshotId", source, StringComparison.Ordinal);
+            Assert.Contains("LEGACY_LOCAL_SNAPSHOT_ID", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("SnapshotEncryptionKey =", source, StringComparison.Ordinal);
+            if (script == "start-current-web.ps1")
+            {
+                Assert.Contains("AES-256-GCM-chunked-v2", source, StringComparison.Ordinal);
+                Assert.Contains("$manifest.Format -ne 'MLVSNP02'", source, StringComparison.Ordinal);
+                Assert.DoesNotContain("postgres-custom", source, StringComparison.Ordinal);
+                Assert.Contains("$manifest.SnapshotId -ne $SnapshotId", source, StringComparison.Ordinal);
+                Assert.Contains("snapshot-preflight", source, StringComparison.Ordinal);
+                Assert.Contains("LEGACY_SNAPSHOT_ENCRYPTION_KEY_FILE", source, StringComparison.Ordinal);
+            }
+        }
     }
 
     [Fact]
