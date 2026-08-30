@@ -4,6 +4,14 @@ param(
     [ValidateNotNullOrEmpty()]
     [string]$SnapshotDirectory,
 
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$SnapshotEncryptionKeyFile,
+
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')]
+    [string]$SnapshotId,
+
     [string]$WorkspaceRoot = 'B:\maliev-legacy',
     [string]$AppHostProject = '',
     [string]$LegacyWebProject = '',
@@ -20,6 +28,11 @@ $ErrorActionPreference = 'Stop'
 if (-not (Test-Path -LiteralPath $SnapshotDirectory -PathType Container)) {
     throw "Snapshot directory does not exist: $SnapshotDirectory"
 }
+
+if (-not (Test-Path -LiteralPath $SnapshotEncryptionKeyFile -PathType Leaf)) {
+    throw "Snapshot encryption key file does not exist: $SnapshotEncryptionKeyFile"
+}
+$SnapshotEncryptionKeyFile = (Resolve-Path -LiteralPath $SnapshotEncryptionKeyFile).Path
 
 $appHostRoot = Split-Path -Parent $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($AppHostProject)) {
@@ -78,6 +91,8 @@ $environment = @{
     MalievWorkspaceRoot = $WorkspaceRoot
     LEGACY_LOCAL_SNAPSHOT = 'true'
     LEGACY_LOCAL_SNAPSHOT_DIR = $SnapshotDirectory
+    LEGACY_MIGRATION_SNAPSHOT_ENCRYPTION_KEY_FILE = $SnapshotEncryptionKeyFile
+    LEGACY_LOCAL_SNAPSHOT_ID = $SnapshotId
     LEGACY_LOCAL_FIXTURES = if ($IncludeLocalFixtures) { 'true' } else { 'false' }
     LEGACY_WEB_PROJECT = $LegacyWebProject
     LEGACY_WEB_REPOSITORY = $LegacyWebRepository

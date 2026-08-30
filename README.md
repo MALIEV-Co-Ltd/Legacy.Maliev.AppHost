@@ -154,15 +154,25 @@ seed rows, use the guarded snapshot launcher:
 ```powershell
 dotnet build .\Legacy.Maliev.AppHost\Legacy.Maliev.AppHost.csproj -c Release --nologo
 .\scripts\start-local-snapshot-aspire.ps1 `
-  -SnapshotDirectory 'C:\Users\<you>\AppData\Local\MALIEV\legacy-postgres-snapshots\gke-<timestamp>'
+  -SnapshotDirectory 'C:\Users\<you>\AppData\Local\MALIEV\legacy-postgres-snapshots\gke-<timestamp>' `
+  -SnapshotEncryptionKeyFile 'C:\Users\<you>\AppData\Local\MALIEV\keys\snapshot.key' `
+  -SnapshotId '<exact-migration-run-id>'
 ```
 
-The snapshot directory must contain the manifest and all 25 custom-format archives produced by
-the read-only PostgreSQL export from `legacy-postgres-main`. AppHost validates the manifest,
-archive names, sizes, and SHA-256 checksums before creating any resources. Each local migration
-runner then restores its database with `pg_restore --clean --if-exists --single-transaction`; the
-three preserved stores without an extracted service migration runner (Currency and both data
-protection-key databases) are restored by dedicated snapshot resources as well. The Auth refresh
+The snapshot directory must contain the authenticated schema-version-2 manifest and all 25 encrypted
+`*.dump.aes256` archives produced by the read-only PostgreSQL export from `legacy-postgres-main`.
+Each migration runner loads the 32-byte base64 root key from the external file reference, derives
+domain-separated encryption and manifest-authentication keys with HKDF-SHA256, authenticates the
+canonical exact-25 manifest, and rejects a stale snapshot id before using any entry. It opens each
+ciphertext once as an owner-only non-link file, hashes and decrypts that same handle, validates the
+plaintext length and SHA-256,
+then restores it with `pg_restore --clean --if-exists --single-transaction`. Verified plaintext is
+deleted on success, failure, or cancellation. Keep the key file outside Git and the snapshot
+directory; never pass key bytes in an argument, environment variable, manifest, or log.
+
+The seven preserved stores without an extracted service migration runner (ContactRequest,
+Currency, both data-protection-key databases, Hangfire, LocationData, and Log) are restored by
+dedicated snapshot resources as well. The Auth refresh
 session database remains local-only and is migrated normally, so local sign-in state cannot write
 to GKE.
 

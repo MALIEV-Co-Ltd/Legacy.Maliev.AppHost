@@ -1242,7 +1242,8 @@ public sealed class AppHostSourceContractTests
     {
         var root = FindRepositoryRoot();
         var appHostSource = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
-        var runnerSource = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost.MigrationRunner", "Program.cs"));
+        var runnerSource = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost.MigrationRunner", "Program.cs")) +
+            File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost.MigrationRunner", "PgRestoreRunner.cs"));
 
         // Every migration-runner resource is told to skip in GKE validation mode...
         Assert.Contains(
@@ -1266,12 +1267,12 @@ public sealed class AppHostSourceContractTests
     {
         var root = FindRepositoryRoot();
         var appHostSource = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
-        var runnerSource = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost.MigrationRunner", "Program.cs"));
+        var runnerSource = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost.MigrationRunner", "Program.cs")) +
+            File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost.MigrationRunner", "PgRestoreRunner.cs"));
 
         Assert.Contains("LEGACY_LOCAL_SNAPSHOT", appHostSource, StringComparison.Ordinal);
         Assert.Contains("LEGACY_LOCAL_SNAPSHOT_DIR", appHostSource, StringComparison.Ordinal);
-        Assert.Contains("LegacyLocalSnapshot.Load", appHostSource, StringComparison.Ordinal);
-        Assert.Contains("LegacyTopology.DatabaseNames", appHostSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("SnapshotEncryptionKey.Load", appHostSource, StringComparison.Ordinal);
         Assert.Contains("LEGACY_SNAPSHOT_DIRECTORY", appHostSource, StringComparison.Ordinal);
         Assert.Contains(
             "if (localSnapshotMode)\r\n{\r\n    _ = AddSnapshotMigration(\"legacy-contact-request-snapshot\", \"ContactRequest\");",
@@ -1281,7 +1282,7 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("AddSnapshotMigration(\"legacy-location-data-snapshot\", \"LocationData\")", appHostSource, StringComparison.Ordinal);
         Assert.Contains("AddSnapshotMigration(\"legacy-hangfire-archive-snapshot\", \"Hangfire\")", appHostSource, StringComparison.Ordinal);
         Assert.Contains("AddSnapshotMigration(\"legacy-log-archive-snapshot\", \"Log\")", appHostSource, StringComparison.Ordinal);
-        Assert.Contains("LegacyLocalSnapshot.Load(snapshotDirectory)", runnerSource, StringComparison.Ordinal);
+        Assert.Contains("LegacyLocalSnapshot.Load(snapshotDirectory, key, expectedSnapshotId)", runnerSource, StringComparison.Ordinal);
         Assert.Contains("pg_restore", runnerSource, StringComparison.Ordinal);
         Assert.Contains("--no-owner", runnerSource, StringComparison.Ordinal);
         Assert.Contains("--no-privileges", runnerSource, StringComparison.Ordinal);

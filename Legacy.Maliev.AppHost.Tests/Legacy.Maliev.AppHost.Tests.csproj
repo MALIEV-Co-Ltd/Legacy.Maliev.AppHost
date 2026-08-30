@@ -17,6 +17,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\Legacy.Maliev.AppHost.MigrationRunner\SchemaBaselineGate.cs" Link="SchemaBaselineGate.cs" />
+    <Compile Include="..\Legacy.Maliev.AppHost.MigrationRunner\PgRestoreProcessTermination.cs" Link="PgRestoreProcessTermination.cs" />
+    <Compile Include="..\Legacy.Maliev.AppHost.MigrationRunner\PgRestoreRunner.cs" Link="PgRestoreRunner.cs" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
