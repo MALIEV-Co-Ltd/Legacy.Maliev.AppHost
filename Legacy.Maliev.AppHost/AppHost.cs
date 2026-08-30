@@ -13,6 +13,8 @@ var recaptchaProjectIdFromProcess = Environment.GetEnvironmentVariable("MALIEV_R
 var gkeValidationModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_GKE_VALIDATION"), "true", StringComparison.OrdinalIgnoreCase);
 var localSnapshotModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_SNAPSHOT"), "true", StringComparison.OrdinalIgnoreCase);
 var localSnapshotDirectoryRequested = Environment.GetEnvironmentVariable("LEGACY_LOCAL_SNAPSHOT_DIR")?.Trim();
+var localSnapshotKeyFileRequested = Environment.GetEnvironmentVariable("LEGACY_MIGRATION_SNAPSHOT_ENCRYPTION_KEY_FILE")?.Trim();
+var localSnapshotIdRequested = Environment.GetEnvironmentVariable("LEGACY_LOCAL_SNAPSHOT_ID")?.Trim();
 var localFixturesRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_FIXTURES"), "true", StringComparison.OrdinalIgnoreCase);
 if (gkeValidationModeRequested && localSnapshotModeRequested)
 {
@@ -24,19 +26,24 @@ if (localSnapshotModeRequested && string.IsNullOrWhiteSpace(localSnapshotDirecto
     throw new InvalidOperationException("LEGACY_LOCAL_SNAPSHOT_DIR is required when LEGACY_LOCAL_SNAPSHOT=true.");
 }
 
+if (localSnapshotModeRequested && (string.IsNullOrWhiteSpace(localSnapshotKeyFileRequested) ||
+    !File.Exists(Path.GetFullPath(localSnapshotKeyFileRequested))))
+{
+    throw new InvalidOperationException(
+        "LEGACY_MIGRATION_SNAPSHOT_ENCRYPTION_KEY_FILE must reference an existing key file when LEGACY_LOCAL_SNAPSHOT=true.");
+}
+
+if (localSnapshotModeRequested && string.IsNullOrWhiteSpace(localSnapshotIdRequested))
+{
+    throw new InvalidOperationException("LEGACY_LOCAL_SNAPSHOT_ID is required when LEGACY_LOCAL_SNAPSHOT=true.");
+}
+
 if (localFixturesRequested && !localSnapshotModeRequested)
 {
     throw new InvalidOperationException("LEGACY_LOCAL_FIXTURES requires LEGACY_LOCAL_SNAPSHOT=true.");
 }
 
 LocalEnvironmentPolicy.SanitizeCurrentProcess();
-if (localSnapshotModeRequested)
-{
-    // This is a local-only, non-secret path inherited by the migration runner
-    // processes. The runner validates the manifest and every archive checksum
-    // before restoring; no service uses this value as application configuration.
-    Environment.SetEnvironmentVariable("LEGACY_SNAPSHOT_DIRECTORY", localSnapshotDirectoryRequested);
-}
 Console.WriteLine(
     "Legacy Web source identity: repository={0}; branch={1}; commit={2}; project={3}; port={4}",
     legacyWebIdentity.Repository,
@@ -58,14 +65,6 @@ var gkeSecrets = gkeValidationMode ? LoadGkeValidationSecrets() : null;
 var localSnapshotMode = localSnapshotModeRequested;
 var localFixtures = localSnapshotMode && localFixturesRequested;
 var allowExactSnapshotServiceClaims = localSnapshotMode ? "true" : "false";
-if (localSnapshotMode)
-{
-    var snapshot = LegacyLocalSnapshot.Load(localSnapshotDirectoryRequested!);
-    foreach (var databaseName in LegacyTopology.DatabaseNames)
-    {
-        _ = snapshot.GetArchivePath(databaseName);
-    }
-}
 if (gkeValidationMode)
 {
     // Auto-starts with the app host; no other resource WaitFor()s it so the local
@@ -367,6 +366,9 @@ IResourceBuilder<ProjectResource> AddSnapshotMigration(string resourceName, stri
         .WithArgs("snapshot", databaseName)
         .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
         .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", "false")
+        .WithEnvironment("LEGACY_SNAPSHOT_DIRECTORY", localSnapshotDirectoryRequested)
+        .WithEnvironment("LEGACY_SNAPSHOT_ENCRYPTION_KEY_FILE", localSnapshotKeyFileRequested)
+        .WithEnvironment("LEGACY_SNAPSHOT_ID", localSnapshotIdRequested)
         .WithEnvironment("ConnectionStrings__SnapshotDb", database.Resource.ConnectionStringExpression)
         .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
         .WithEnvironment("PGGSSENCMODE", "disable")
@@ -1048,6 +1050,21 @@ var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legac
 // is slow to start, which is the exact class of bug this AppHost is meant to avoid.
 // WithReference above still gives the Bff their URLs; slow/late services just mean
 // Customers/Suppliers/Purchase Orders/Finances/Invoices load late, not that login blocks.
+
+// Do not rely on parent-process environment inheritance for authenticated snapshot identity.
+// Every workload capable of consuming a snapshot receives the run identity explicitly.
+foreach (IResourceBuilder<ProjectResource> snapshotRunner in new[]
+{
+    countryMigrations, authMigrations, customerIdentityMigrations, employeeIdentityMigrations,
+    customerMigrations, employeeMigrations, catalogMigrations, supplierMigrations, purchaseOrderMigrations,
+    fileMigrations, orderMigrations, orderStatusMigrations, quotationMigrations, quotationRequestMigrations,
+    careerMigrations, contactMigrations, paymentMigrations, invoiceMigrations, receiptMigrations
+})
+{
+    snapshotRunner.WithEnvironment("LEGACY_SNAPSHOT_DIRECTORY", localSnapshotDirectoryRequested);
+    snapshotRunner.WithEnvironment("LEGACY_SNAPSHOT_ENCRYPTION_KEY_FILE", localSnapshotKeyFileRequested);
+    snapshotRunner.WithEnvironment("LEGACY_SNAPSHOT_ID", localSnapshotIdRequested);
+}
 
 builder.Build().Run();
 

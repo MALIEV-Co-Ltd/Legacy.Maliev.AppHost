@@ -1,5 +1,3 @@
-using DiagnosticsProcess = System.Diagnostics.Process;
-using DiagnosticsProcessStartInfo = System.Diagnostics.ProcessStartInfo;
 using Legacy.Maliev.AppHost.MigrationRunner;
 using Legacy.Maliev.AuthService.Infrastructure;
 using Legacy.Maliev.AppHost.Topology;
@@ -21,6 +19,14 @@ using Legacy.Maliev.AccountingService.Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using System.Security.Cryptography;
+
+using var shutdown = new CancellationTokenSource();
+Console.CancelKeyPress += (_, eventArgs) =>
+{
+    eventArgs.Cancel = true;
+    shutdown.Cancel();
+};
 
 var workload = args.FirstOrDefault()
     ?? throw new InvalidOperationException("A migration workload is required.");
@@ -54,7 +60,7 @@ if (string.Equals(Environment.GetEnvironmentVariable("LEGACY_SKIP_MIGRATE"), "tr
         throw new InvalidOperationException($"The {snapshotConnectionName} snapshot connection string is required.");
     }
 
-    await RestoreSnapshotAsync(snapshotDirectory, snapshotDatabase, snapshotConnectionString);
+    await RestoreSnapshotAsync(snapshotDirectory, snapshotDatabase, snapshotConnectionString, shutdown.Token);
     if (string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_FIXTURES"), "true", StringComparison.OrdinalIgnoreCase))
     {
         await SeedLocalSnapshotFixtureAsync(snapshotDatabase, snapshotConnectionString);
@@ -127,69 +133,29 @@ static string DatabaseNameForWorkload(string workload) => workload switch
 static async Task RestoreSnapshotAsync(
     string snapshotDirectory,
     string databaseName,
-    string connectionString)
+    string connectionString,
+    CancellationToken cancellationToken)
 {
-    var archivePath = LegacyLocalSnapshot.Load(snapshotDirectory).GetArchivePath(databaseName);
-    var connection = new NpgsqlConnectionStringBuilder(connectionString);
-    var password = connection.Password;
-    var host = connection.Host ?? throw new InvalidOperationException("Snapshot connection host is required.");
-    var username = connection.Username ?? throw new InvalidOperationException("Snapshot connection username is required.");
-    var database = connection.Database ?? throw new InvalidOperationException("Snapshot connection database is required.");
-
-    var startInfo = new DiagnosticsProcessStartInfo
-    {
-        FileName = Environment.GetEnvironmentVariable("PG_RESTORE_PATH") ?? "pg_restore",
-        UseShellExecute = false,
-        RedirectStandardError = true,
-        RedirectStandardOutput = true,
-        CreateNoWindow = true,
-    };
-    startInfo.ArgumentList.Add("--exit-on-error");
-    startInfo.ArgumentList.Add("--clean");
-    startInfo.ArgumentList.Add("--if-exists");
-    startInfo.ArgumentList.Add("--no-owner");
-    startInfo.ArgumentList.Add("--no-privileges");
-    startInfo.ArgumentList.Add("--single-transaction");
-    startInfo.ArgumentList.Add("--no-password");
-    startInfo.ArgumentList.Add("--host");
-    startInfo.ArgumentList.Add(host);
-    startInfo.ArgumentList.Add("--port");
-    startInfo.ArgumentList.Add(connection.Port.ToString(System.Globalization.CultureInfo.InvariantCulture));
-    startInfo.ArgumentList.Add("--username");
-    startInfo.ArgumentList.Add(username);
-    startInfo.ArgumentList.Add("--dbname");
-    startInfo.ArgumentList.Add(database);
-    startInfo.ArgumentList.Add(archivePath);
-    if (!string.IsNullOrWhiteSpace(password))
-    {
-        startInfo.Environment["PGPASSWORD"] = password;
-    }
-
-    using var process = new DiagnosticsProcess { StartInfo = startInfo };
+    string keyFile = Environment.GetEnvironmentVariable("LEGACY_SNAPSHOT_ENCRYPTION_KEY_FILE")
+        ?? throw new InvalidOperationException("LEGACY_SNAPSHOT_ENCRYPTION_KEY_FILE is required for local snapshot restore.");
+    string expectedSnapshotId = Environment.GetEnvironmentVariable("LEGACY_SNAPSHOT_ID")
+        ?? throw new InvalidOperationException("LEGACY_SNAPSHOT_ID is required for local snapshot restore.");
+    byte[] key = SnapshotEncryptionKey.Load(keyFile);
     try
     {
-        if (!process.Start())
-        {
-            throw new InvalidOperationException("pg_restore could not be started.");
-        }
+        await LegacyLocalSnapshot.Load(snapshotDirectory, key, expectedSnapshotId).RestoreVerifiedAsync(
+            databaseName,
+            key,
+            (writeArchive, restoreCancellationToken) => PgRestoreRunner.RunPgRestoreAsync(
+                writeArchive, databaseName, connectionString, restoreCancellationToken),
+            cancellationToken);
     }
-    catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
+    finally
     {
-        throw new InvalidOperationException(
-            "The local snapshot requires pg_restore in PATH or PG_RESTORE_PATH.",
-            exception);
+        CryptographicOperations.ZeroMemory(key);
     }
 
-    var standardOutputTask = process.StandardOutput.ReadToEndAsync();
-    var standardErrorTask = process.StandardError.ReadToEndAsync();
-    await process.WaitForExitAsync();
-    await Task.WhenAll(standardOutputTask, standardErrorTask);
-    if (process.ExitCode != 0)
-    {
-        throw new InvalidOperationException($"pg_restore failed for database '{databaseName}'.");
-    }
-
-    Console.WriteLine($"Restored the verified local PostgreSQL snapshot for database '{databaseName}'.");
+    Console.WriteLine($"Restored the verified encrypted local PostgreSQL snapshot for database '{databaseName}'.");
 }
 
 static async Task SeedLocalSnapshotFixtureAsync(string databaseName, string connectionString)

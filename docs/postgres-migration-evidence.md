@@ -172,7 +172,7 @@ signature over the 32 hash bytes. Producers must use those rules exactly.
 ```powershell
 pwsh ./scripts/verify-postgres-migration-evidence.ps1 `
   -EvidencePath C:/review/postgres-shadow.json `
-  -ExpectedDatabase Country,Currency,Customer,CustomerIdentity,DataProtectionKeys,DataProtectionKeysEmployee,Employee,EmployeeIdentity,Invoice,JobOffers,Material,Message,Order,OrderStatus,Payment,PurchaseOrder,Quotation,QuotationRequest,Receipt,Supplier,Upload `
+  -ExpectedDatabase ContactRequest,Country,Currency,Customer,CustomerIdentity,DataProtectionKeys,DataProtectionKeysEmployee,Employee,EmployeeIdentity,Hangfire,Invoice,JobOffers,LocationData,Log,Material,Message,Order,OrderStatus,Payment,PurchaseOrder,Quotation,QuotationRequest,Receipt,Supplier,Upload `
   -RequiredAsOfUtc 2026-08-29T00:00:00Z `
   -TrustedPublicKeyPath C:/review/migration-review-public.pem `
   -ExpectedAttestationKeyId migration-review-2026-08 `

@@ -15,6 +15,20 @@ jobs:
     name: validate
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres18:
+        image: postgres:18@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: legacy_snapshot_ci
+          POSTGRES_PASSWORD: legacy-snapshot-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U legacy_snapshot_ci -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Check out AppHost
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -153,6 +167,37 @@ jobs:
           working-directory: Legacy.Maliev.AppHost
           solution: Legacy.Maliev.AppHost.slnx
           use-local-maliev-dependencies: 'true'
+      - name: Prepare PostgreSQL 18 restore wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >"${RUNNER_TEMP}/pg_restore18" <<'SCRIPT'
+          #!/usr/bin/env bash
+          exec docker exec -i -e PGPASSWORD=legacy-snapshot-ci-only ${{ job.services.postgres18.id }} \
+            pg_restore "$@"
+          SCRIPT
+          chmod 0700 "${RUNNER_TEMP}/pg_restore18"
+      - name: Verify PostgreSQL 18 encrypted snapshot consumer compatibility
+        shell: bash
+        working-directory: Legacy.Maliev.AppHost
+        env:
+          PGPASSWORD: legacy-snapshot-ci-only
+          MALIEV_RUN_PG18_SNAPSHOT_INTEGRATION: '1'
+          PG_RESTORE_PATH: ${{ runner.temp }}/pg_restore18
+        run: |
+          set -euo pipefail
+          export LEGACY_SNAPSHOT_INTEGRATION_RESTORE_CONNECTION="Host=127.0.0.1;Port=5432;Database=postgres;Username=legacy_snapshot_ci;Password=${PGPASSWORD};SSL Mode=Disable"
+          docker exec -e PGPASSWORD="${PGPASSWORD}" ${{ job.services.postgres18.id }} \
+            psql --host=127.0.0.1 --username=legacy_snapshot_ci --dbname=postgres \
+            --set=ON_ERROR_STOP=1 --command='CREATE TABLE snapshot_probe (id integer PRIMARY KEY, value text NOT NULL); INSERT INTO snapshot_probe VALUES (1, '\''pg18'\'');'
+          export LEGACY_SNAPSHOT_INTEGRATION_CUSTOM_ARCHIVE="${RUNNER_TEMP}/pg18-custom.dump"
+          docker exec -e PGPASSWORD="${PGPASSWORD}" ${{ job.services.postgres18.id }} \
+            pg_dump --host=127.0.0.1 --username=legacy_snapshot_ci --dbname=postgres \
+            --format=custom --encoding=UTF8 --no-owner --no-privileges --no-comments --quote-all-identifiers \
+            >"${LEGACY_SNAPSHOT_INTEGRATION_CUSTOM_ARCHIVE}"
+          dotnet test Legacy.Maliev.AppHost.Tests/Legacy.Maliev.AppHost.Tests.csproj \
+            --configuration Release --no-build --no-restore \
+            --filter 'FullyQualifiedName~ProducerCustomArchive_RestoresSchemaAndRowsThroughProductionStreamingConsumer'
       - name: Generate Aspire manifest
         working-directory: Legacy.Maliev.AppHost
         env:
