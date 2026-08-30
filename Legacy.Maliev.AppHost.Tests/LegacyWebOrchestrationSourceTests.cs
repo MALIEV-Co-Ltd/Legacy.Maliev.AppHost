@@ -63,6 +63,30 @@ public sealed class LegacyWebOrchestrationSourceTests
     }
 
     [Fact]
+    public void ReviewStartScript_LaunchesPersistentFreshLocalAspireWithDurableLogs()
+    {
+        var scriptPath = Path.Combine(
+            FindRepositoryRoot(),
+            "scripts",
+            "start-local-review-aspire.ps1");
+
+        Assert.True(File.Exists(scriptPath), $"Expected persistent review start script '{scriptPath}'.");
+        var script = File.ReadAllText(scriptPath);
+        Assert.Contains("Start-Process", script, StringComparison.Ordinal);
+        Assert.Contains("-WindowStyle Hidden", script, StringComparison.Ordinal);
+        Assert.Contains("-RedirectStandardOutput", script, StringComparison.Ordinal);
+        Assert.Contains("-RedirectStandardError", script, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_LOCAL_SNAPSHOT", script, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_LOCAL_FIXTURES", script, StringComparison.Ordinal);
+        Assert.Contains("ASPNETCORE_URLS", script, StringComparison.Ordinal);
+        Assert.Contains("http://localhost:15888", script, StringComparison.Ordinal);
+        Assert.Contains("Parameters__legacy-web-google-maps-embed-api-key", script, StringComparison.Ordinal);
+        Assert.Contains("Parameters__legacy-intranet-google-maps-browser-api-key", script, StringComparison.Ordinal);
+        Assert.Contains("local-review-unconfigured", script, StringComparison.Ordinal);
+        Assert.Contains("--no-build", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Readme_DocumentsExactStartAndCoordinatedPortHandoff()
     {
         var readme = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "README.md"));
