@@ -192,6 +192,15 @@ public sealed class AppHostSourceContractTests
                 "legacy.quotation-files.write",
                 "legacy-file.uploads.create",
                 "legacy-file.uploads.delete",
+                "legacy-catalog.countries.read",
+                "legacy-catalog.currencies.read",
+                "legacy-catalog.materials.read",
+                "legacy-catalog.material-groups.read",
+                "legacy.orders.create",
+                "legacy.order-catalog.read",
+                "legacy.order-files.write",
+                "legacy.order-status.write",
+                "legacy.orders.delete",
             ],
             permissions);
     }
