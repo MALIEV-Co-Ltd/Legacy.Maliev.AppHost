@@ -26,6 +26,21 @@ public sealed class LegacyLocalSnapshotTests : IDisposable
     }
 
     [Fact]
+    public async Task Load_RejectsProducerShapedManifestWithUnsupportedFormat()
+    {
+        byte[] key = RandomNumberGenerator.GetBytes(32);
+        await WriteProducerFixtureAsync(key);
+        string manifestPath = Path.Combine(root, "manifest.json");
+        string json = await File.ReadAllTextAsync(manifestPath);
+        await File.WriteAllTextAsync(manifestPath,
+            json.Replace("\"format\":\"MLVSNP02\"", "\"format\":\"postgres-custom\"", StringComparison.Ordinal));
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
+            () => LegacyLocalSnapshot.Load(root, key, "test-snapshot-20260830"));
+        Assert.Contains("encryption contract is unsupported", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Load_RejectsManifestMissingOneDatabase()
     {
         byte[] key = RandomNumberGenerator.GetBytes(32);

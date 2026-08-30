@@ -256,12 +256,17 @@ repository, branch, and commit in the dashboard environment and Web response hea
 validated migrated snapshot for existing employee credentials, and refuses to reuse an occupied port. The
 launcher fails closed when no snapshot containing `manifest.json` exists under
 `%LOCALAPPDATA%\MALIEV\legacy-postgres-snapshots`; use `-SnapshotDirectory` to select another approved
-snapshot explicitly. It never enables synthetic identities in this owner-review path. For a non-disruptive
+snapshot explicitly. Before reporting preflight success it uses the production snapshot reader to authenticate
+the v2 manifest, exact-25 inventory, snapshot ID, and MAC with the external key file, then immediately zeroes
+the loaded key bytes. It never enables synthetic identities in this owner-review path. For a non-disruptive
 replacement review while the existing listener remains on `5088`, use:
 
 ```powershell
 .\scripts\start-current-web.ps1 `
   -WebRepositoryRoot B:\maliev-legacy\Legacy.Maliev.Web\.worktrees\issue-154-build-identity `
+  -SnapshotDirectory 'C:\Users\<you>\AppData\Local\MALIEV\legacy-postgres-snapshots\<exact-migration-run-id>' `
+  -SnapshotEncryptionKeyFile 'C:\Users\<you>\AppData\Local\MALIEV\keys\snapshot.key' `
+  -SnapshotId '<exact-migration-run-id>' `
   -WebPort 5188
 ```
 
@@ -274,6 +279,9 @@ For the owner-coordinated `5088` cutover, first compile and inspect the current 
 ```powershell
 .\scripts\start-current-web.ps1 `
   -WebRepositoryRoot B:\maliev-legacy\Legacy.Maliev.Web `
+  -SnapshotDirectory 'C:\Users\<you>\AppData\Local\MALIEV\legacy-postgres-snapshots\<exact-migration-run-id>' `
+  -SnapshotEncryptionKeyFile 'C:\Users\<you>\AppData\Local\MALIEV\keys\snapshot.key' `
+  -SnapshotId '<exact-migration-run-id>' `
   -WebPort 5088 `
   -PreflightOnly
 ```
