@@ -54,7 +54,12 @@ public sealed class EncryptedSnapshotOrchestrationContractTests
     [Fact]
     public void StartScript_RequiresKeyFileReferenceAndNeverAcceptsInlineKey()
     {
-        foreach (string script in new[] { "start-local-snapshot-aspire.ps1", "start-current-web.ps1" })
+        foreach (string script in new[]
+                 {
+                     "start-local-snapshot-aspire.ps1",
+                     "start-current-web.ps1",
+                     "start-local-review-aspire.ps1",
+                 })
         {
             string source = File.ReadAllText(Path.Combine(Root, "scripts", script));
             Assert.Contains("[string]$SnapshotEncryptionKeyFile", source, StringComparison.Ordinal);
@@ -62,7 +67,7 @@ public sealed class EncryptedSnapshotOrchestrationContractTests
             Assert.Contains("[string]$SnapshotId", source, StringComparison.Ordinal);
             Assert.Contains("LEGACY_LOCAL_SNAPSHOT_ID", source, StringComparison.Ordinal);
             Assert.DoesNotContain("SnapshotEncryptionKey =", source, StringComparison.Ordinal);
-            if (script == "start-current-web.ps1")
+            if (script is "start-current-web.ps1" or "start-local-review-aspire.ps1")
             {
                 Assert.Contains("AES-256-GCM-chunked-v2", source, StringComparison.Ordinal);
                 Assert.Contains("$manifest.Format -ne 'MLVSNP02'", source, StringComparison.Ordinal);

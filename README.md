@@ -149,15 +149,21 @@ local parameters.
 ### Exact migrated PostgreSQL snapshot review
 
 For a local review that exercises the migrated production-shaped data instead of the synthetic
-seed rows, use the guarded snapshot launcher:
+seed rows, use the guarded persistent review launcher:
 
 ```powershell
 dotnet build .\Legacy.Maliev.AppHost\Legacy.Maliev.AppHost.csproj -c Release --nologo
-.\scripts\start-local-snapshot-aspire.ps1 `
+.\scripts\start-local-review-aspire.ps1 `
   -SnapshotDirectory 'C:\Users\<you>\AppData\Local\MALIEV\legacy-postgres-snapshots\gke-<timestamp>' `
   -SnapshotEncryptionKeyFile 'C:\Users\<you>\AppData\Local\MALIEV\keys\snapshot.key' `
   -SnapshotId '<exact-migration-run-id>'
 ```
+
+The review launcher has no empty-database or local-fixture fallback. It validates and authenticates
+the exact snapshot before starting Aspire, always sets `LEGACY_LOCAL_FIXTURES=false`, and exits
+without creating a host process when the snapshot, manifest, snapshot id, encryption key, or
+exact-25 preflight is missing or invalid. This keeps credential and migration verification tied to
+the production-derived shadow copy rather than `local.employee@maliev.test`.
 
 The snapshot directory must contain the authenticated schema-version-2 manifest and all 25 encrypted
 `*.dump.aes256` archives produced by the read-only PostgreSQL export from `legacy-postgres-main`.
