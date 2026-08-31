@@ -79,7 +79,7 @@ public sealed partial class LegacyLocalSnapshot
             !ordered.Select(entry => entry.Database).SequenceEqual(LegacyTopology.DatabaseNames, StringComparer.Ordinal) ||
             ordered.Select(entry => entry.Database).Distinct(StringComparer.Ordinal).Count() != ordered.Length)
         {
-            throw new InvalidOperationException("Legacy local snapshot manifest must contain the exact 25 database inventory.");
+            throw new InvalidOperationException("Legacy local snapshot manifest must contain the exact 24 database inventory.");
         }
 
         string expectedMac = ComputeManifestMac(manifest with { Databases = ordered, ManifestMacSha256 = string.Empty }, rootKey);

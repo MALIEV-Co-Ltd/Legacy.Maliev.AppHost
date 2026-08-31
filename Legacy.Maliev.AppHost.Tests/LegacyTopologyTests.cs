@@ -38,7 +38,6 @@ public sealed class LegacyTopologyTests
             "DataProtectionKeysEmployee",
             "Employee",
             "EmployeeIdentity",
-            "Hangfire",
             "Invoice",
             "JobOffers",
             "LocationData",
@@ -57,6 +56,7 @@ public sealed class LegacyTopologyTests
         ];
 
         Assert.Equal(expected, LegacyTopology.DatabaseNames);
+        Assert.DoesNotContain("Hangfire", LegacyTopology.DatabaseNames);
     }
 
     [Theory]

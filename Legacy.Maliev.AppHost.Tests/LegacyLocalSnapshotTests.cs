@@ -16,12 +16,12 @@ public sealed class LegacyLocalSnapshotTests : IDisposable
     private readonly string root = Path.Combine(Path.GetTempPath(), $"maliev-snapshot-consumer-{Guid.NewGuid():N}");
 
     [Fact]
-    public async Task Load_AcceptsProducerExactTwentyFiveEncryptedManifest()
+    public async Task Load_AcceptsProducerExactTwentyFourEncryptedManifest()
     {
         byte[] key = RandomNumberGenerator.GetBytes(32);
         await WriteProducerFixtureAsync(key);
         var snapshot = LegacyLocalSnapshot.Load(root, key, "test-snapshot-20260830");
-        Assert.Equal(25, snapshot.DatabaseCount);
+        Assert.Equal(24, snapshot.DatabaseCount);
         Assert.EndsWith("Country.dump.aes256", await snapshot.GetVerifiedEncryptedArchivePathAsync("Country"), StringComparison.Ordinal);
     }
 
@@ -45,8 +45,22 @@ public sealed class LegacyLocalSnapshotTests : IDisposable
     {
         byte[] key = RandomNumberGenerator.GetBytes(32);
         await WriteProducerFixtureAsync(key, LegacyTopology.DatabaseNames.Take(LegacyTopology.DatabaseNames.Count - 1));
-        Assert.Contains("exact 25", Assert.Throws<InvalidOperationException>(() => LegacyLocalSnapshot.Load(root, key, "test-snapshot-20260830")).Message,
+        Assert.Contains("exact 24", Assert.Throws<InvalidOperationException>(() => LegacyLocalSnapshot.Load(root, key, "test-snapshot-20260830")).Message,
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Load_RejectsManifestContainingRetiredHangfireDatabase()
+    {
+        byte[] key = RandomNumberGenerator.GetBytes(32);
+        await WriteProducerFixtureAsync(
+            key,
+            LegacyTopology.DatabaseNames.Append("Hangfire").Order(StringComparer.Ordinal));
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
+            () => LegacyLocalSnapshot.Load(root, key, "test-snapshot-20260830"));
+
+        Assert.Contains("exact 24", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -82,7 +96,7 @@ public sealed class LegacyLocalSnapshotTests : IDisposable
     {
         Directory.CreateDirectory(root);
         string manifestPath = Path.Combine(root, "manifest.json");
-        File.WriteAllText(manifestPath, """{"format":"MALIEV legacy PostgreSQL local snapshot v1","databaseCount":25,"databases":[]}""");
+        File.WriteAllText(manifestPath, """{"format":"MALIEV legacy PostgreSQL local snapshot v1","databaseCount":24,"databases":[]}""");
         RestrictKeyFile(manifestPath);
         Assert.Contains("schema version", Assert.Throws<InvalidOperationException>(() => LegacyLocalSnapshot.Load(root, new byte[32], "test-snapshot-20260830")).Message,
             StringComparison.OrdinalIgnoreCase);

@@ -33,7 +33,6 @@ public static class LegacyTopology
         "DataProtectionKeysEmployee",
         "Employee",
         "EmployeeIdentity",
-        "Hangfire",
         "Invoice",
         "JobOffers",
         "LocationData",
