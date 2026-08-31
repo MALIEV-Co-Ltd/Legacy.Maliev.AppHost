@@ -1,7 +1,49 @@
+using System.Diagnostics;
+
 namespace Legacy.Maliev.AppHost.Tests;
 
 public sealed class LegacyWebOrchestrationSourceTests
 {
+    [Fact]
+    public async Task ReviewStartScript_RejectsStartupWithoutAuthenticatedShadowSnapshot()
+    {
+        var root = FindRepositoryRoot();
+        var emptyWorkspace = Path.Combine(Path.GetTempPath(), $"maliev-review-no-snapshot-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(emptyWorkspace);
+        try
+        {
+            var startInfo = new ProcessStartInfo("pwsh")
+            {
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+            };
+            foreach (var argument in new[]
+                     {
+                         "-NoLogo", "-NoProfile", "-NonInteractive", "-File",
+                         Path.Combine(root, "scripts", "start-local-review-aspire.ps1"),
+                         "-WorkspaceRoot", emptyWorkspace,
+                     })
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+
+            using var process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("PowerShell could not be started.");
+            var standardOutput = await process.StandardOutput.ReadToEndAsync();
+            var standardError = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            Assert.NotEqual(0, process.ExitCode);
+            Assert.Contains("authenticated v2 shadow snapshot", standardOutput + standardError, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("ProcessId", standardOutput, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(emptyWorkspace, recursive: true);
+        }
+    }
+
     [Fact]
     public void AppHost_UsesVerifiedWebIdentityAndSourceProjectOverride()
     {
@@ -63,7 +105,7 @@ public sealed class LegacyWebOrchestrationSourceTests
     }
 
     [Fact]
-    public void ReviewStartScript_LaunchesPersistentFreshLocalAspireWithDurableLogs()
+    public void ReviewStartScript_LaunchesPersistentAuthenticatedSnapshotAspireWithDurableLogs()
     {
         var scriptPath = Path.Combine(
             FindRepositoryRoot(),
@@ -76,8 +118,16 @@ public sealed class LegacyWebOrchestrationSourceTests
         Assert.Contains("-WindowStyle Hidden", script, StringComparison.Ordinal);
         Assert.Contains("-RedirectStandardOutput", script, StringComparison.Ordinal);
         Assert.Contains("-RedirectStandardError", script, StringComparison.Ordinal);
-        Assert.Contains("LEGACY_LOCAL_SNAPSHOT", script, StringComparison.Ordinal);
-        Assert.Contains("LEGACY_LOCAL_FIXTURES", script, StringComparison.Ordinal);
+        Assert.Contains("MALIEV\\legacy-postgres-snapshots", script, StringComparison.Ordinal);
+        Assert.Contains("AES-256-GCM-chunked-v2", script, StringComparison.Ordinal);
+        Assert.Contains("snapshot-preflight", script, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_LOCAL_SNAPSHOT = 'true'", script, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_LOCAL_SNAPSHOT_DIR = $SnapshotDirectory", script, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_MIGRATION_SNAPSHOT_ENCRYPTION_KEY_FILE = $SnapshotEncryptionKeyFile", script, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_LOCAL_SNAPSHOT_ID = $SnapshotId", script, StringComparison.Ordinal);
+        Assert.Contains("LEGACY_LOCAL_FIXTURES = 'false'", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("LEGACY_LOCAL_SNAPSHOT = 'false'", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("LEGACY_LOCAL_FIXTURES = 'true'", script, StringComparison.Ordinal);
         Assert.Contains("ASPNETCORE_URLS", script, StringComparison.Ordinal);
         Assert.Contains("http://localhost:15888", script, StringComparison.Ordinal);
         Assert.Contains("Parameters__legacy-web-google-maps-embed-api-key", script, StringComparison.Ordinal);
@@ -92,6 +142,8 @@ public sealed class LegacyWebOrchestrationSourceTests
         var readme = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "README.md"));
 
         Assert.Contains("start-current-web.ps1", readme, StringComparison.Ordinal);
+        Assert.Contains("start-local-review-aspire.ps1", readme, StringComparison.Ordinal);
+        Assert.Contains("no empty-database or local-fixture fallback", readme, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("-WebPort 5188", readme, StringComparison.Ordinal);
         Assert.Contains("-WebPort 5088", readme, StringComparison.Ordinal);
         Assert.Contains("does not terminate", readme, StringComparison.OrdinalIgnoreCase);
