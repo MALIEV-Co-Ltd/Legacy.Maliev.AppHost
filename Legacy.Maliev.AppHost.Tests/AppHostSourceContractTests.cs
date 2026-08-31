@@ -1280,7 +1280,7 @@ public sealed class AppHostSourceContractTests
             StringComparison.Ordinal);
         Assert.Contains("AddSnapshotMigration(\"legacy-contact-request-snapshot\", \"ContactRequest\")", appHostSource, StringComparison.Ordinal);
         Assert.Contains("AddSnapshotMigration(\"legacy-location-data-snapshot\", \"LocationData\")", appHostSource, StringComparison.Ordinal);
-        Assert.Contains("AddSnapshotMigration(\"legacy-hangfire-archive-snapshot\", \"Hangfire\")", appHostSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("Hangfire", appHostSource, StringComparison.Ordinal);
         Assert.Contains("AddSnapshotMigration(\"legacy-log-archive-snapshot\", \"Log\")", appHostSource, StringComparison.Ordinal);
         Assert.Contains("LegacyLocalSnapshot.Load(snapshotDirectory, key, expectedSnapshotId)", runnerSource, StringComparison.Ordinal);
         Assert.Contains("pg_restore", runnerSource, StringComparison.Ordinal);

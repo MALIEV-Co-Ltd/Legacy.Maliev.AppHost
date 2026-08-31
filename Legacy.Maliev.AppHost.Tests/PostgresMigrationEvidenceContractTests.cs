@@ -13,7 +13,7 @@ public sealed class PostgresMigrationEvidenceContractTests
     [
         "ContactRequest", "Country", "Currency", "Customer", "CustomerIdentity", "DataProtectionKeys",
         "DataProtectionKeysEmployee", "Employee", "EmployeeIdentity", "Invoice", "JobOffers",
-        "Hangfire", "LocationData", "Log", "Material", "Message", "Order", "OrderStatus", "Payment", "PurchaseOrder", "Quotation",
+        "LocationData", "Log", "Material", "Message", "Order", "OrderStatus", "Payment", "PurchaseOrder", "Quotation",
         "QuotationRequest", "Receipt", "Supplier", "Upload",
     ];
 
@@ -88,7 +88,6 @@ public sealed class PostgresMigrationEvidenceContractTests
 
     [Theory]
     [InlineData("ContactRequest")]
-    [InlineData("Hangfire")]
     [InlineData("LocationData")]
     [InlineData("Log")]
     public async Task Validator_RejectsMissingNewlyRetainedDatabase(string databaseName)
@@ -100,13 +99,21 @@ public sealed class PostgresMigrationEvidenceContractTests
 
     [Theory]
     [InlineData("ContactRequest")]
-    [InlineData("Hangfire")]
     [InlineData("LocationData")]
     [InlineData("Log")]
     public async Task Validator_RejectsDuplicateNewlyRetainedDatabase(string databaseName)
     {
         using var evidence = TemporaryEvidence.Create($"duplicate-database:{databaseName}");
         var result = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
+        Assert.NotEqual(0, result.ExitCode);
+    }
+
+    [Fact]
+    public async Task Validator_RejectsRetiredHangfireDatabase()
+    {
+        using var evidence = TemporaryEvidence.Create("duplicate-database:Hangfire");
+        var result = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
+
         Assert.NotEqual(0, result.ExitCode);
     }
 
@@ -236,8 +243,8 @@ public sealed class PostgresMigrationEvidenceContractTests
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
 
         Assert.Contains("-TrustedPublicKeyPath", docs, StringComparison.Ordinal);
-        Assert.Contains("For all 25 migrated databases", docs, StringComparison.Ordinal);
-        Assert.Contains("signed: 25 migrate", docs, StringComparison.Ordinal);
+        Assert.Contains("For all 24 migrated databases", docs, StringComparison.Ordinal);
+        Assert.Contains("signed: 24 migrate", docs, StringComparison.Ordinal);
         Assert.DoesNotContain("21 migrated databases", docs, StringComparison.Ordinal);
         Assert.DoesNotContain("archive-only", docs, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("held for review", docs, StringComparison.OrdinalIgnoreCase);
@@ -256,6 +263,9 @@ public sealed class PostgresMigrationEvidenceContractTests
         Assert.DoesNotContain("kubectl", script, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("gcloud", script, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("psql", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Hangfire", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("Hangfire", docs, StringComparison.Ordinal);
+        Assert.DoesNotContain("Hangfire", readme, StringComparison.Ordinal);
     }
 
     private static async Task<(int ExitCode, string StandardError)> RunValidatorAsync(TemporaryEvidence evidence, string requiredAsOfUtc)
@@ -484,7 +494,7 @@ public sealed class PostgresMigrationEvidenceContractTests
                 ("Customer", "Legacy.Maliev.CustomerService", "migrate"), ("CustomerIdentity", "Legacy.Maliev.AuthService", "migrate"),
                 ("DataProtectionKeys", "Legacy.Maliev.AuthService", "migrate"), ("DataProtectionKeysEmployee", "Legacy.Maliev.AuthService", "migrate"),
                 ("Employee", "Legacy.Maliev.EmployeeService", "migrate"), ("EmployeeIdentity", "Legacy.Maliev.AuthService", "migrate"),
-                ("Hangfire", "Legacy.Maliev.CompatibilityContracts", "migrate"), ("Invoice", "Legacy.Maliev.AccountingService", "migrate"),
+                ("Invoice", "Legacy.Maliev.AccountingService", "migrate"),
                 ("JobOffers", "Legacy.Maliev.CareerService", "migrate"), ("LocationData", "Legacy.Maliev.CatalogService", "migrate"),
                 ("Log", "Legacy.Maliev.CompatibilityContracts", "migrate"), ("MachineLearning", "Legacy.Maliev.CompatibilityContracts", "excluded"),
                 ("MachineLearningData", "Legacy.Maliev.CompatibilityContracts", "excluded"), ("Material", "Legacy.Maliev.CatalogService", "migrate"),
