@@ -19,8 +19,6 @@ param(
     [Parameter(Mandatory = $true)] [ValidatePattern('^[0-9a-f]{64}$')] [string]$ExpectedRepositoryBaselineSha256,
     [Parameter(Mandatory = $true)] [ValidatePattern('^[0-9a-f]{64}$')] [string]$ExpectedSemanticManifestDigestSha256,
     [Parameter(Mandatory = $true)] [ValidatePattern('^[0-9a-f]{64}$')] [string]$ExpectedManifestFileSha256,
-    [Parameter(Mandatory = $true)] [string]$AuthenticatedQueryEvidencePath,
-    [Parameter(Mandatory = $true)] [ValidatePattern('^[0-9a-f]{64}$')] [string]$ExpectedAuthenticatedQueryEvidenceSha256,
     [Parameter(Mandatory = $true)] [string]$EvidencePath,
     [ValidateRange(60, 1800)] [int]$TimeoutSeconds = 600
 )
@@ -31,6 +29,11 @@ $startedAtUtc = [DateTimeOffset]::UtcNow
 $appHostProcess = $null
 $validationSucceeded = $false
 $cleanupCompleted = $false
+$protectedHandles = [Collections.Generic.List[IO.FileStream]]::new()
+$dcpProcessId = $null
+$hostProcessId = $null
+$localContainerNames = @()
+$serviceToken = $null
 
 # These inventories mirror LegacySnapshotReviewContract. Its tests freeze the public contract;
 # this script remains directly auditable and does not dynamically execute repository code.
@@ -70,14 +73,9 @@ $migratedDatabases = @(
 )
 $runtimeDatabases = @($migratedDatabases) + @('Auth')
 $authenticatedQueries = @(
-    'auth-session-current', 'document-receipt-read', 'customer-list', 'employee-list',
-    'catalog-material-list', 'procurement-supplier-list', 'file-list', 'order-list',
-    'quotation-list', 'intranet-customer-list', 'accounting-invoice-list'
+    'customer-list', 'employee-list', 'catalog-material-list', 'procurement-supplier-list',
+    'order-list', 'quotation-request-list', 'accounting-payment-list'
 )
-
-function Get-Sha256([string]$Path) {
-    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
-}
 
 function Assert-OwnerOnlyRegularFile([string]$Path, [string]$Label) {
     $fullPath = [IO.Path]::GetFullPath($Path)
@@ -126,6 +124,25 @@ function Read-SecureJsonAndSha([string]$Path, [string]$Label) {
     finally { $stream.Dispose() }
 }
 
+function Open-ProtectedReadHandle([string]$Path, [string]$Label) {
+    $fullPath = Assert-OwnerOnlyRegularFile $Path $Label
+    $stream = [IO.File]::Open($fullPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    $protectedHandles.Add($stream)
+    return $stream
+}
+
+function Read-ProtectedJsonAndSha([IO.FileStream]$Stream, [string]$Label) {
+    $Stream.Position = 0
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $digest = [Convert]::ToHexString($sha.ComputeHash($Stream)).ToLowerInvariant() } finally { $sha.Dispose() }
+    $Stream.Position = 0
+    $reader = [IO.StreamReader]::new($Stream, [Text.UTF8Encoding]::new($false, $true), $false, 4096, $true)
+    try { $json = $reader.ReadToEnd() } finally { $reader.Dispose() }
+    $Stream.Position = 0
+    try { $value = $json | ConvertFrom-Json -DateKind String } catch { throw "$Label is not valid UTF-8 JSON." }
+    return [pscustomobject]@{ Value = $value; Sha256 = $digest }
+}
+
 function Set-OwnerOnlyFile([string]$Path) {
     if ($IsWindows) {
         $owner = [Security.Principal.WindowsIdentity]::GetCurrent().User
@@ -142,25 +159,25 @@ function Set-OwnerOnlyFile([string]$Path) {
     }
 }
 
-function Assert-OwnerOnlyDirectory([string]$Path) {
+function Assert-OwnerOnlyDirectory([string]$Path, [string]$Label = 'Directory') {
     $directory = [IO.DirectoryInfo]::new([IO.Path]::GetFullPath($Path)); $directory.Refresh()
     if (-not $directory.Exists -or $null -ne $directory.LinkTarget -or
         ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-        throw 'Terminal evidence parent directory must be a regular non-link directory.'
+        throw "$Label must be a regular non-link directory."
     }
     for ($ancestor = $directory; $null -ne $ancestor; $ancestor = $ancestor.Parent) {
         $ancestor.Refresh()
         if (($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $null -ne $ancestor.LinkTarget) {
-            throw 'Terminal evidence path contains a link or reparse-point ancestor.'
+            throw "$Label path contains a link or reparse-point ancestor."
         }
     }
     if ($IsWindows) {
         $owner = [Security.Principal.WindowsIdentity]::GetCurrent().User
         $security = [IO.FileSystemAclExtensions]::GetAccessControl($directory)
-        if ($security.GetOwner([Security.Principal.SecurityIdentifier]) -ne $owner) { throw 'Terminal evidence directory must be owned by the current user.' }
+        if ($security.GetOwner([Security.Principal.SecurityIdentifier]) -ne $owner) { throw "$Label must be owned by the current user." }
         foreach ($rule in $security.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
             if ($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and $rule.IdentityReference -ne $owner) {
-                throw 'Terminal evidence directory must have owner-only permissions.'
+                throw "$Label must have owner-only permissions."
             }
         }
     }
@@ -170,7 +187,7 @@ function Assert-OwnerOnlyDirectory([string]$Path) {
             [IO.UnixFileMode]::GroupExecute -bor [IO.UnixFileMode]::OtherRead -bor
             [IO.UnixFileMode]::OtherWrite -bor [IO.UnixFileMode]::OtherExecute
         if (($mode -band [IO.UnixFileMode]::UserRead) -eq 0 -or ($mode -band $forbidden) -ne 0) {
-            throw 'Terminal evidence directory must have owner-only permissions.'
+            throw "$Label must have owner-only permissions."
         }
     }
 }
@@ -192,7 +209,7 @@ function Assert-ExactObjectKeys([object]$Value, [string[]]$Expected, [string]$Pa
     }
 }
 
-function Get-DcpKubeconfig([int]$AppHostProcessId) {
+function Get-DcpRuntime([int]$AppHostProcessId) {
     $dcp = Get-CimInstance Win32_Process | Where-Object {
         $_.Name -eq 'dcp.exe' -and $_.CommandLine -like '*start-apiserver*' -and
         $_.CommandLine -like "*--monitor $AppHostProcessId*"
@@ -200,7 +217,7 @@ function Get-DcpKubeconfig([int]$AppHostProcessId) {
     if (-not $dcp) { return $null }
     $match = [regex]::Match($dcp.CommandLine, '--kubeconfig\s+"?(.+?)"?\s+--tls-cert')
     if (-not $match.Success) { throw 'The local DCP kubeconfig path could not be parsed.' }
-    return $match.Groups[1].Value
+    return [pscustomobject]@{ Kubeconfig = $match.Groups[1].Value; ProcessId = [int]$dcp.ProcessId }
 }
 
 function Get-SingleResource([object[]]$Items, [string]$Name) {
@@ -209,21 +226,49 @@ function Get-SingleResource([object[]]$Items, [string]$Name) {
     return $matches[0]
 }
 
-function Invoke-LocalReadinessProbe([object]$Resource, [string]$Name) {
-    $endpoint = @($Resource.status.urls | ForEach-Object {
-        if ($_ -is [string]) { $_ } elseif ($_.url) { [string]$_.url }
-    } | Where-Object { $_ -match '^https?://' } | Select-Object -First 1)
-    if ($endpoint.Count -ne 1) { throw "Service '$Name' has no discoverable local HTTP endpoint." }
+function Get-ResourceUrl([object]$Resource) {
+    $endpoint = @($Resource.status.effectiveEnv | Where-Object name -eq 'ASPNETCORE_URLS' | ForEach-Object value)
+    if ($endpoint.Count -ne 1 -or $endpoint[0] -notmatch '^https?://') {
+        throw "Service '$($Resource.metadata.name)' has no unique exported local HTTP endpoint."
+    }
     $baseUri = [Uri]$endpoint[0]
-    if (-not $baseUri.IsLoopback) { throw "Service '$Name' resolved to a non-local endpoint." }
-    $builder = [UriBuilder]::new($baseUri)
-    $builder.Path = (($builder.Path.TrimEnd('/')) + '/readiness')
-    $response = Invoke-WebRequest -Uri $builder.Uri.AbsoluteUri -Method Get -UseBasicParsing `
+    if (-not $baseUri.IsLoopback) { throw "Service '$($Resource.metadata.name)' resolved to a non-local endpoint." }
+    return $baseUri.AbsoluteUri.TrimEnd('/')
+}
+
+function Invoke-LocalReadinessProbe([object]$Resource, [object]$Route) {
+    $name = [string]$Route.name
+    $uri = (Get-ResourceUrl $Resource) + [string]$Route.readinessPath
+    $response = Invoke-WebRequest -Uri $uri -Method Get -UseBasicParsing `
         -SkipCertificateCheck -SkipHttpErrorCheck -MaximumRedirection 0 -TimeoutSec 15
     if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 300) {
         throw "Service '$Name' readiness GET failed with HTTP $($response.StatusCode)."
     }
     return [ordered]@{ name = $Name; healthy = $true; probeId = 'readiness'; probeStatus = 'passed' }
+}
+
+function Invoke-AuthenticatedReadQueries([object[]]$Items, [object[]]$Queries) {
+    $authResource = Get-SingleResource $Items 'legacy-maliev-auth-service'
+    $intranetResource = Get-SingleResource $Items 'legacy-maliev-intranet-bff'
+    $clientSecret = @($intranetResource.status.effectiveEnv | Where-Object name -eq 'ServiceAuthentication__ClientSecret' | ForEach-Object value)
+    if ($clientSecret.Count -ne 1 -or [string]::IsNullOrWhiteSpace($clientSecret[0])) {
+        throw 'The local Intranet service credential was not exported by Aspire.'
+    }
+    $loginResponse = Invoke-RestMethod -Uri ((Get-ResourceUrl $authResource) + '/auth/v1/service/login') `
+        -Method Post -ContentType 'application/json' -Body (@{ clientId = 'legacy-intranet'; clientSecret = $clientSecret[0] } | ConvertTo-Json -Compress) `
+        -SkipCertificateCheck -TimeoutSec 15
+    $script:serviceToken = [string]$loginResponse.accessToken
+    if ([string]::IsNullOrWhiteSpace($script:serviceToken)) { throw 'Service login returned no access token.' }
+    $observations = @()
+    foreach ($query in $Queries) {
+        $resource = Get-SingleResource $Items ([string]$query.resource)
+        $response = Invoke-WebRequest -Uri ((Get-ResourceUrl $resource) + [string]$query.path) -Method Get `
+            -Headers @{ Authorization = "Bearer $script:serviceToken" } -UseBasicParsing -SkipCertificateCheck `
+            -SkipHttpErrorCheck -MaximumRedirection 0 -TimeoutSec 15
+        if ($response.StatusCode -ne 200) { throw "Authenticated read-only query '$($query.id)' failed with HTTP $($response.StatusCode)." }
+        $observations += [ordered]@{ id = [string]$query.id; status = 'passed' }
+    }
+    return $observations
 }
 
 function Write-AtomicJson([System.Collections.IDictionary]$Value, [string]$Path) {
@@ -251,21 +296,32 @@ function Write-AtomicJson([System.Collections.IDictionary]$Value, [string]$Path)
 
 foreach ($requiredFile in @(
     $SnapshotEncryptionKeyFile, $MigrationEvidencePath, $TrustedPublicKeyPath,
-    $ApprovedBaselinePath, $RepositoryBaselinePath, $AuthenticatedQueryEvidencePath
+    $ApprovedBaselinePath, $RepositoryBaselinePath
 )) {
     if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) { throw "Required review input is missing: $requiredFile" }
 }
 if (Test-Path -LiteralPath $EvidencePath) { throw 'Terminal evidence output already exists; use a unique create-only path.' }
 if (-not (Test-Path -LiteralPath $SnapshotDirectory -PathType Container)) { throw 'Snapshot directory is missing.' }
+$SnapshotDirectory = [IO.Path]::GetFullPath($SnapshotDirectory)
+Assert-OwnerOnlyDirectory $SnapshotDirectory 'Snapshot directory'
 $manifestPath = Join-Path $SnapshotDirectory 'manifest.json'
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw 'Authenticated snapshot manifest is missing.' }
-$manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+$keyHandle = Open-ProtectedReadHandle $SnapshotEncryptionKeyFile 'Snapshot encryption key'
+$manifestHandle = Open-ProtectedReadHandle $manifestPath 'Snapshot manifest'
+$manifestInput = Read-ProtectedJsonAndSha $manifestHandle 'Snapshot manifest'
+$manifest = $manifestInput.Value
 if ($manifest.SchemaVersion -ne 2 -or $manifest.Format -cne 'MLVSNP02' -or
     $manifest.Encryption -cne 'AES-256-GCM-chunked-v2' -or $manifest.SnapshotId -cne $SnapshotId) {
     throw 'Snapshot is not the expected authenticated MLVSNP02 artifact.'
 }
 Assert-ExactNames @($manifest.Databases.Database) $migratedDatabases 'snapshot databases'
-$manifestFileSha256 = Get-Sha256 $manifestPath
+foreach ($entry in @($manifest.Databases)) {
+    if ([string]::IsNullOrWhiteSpace([string]$entry.FileName) -or [IO.Path]::GetFileName([string]$entry.FileName) -cne [string]$entry.FileName) {
+        throw "Snapshot archive file name is unsafe for '$($entry.Database)'."
+    }
+    [void](Open-ProtectedReadHandle (Join-Path $SnapshotDirectory ([string]$entry.FileName)) "Snapshot archive '$($entry.Database)'")
+}
+$manifestFileSha256 = $manifestInput.Sha256
 if ($manifest.ManifestDigestSha256 -cne $ExpectedSemanticManifestDigestSha256 -or
     $manifestFileSha256 -cne $ExpectedManifestFileSha256) {
     throw 'Snapshot semantic manifest digest or raw manifest-file digest does not match the reviewed value.'
@@ -307,46 +363,61 @@ foreach ($entry in @($repositoryBaseline.repositories)) {
 }
 $appHostCommit = [string](@($repositoryEvidence | Where-Object name -eq 'Legacy.Maliev.AppHost')[0].commitSha)
 
-$authenticatedInput = Read-SecureJsonAndSha $AuthenticatedQueryEvidencePath 'Authenticated query evidence'
-if ($authenticatedInput.Sha256 -cne $ExpectedAuthenticatedQueryEvidenceSha256) {
-    throw 'Authenticated query evidence digest does not match the reviewed value.'
+$routeContractPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'contracts\local-snapshot-review-routes.json'
+$routeContract = Get-Content -LiteralPath $routeContractPath -Raw | ConvertFrom-Json
+Assert-ExactObjectKeys $routeContract @('schemaVersion', 'services', 'authenticatedQueries') '$routeContract'
+if ($routeContract.schemaVersion -ne 1) { throw 'Local review route contract schema is unsupported.' }
+Assert-ExactNames @($routeContract.services.name) $services 'route contract services'
+Assert-ExactNames @($routeContract.authenticatedQueries.id) $authenticatedQueries 'route contract authenticated queries'
+foreach ($query in @($routeContract.authenticatedQueries)) {
+    Assert-ExactObjectKeys $query @('id', 'resource', 'method', 'path') '$routeContract.authenticatedQueries[]'
+    if ($query.method -cne 'GET' -or $query.path -notmatch '^/[A-Za-z0-9/?=&._-]+$' -or $services -cnotcontains [string]$query.resource) {
+        throw "Authenticated query route '$($query.id)' is not a reviewed local GET."
+    }
 }
-$authenticatedEvidence = $authenticatedInput.Value
-Assert-ExactObjectKeys $authenticatedEvidence @(
-    'schemaVersion', 'snapshotId', 'authoritativeSourceCommitSha', 'appHostCommit',
-    'repositoryBaselineSha256', 'completedAtUtc', 'queries'
-) '$authenticatedQueryEvidence'
-if ($authenticatedEvidence.schemaVersion -ne 1 -or $authenticatedEvidence.snapshotId -cne $SnapshotId -or
-    $authenticatedEvidence.authoritativeSourceCommitSha -cne $ExpectedSourceCommitSha -or
-    $authenticatedEvidence.appHostCommit -cne $appHostCommit -or
-    $authenticatedEvidence.repositoryBaselineSha256 -cne $ExpectedRepositoryBaselineSha256) {
-    throw 'Authenticated query evidence is not bound to this snapshot, source, AppHost, and repository baseline.'
+foreach ($route in @($routeContract.services)) {
+    Assert-ExactObjectKeys $route @('name', 'readinessPath') '$routeContract.services[]'
+    if ($route.readinessPath -notmatch '^/[A-Za-z0-9/_-]+$') { throw "Readiness route for '$($route.name)' is invalid." }
 }
-$authenticatedCompletedAtUtc = [DateTimeOffset]::MinValue
-if (-not [DateTimeOffset]::TryParse([string]$authenticatedEvidence.completedAtUtc, [ref]$authenticatedCompletedAtUtc) -or
-    $authenticatedCompletedAtUtc.Offset -ne [TimeSpan]::Zero -or
-    $authenticatedCompletedAtUtc -lt [DateTimeOffset]::UtcNow.AddMinutes(-30) -or
-    $authenticatedCompletedAtUtc -gt [DateTimeOffset]::UtcNow.AddMinutes(1)) {
-    throw 'Authenticated query evidence is invalid or stale.'
-}
-Assert-ExactNames @($authenticatedEvidence.queries.id) $authenticatedQueries 'authenticated query evidence'
-foreach ($query in @($authenticatedEvidence.queries)) {
-    Assert-ExactObjectKeys $query @('id', 'status') '$authenticatedQueryEvidence.queries[]'
-    if ($query.status -cne 'passed') { throw "Authenticated read-only query '$($query.id)' did not pass." }
-}
-$authenticatedQueryEvidence = @($authenticatedEvidence.queries | ForEach-Object { [ordered]@{ id = $_.id; status = 'passed' } })
 
 $signedVerifier = Join-Path $PSScriptRoot 'verify-postgres-migration-evidence.ps1'
+$migrationEvidenceHandle = Open-ProtectedReadHandle $MigrationEvidencePath 'Migration evidence'
 & $signedVerifier -EvidencePath $MigrationEvidencePath -ExpectedDatabase $migratedDatabases `
     -RequiredAsOfUtc $RequiredAsOfUtc -TrustedPublicKeyPath $TrustedPublicKeyPath `
     -ExpectedAttestationKeyId $ExpectedAttestationKeyId -ApprovedBaselinePath $ApprovedBaselinePath `
     -ExpectedApprovedBaselineSha256 $ExpectedApprovedBaselineSha256 -ConsumptionLedgerPath $ConsumptionLedgerPath `
     -ExpectedRunId $ExpectedRunId -ExpectedTargetGeneration $ExpectedTargetGeneration -ExpectedRestoreId $ExpectedRestoreId
 if ($LASTEXITCODE -ne 0) { throw 'Signed schema-v2 migration evidence validation failed.' }
-$migrationEvidence = Get-Content -LiteralPath $MigrationEvidencePath -Raw | ConvertFrom-Json
+$migrationEvidenceInput = Read-ProtectedJsonAndSha $migrationEvidenceHandle 'Migration evidence'
+$migrationEvidence = $migrationEvidenceInput.Value
 if ($migrationEvidence.mapping.sourceCommitSha -cne $ExpectedSourceCommitSha -or
     $migrationEvidence.source.snapshotId -cne $SnapshotId) {
     throw 'Snapshot, migration evidence, and authoritative source commit binding failed.'
+}
+
+$scriptRepositoryRoot = Split-Path -Parent $PSScriptRoot
+$scriptCommit = (& git -C $scriptRepositoryRoot rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $scriptCommit -cne $appHostCommit -or
+    @(& git -C $scriptRepositoryRoot status --porcelain=v1 --untracked-files=all).Count -ne 0) {
+    throw 'The terminal gate script must execute from the reviewed clean AppHost commit.'
+}
+$appHostProject = Join-Path $scriptRepositoryRoot 'Legacy.Maliev.AppHost\Legacy.Maliev.AppHost.csproj'
+$webProject = Join-Path $WorkspaceRoot 'Legacy.Maliev.Web\Legacy.Maliev.Web\Legacy.Maliev.Web.csproj'
+$buildArguments = @(
+    'build', $appHostProject, '--configuration', 'Release', '--no-restore', '--no-incremental',
+    "-p:MalievWorkspaceRoot=$WorkspaceRoot", "-p:LegacyMalievWebProject=$webProject"
+)
+& dotnet @buildArguments
+if ($LASTEXITCODE -ne 0) { throw 'Clean Release build of the reviewed repository baseline failed.' }
+foreach ($entry in @($repositoryBaseline.repositories)) {
+    $path = Join-Path $WorkspaceRoot $entry.name
+    if ((& git -C $path branch --show-current).Trim() -cne 'main' -or
+        (& git -C $path rev-parse HEAD).Trim() -cne $entry.commitSha -or
+        (& git -C $path rev-parse origin/main).Trim() -cne $entry.commitSha -or
+        (& git -C $path remote get-url origin).Trim() -cne $entry.originUrl -or
+        @(& git -C $path status --porcelain=v1 --untracked-files=all).Count -ne 0) {
+        throw "Repository '$($entry.name)' changed during the Release build."
+    }
 }
 
 $previousFixtures = [Environment]::GetEnvironmentVariable('LEGACY_LOCAL_FIXTURES')
@@ -367,7 +438,11 @@ try {
         $hostProcess = Get-CimInstance Win32_Process | Where-Object {
             $_.Name -eq 'Legacy.Maliev.AppHost.exe' -and $_.ParentProcessId -eq $appHostProcess.ProcessId
         } | Select-Object -First 1
-        if ($hostProcess) { $kubeconfig = Get-DcpKubeconfig $hostProcess.ProcessId }
+        if ($hostProcess) {
+            $hostProcessId = [int]$hostProcess.ProcessId
+            $dcpRuntime = Get-DcpRuntime $hostProcessId
+            if ($dcpRuntime) { $kubeconfig = $dcpRuntime.Kubeconfig; $dcpProcessId = $dcpRuntime.ProcessId }
+        }
         if ($kubeconfig -and (Test-Path -LiteralPath $kubeconfig -PathType Leaf)) {
             $json = & kubectl --kubeconfig $kubeconfig get containers,executables -o json 2>$null
             if ($LASTEXITCODE -eq 0 -and $json) { $items = @((ConvertFrom-Json ($json -join "`n")).items) }
@@ -393,24 +468,54 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Read-only local PostgreSQL topology query failed.' }
     Assert-ExactNames @($databaseOutput) $runtimeDatabases 'local PostgreSQL databases'
 
-    $jobEvidence = @($terminalJobs | ForEach-Object { [ordered]@{ name = $_; state = 'finished'; exitCode = 0 } })
-    $serviceEvidence = @($services | ForEach-Object {
-        Invoke-LocalReadinessProbe -Resource (Get-SingleResource $items $_) -Name $_
+    $containerResourceNames = @($items | Where-Object kind -eq 'Container' | ForEach-Object { [string]$_.metadata.name })
+    $runningDockerNames = @(& docker ps --format '{{.Names}}')
+    $localContainerNames = @($runningDockerNames | Where-Object {
+        $candidate = $_
+        @($containerResourceNames | Where-Object { $candidate -eq $_ -or $candidate -like "$_-*" }).Count -gt 0
     })
+    if ($localContainerNames.Count -eq 0) { throw 'No run-owned local Docker resources were discoverable.' }
+
+    $jobEvidence = @($terminalJobs | ForEach-Object { [ordered]@{ name = $_; state = 'finished'; exitCode = 0 } })
+    $serviceEvidence = @($routeContract.services | ForEach-Object {
+        Invoke-LocalReadinessProbe -Resource (Get-SingleResource $items ([string]$_.name)) -Route $_
+    })
+    $authenticatedQueryEvidence = @(Invoke-AuthenticatedReadQueries -Items $items -Queries @($routeContract.authenticatedQueries))
+    Assert-ExactNames @($authenticatedQueryEvidence.id) $authenticatedQueries 'authenticated query observations'
     $validationSucceeded = $true
 }
 finally {
+    $serviceToken = $null
     [Environment]::SetEnvironmentVariable('LEGACY_LOCAL_FIXTURES', $previousFixtures)
     if ($appHostProcess -and $appHostProcess.ProcessId) {
         Stop-Process -Id $appHostProcess.ProcessId -Force -ErrorAction SilentlyContinue
-        Wait-Process -Id $appHostProcess.ProcessId -Timeout 30 -ErrorAction SilentlyContinue
-        $cleanupCompleted = $null -eq (Get-Process -Id $appHostProcess.ProcessId -ErrorAction SilentlyContinue)
+        $cleanupDeadline = [DateTimeOffset]::UtcNow.AddSeconds(60)
+        do {
+            $runnerGone = $null -eq (Get-Process -Id $appHostProcess.ProcessId -ErrorAction SilentlyContinue)
+            $hostGone = $null -eq $hostProcessId -or $null -eq (Get-Process -Id $hostProcessId -ErrorAction SilentlyContinue)
+            $dcpGone = $null -eq $dcpProcessId -or $null -eq (Get-Process -Id $dcpProcessId -ErrorAction SilentlyContinue)
+            $running = @(& docker ps -a --format '{{.Names}}' 2>$null)
+            $containersGone = $LASTEXITCODE -eq 0 -and @($localContainerNames | Where-Object { $running -ccontains $_ }).Count -eq 0
+            if (-not ($runnerGone -and $hostGone -and $dcpGone -and $containersGone)) { Start-Sleep -Milliseconds 500 }
+        } while ([DateTimeOffset]::UtcNow -lt $cleanupDeadline -and -not ($runnerGone -and $hostGone -and $dcpGone -and $containersGone))
+        $cleanupCompleted = $runnerGone -and $hostGone -and $dcpGone -and $containersGone
     }
     else { $cleanupCompleted = $true }
+    foreach ($handle in $protectedHandles) { $handle.Dispose() }
 }
 
 if (-not $validationSucceeded -or -not $cleanupCompleted) {
     throw 'Local snapshot validation or cleanup did not complete; passed evidence is prohibited.'
+}
+foreach ($entry in @($repositoryBaseline.repositories)) {
+    $path = Join-Path $WorkspaceRoot $entry.name
+    if ((& git -C $path branch --show-current).Trim() -cne 'main' -or
+        (& git -C $path rev-parse HEAD).Trim() -cne $entry.commitSha -or
+        (& git -C $path rev-parse origin/main).Trim() -cne $entry.commitSha -or
+        (& git -C $path remote get-url origin).Trim() -cne $entry.originUrl -or
+        @(& git -C $path status --porcelain=v1 --untracked-files=all).Count -ne 0) {
+        throw "Repository '$($entry.name)' changed during local snapshot validation."
+    }
 }
 
 $terminalEvidence = [ordered]@{
@@ -437,14 +542,16 @@ $terminalEvidence = [ordered]@{
     constraints = [ordered]@{ fixturesEnabled = $false; mutatingProbes = $false; gkeWrites = $false; productionEndpointAccess = $false }
     cleanup = 'completed'
 }
-Write-AtomicJson $terminalEvidence $EvidencePath
-& (Join-Path $PSScriptRoot 'test-local-snapshot-verification-evidence.ps1') -EvidencePath $EvidencePath `
+$candidateEvidencePath = Join-Path ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($EvidencePath))) `
+    ('.' + [IO.Path]::GetFileName($EvidencePath) + '.' + [Guid]::NewGuid().ToString('N') + '.candidate')
+Write-AtomicJson $terminalEvidence $candidateEvidencePath
+& (Join-Path $PSScriptRoot 'publish-local-snapshot-terminal-evidence.ps1') `
+    -CandidateEvidencePath $candidateEvidencePath -FinalEvidencePath $EvidencePath `
     -ExpectedAppHostCommit $appHostCommit -ExpectedSourceCommitSha $ExpectedSourceCommitSha `
     -ExpectedSnapshotId $SnapshotId -ExpectedSemanticManifestDigestSha256 $ExpectedSemanticManifestDigestSha256 `
     -ExpectedManifestFileSha256 $ExpectedManifestFileSha256 `
     -ExpectedMigrationEvidencePayloadSha256 ([string]$migrationEvidence.attestation.payloadSha256) `
     -ExpectedApprovedBaselineSha256 $ExpectedApprovedBaselineSha256 `
     -ExpectedRepositoryBaselineSha256 $ExpectedRepositoryBaselineSha256 -MaximumAgeMinutes 30
-if ($LASTEXITCODE -ne 0) { throw 'Atomic terminal evidence failed independent validation.' }
 
 Write-Output 'PASS: authenticated local snapshot terminal gate completed.'

@@ -51,9 +51,8 @@ $migratedDatabases = @(
 )
 $runtimeDatabases = @($migratedDatabases) + @('Auth')
 $authenticatedQueries = @(
-    'auth-session-current', 'document-receipt-read', 'customer-list', 'employee-list',
-    'catalog-material-list', 'procurement-supplier-list', 'file-list', 'order-list',
-    'quotation-list', 'intranet-customer-list', 'accounting-invoice-list'
+    'customer-list', 'employee-list', 'catalog-material-list', 'procurement-supplier-list',
+    'order-list', 'quotation-request-list', 'accounting-payment-list'
 )
 
 function Assert-ExactKeys {
@@ -144,7 +143,9 @@ function Assert-OwnerOnlyRegularFile {
 function Read-SecureJson {
     param([string]$Path)
     $fullPath = Assert-OwnerOnlyRegularFile $Path
-    $stream = [IO.File]::Open($fullPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+    # Read sharing permits a trusted publisher to retain the exact candidate bytes;
+    # write and delete sharing remain denied by this validator handle.
+    $stream = [IO.File]::Open($fullPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
     try {
         $reader = [IO.StreamReader]::new($stream, [Text.UTF8Encoding]::new($false, $true), $false, 4096, $true)
         try { $json = $reader.ReadToEnd() } finally { $reader.Dispose() }

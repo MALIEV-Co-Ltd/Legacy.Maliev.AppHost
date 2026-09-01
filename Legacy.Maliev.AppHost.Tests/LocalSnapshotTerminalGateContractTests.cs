@@ -17,7 +17,7 @@ public sealed class LocalSnapshotTerminalGateContractTests
         Assert.Equal(16, LegacySnapshotReviewContract.Services.Count);
         Assert.Equal(19, LegacySnapshotReviewContract.Repositories.Count);
         Assert.Equal(24, LegacySnapshotReviewContract.MigratedDatabases.Count);
-        Assert.NotEmpty(LegacySnapshotReviewContract.AuthenticatedReadQueries);
+        Assert.Equal(7, LegacySnapshotReviewContract.AuthenticatedReadQueries.Count);
         Assert.DoesNotContain("Hangfire", LegacySnapshotReviewContract.MigratedDatabases);
         Assert.Contains("legacy-auth-migrations", LegacySnapshotReviewContract.TerminalJobs);
         Assert.Contains("legacy-log-archive-snapshot", LegacySnapshotReviewContract.TerminalJobs);
@@ -38,14 +38,20 @@ public sealed class LocalSnapshotTerminalGateContractTests
         Assert.Contains("LegacySnapshotReviewContract", source, StringComparison.Ordinal);
         Assert.Contains("Invoke-WebRequest", source, StringComparison.Ordinal);
         Assert.Contains("-Method Get", source, StringComparison.Ordinal);
-        Assert.Contains("AuthenticatedQueryEvidencePath", source, StringComparison.Ordinal);
+        Assert.Contains("auth/v1/service/login", source, StringComparison.Ordinal);
+        Assert.Contains("ServiceAuthentication__ClientSecret", source, StringComparison.Ordinal);
+        Assert.Contains("local-snapshot-review-routes.json", source, StringComparison.Ordinal);
         Assert.Contains("remote get-url origin", source, StringComparison.Ordinal);
         Assert.Contains("FileShare]::None", source, StringComparison.Ordinal);
         Assert.Contains("FileMode]::CreateNew", source, StringComparison.Ordinal);
+        Assert.Contains("--configuration', 'Release", source, StringComparison.Ordinal);
+        Assert.Contains("dcpProcessId", source, StringComparison.Ordinal);
+        Assert.Contains("localContainerNames", source, StringComparison.Ordinal);
+        Assert.Contains("protectedHandles", source, StringComparison.Ordinal);
         Assert.Contains("$validationSucceeded = $false", source, StringComparison.Ordinal);
         Assert.Contains("-not $cleanupCompleted", source, StringComparison.Ordinal);
         Assert.DoesNotContain("Move-Item", source, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("-Method Post", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("clientId = 'legacy-intranet'", source, StringComparison.Ordinal);
         Assert.DoesNotContain("-Method Put", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("-Method Delete", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("local.employee@maliev.test", source, StringComparison.OrdinalIgnoreCase);
@@ -131,8 +137,6 @@ public sealed class LocalSnapshotTerminalGateContractTests
                 "-ExpectedRepositoryBaselineSha256", new string('c', 64),
                 "-ExpectedSemanticManifestDigestSha256", new string('d', 64),
                 "-ExpectedManifestFileSha256", new string('e', 64),
-                "-AuthenticatedQueryEvidencePath", missing,
-                "-ExpectedAuthenticatedQueryEvidenceSha256", new string('f', 64),
                 "-EvidencePath", evidence,
             }) startInfo.ArgumentList.Add(argument);
 
@@ -142,6 +146,110 @@ public sealed class LocalSnapshotTerminalGateContractTests
             Assert.False(File.Exists(evidence));
         }
         finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Fact]
+    public void RouteContract_FreezesServiceSpecificReadinessAndAuthenticatedGetRoutes()
+    {
+        string root = FindRepositoryRoot();
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(root, "contracts", "local-snapshot-review-routes.json")));
+        JsonElement services = document.RootElement.GetProperty("services");
+        JsonElement queries = document.RootElement.GetProperty("authenticatedQueries");
+        Assert.Equal(16, services.GetArrayLength());
+        Assert.Equal(7, queries.GetArrayLength());
+        Dictionary<string, string> actualRoutes = services.EnumerateArray().ToDictionary(
+            item => item.GetProperty("name").GetString()!,
+            item => item.GetProperty("readinessPath").GetString()!,
+            StringComparer.Ordinal);
+        Dictionary<string, string> expectedRoutes = new(StringComparer.Ordinal)
+        {
+            ["legacy-maliev-country-service"] = "/countries/readiness",
+            ["legacy-maliev-document-service"] = "/documents/readiness",
+            ["legacy-maliev-auth-service"] = "/auth/readiness",
+            ["legacy-maliev-customer-service"] = "/customer/readiness",
+            ["legacy-maliev-employee-service"] = "/employee/readiness",
+            ["legacy-maliev-catalog-service"] = "/catalog/readiness",
+            ["legacy-maliev-procurement-service"] = "/procurement/readiness",
+            ["legacy-maliev-file-service"] = "/file/readiness",
+            ["legacy-maliev-order-service"] = "/order/readiness",
+            ["legacy-maliev-quotation-service"] = "/quotation/readiness",
+            ["legacy-maliev-notification-service"] = "/emails/readiness",
+            ["legacy-maliev-web"] = "/web/readiness",
+            ["legacy-maliev-intranet-bff"] = "/intranet-bff/readiness",
+            ["legacy-maliev-career-service"] = "/Jobs/readiness",
+            ["legacy-maliev-contact-service"] = "/messages/readiness",
+            ["legacy-maliev-accounting-service"] = "/accounting/readiness",
+        };
+        Assert.Equal(expectedRoutes.OrderBy(item => item.Key), actualRoutes.OrderBy(item => item.Key));
+        Assert.Equal(
+            LegacySnapshotReviewContract.AuthenticatedReadQueries.Order(),
+            queries.EnumerateArray().Select(item => item.GetProperty("id").GetString()).Order());
+        Assert.All(queries.EnumerateArray(), item =>
+        {
+            Assert.Equal("GET", item.GetProperty("method").GetString());
+            Assert.StartsWith("/", item.GetProperty("path").GetString());
+        });
+    }
+
+    [Fact]
+    public void Verifier_CannotConstructOrPublishPassedEvidenceBeforeRuntimeAndCleanupSuccess()
+    {
+        string root = FindRepositoryRoot();
+        string source = File.ReadAllText(Path.Combine(root, "scripts", "verify-local-snapshot-stack.ps1"));
+        int guard = source.IndexOf("if (-not $validationSucceeded -or -not $cleanupCompleted)", StringComparison.Ordinal);
+        int evidence = source.IndexOf("$terminalEvidence = [ordered]", StringComparison.Ordinal);
+        int publisher = source.IndexOf("publish-local-snapshot-terminal-evidence.ps1", StringComparison.Ordinal);
+        Assert.True(guard >= 0 && evidence > guard && publisher > evidence);
+    }
+
+    [Fact]
+    public async Task Publisher_ValidatorFailureLeavesNoPassedArtifact()
+    {
+        using var fixture = TerminalEvidenceFixture.Create("failed-status");
+        string finalPath = Path.Combine(fixture.Directory, "published.json");
+        ProcessResult result = await RunPublisherAsync(fixture, finalPath);
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.False(File.Exists(finalPath));
+    }
+
+    [Fact]
+    public async Task Publisher_ValidCandidateIsPublishedCreateOnly()
+    {
+        using var fixture = TerminalEvidenceFixture.Create();
+        string finalPath = Path.Combine(fixture.Directory, "published.json");
+        ProcessResult result = await RunPublisherAsync(fixture, finalPath);
+        Assert.True(result.ExitCode == 0, $"stdout: {result.Output}{Environment.NewLine}stderr: {result.Error}");
+        Assert.True(File.Exists(finalPath));
+        Assert.False(File.Exists(fixture.Path));
+    }
+
+    private static async Task<ProcessResult> RunPublisherAsync(TerminalEvidenceFixture fixture, string finalPath)
+    {
+        string root = FindRepositoryRoot();
+        var startInfo = new ProcessStartInfo("pwsh")
+        {
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+        };
+        foreach (string argument in new[]
+        {
+            "-NoLogo", "-NoProfile", "-File", Path.Combine(root, "scripts", "publish-local-snapshot-terminal-evidence.ps1"),
+            "-CandidateEvidencePath", fixture.Path, "-FinalEvidencePath", finalPath,
+            "-ExpectedAppHostCommit", fixture.AppHostCommit, "-ExpectedSourceCommitSha", fixture.SourceCommit,
+            "-ExpectedSnapshotId", fixture.SnapshotId,
+            "-ExpectedSemanticManifestDigestSha256", fixture.SemanticManifestDigest,
+            "-ExpectedManifestFileSha256", fixture.ManifestFileDigest,
+            "-ExpectedMigrationEvidencePayloadSha256", fixture.MigrationEvidenceDigest,
+            "-ExpectedApprovedBaselineSha256", fixture.ApprovedBaselineDigest,
+            "-ExpectedRepositoryBaselineSha256", fixture.RepositoryBaselineDigest,
+        }) startInfo.ArgumentList.Add(argument);
+        using Process process = Process.Start(startInfo) ?? throw new InvalidOperationException("PowerShell could not start.");
+        string output = await process.StandardOutput.ReadToEndAsync();
+        string error = await process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        return new(process.ExitCode, output, error);
     }
 
     private static async Task<ProcessResult> RunValidatorAsync(TerminalEvidenceFixture fixture)
