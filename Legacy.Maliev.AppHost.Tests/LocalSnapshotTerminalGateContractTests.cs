@@ -231,6 +231,8 @@ public sealed class LocalSnapshotTerminalGateContractTests
     [InlineData(null, true)]
     [InlineData("worktree-assets", false)]
     [InlineData("outside-reference", false)]
+    [InlineData("deps-worktree", false)]
+    [InlineData("deps-outside", false)]
     public async Task CanonicalBuildGraphValidator_RejectsUnreviewedRestorePaths(string? mutation, bool expectedSuccess)
     {
         string directory = Directory.CreateTempSubdirectory("legacy-build-graph-").FullName;
@@ -244,6 +246,13 @@ public sealed class LocalSnapshotTerminalGateContractTests
                 string outside = WriteProjectAssets(directory, "Outside", null);
                 rootProject = WriteProjectAssets(repository, "Root", outside);
             }
+            string depsPath = mutation switch
+            {
+                "deps-worktree" => @"B:\maliev-legacy\.worktrees\Legacy.Maliev.CustomerService\evil.dll",
+                "deps-outside" => @"C:\outside\evil.dll",
+                _ => Path.Combine(repository, "Root", "bin", "Release", "net10.0", "Root.dll"),
+            };
+            WriteReleaseDeps(repository, "Root", depsPath);
 
             string root = FindRepositoryRoot();
             var startInfo = new ProcessStartInfo("pwsh")
@@ -256,6 +265,7 @@ public sealed class LocalSnapshotTerminalGateContractTests
             {
                 "-NoLogo", "-NoProfile", "-File", Path.Combine(root, "scripts", "test-canonical-runtime-build-graph.ps1"),
                 "-RootProjectPath", rootProject, "-WorkspaceRoot", directory, "-ReviewedRepository", "RepoA",
+                "-RequireReleaseDeps",
             }) startInfo.ArgumentList.Add(argument);
             using Process process = Process.Start(startInfo) ?? throw new InvalidOperationException("PowerShell could not start.");
             string output = await process.StandardOutput.ReadToEndAsync();
@@ -296,6 +306,26 @@ public sealed class LocalSnapshotTerminalGateContractTests
         if (worktreeMarker) assets["unreviewedPath"] = @"B:\maliev-legacy\.worktrees\Legacy.Maliev.CustomerService";
         File.WriteAllText(Path.Combine(obj, "project.assets.json"), JsonSerializer.Serialize(assets));
         return projectPath;
+    }
+
+    private static void WriteReleaseDeps(string repository, string projectName, string rootedPath)
+    {
+        string output = Directory.CreateDirectory(Path.Combine(repository, projectName, "bin", "Release", "net10.0")).FullName;
+        var deps = new Dictionary<string, object?>
+        {
+            ["runtimeTarget"] = new Dictionary<string, object?> { ["name"] = ".NETCoreApp,Version=v10.0/win-x64" },
+            ["targets"] = new Dictionary<string, object?>
+            {
+                [".NETCoreApp,Version=v10.0/win-x64"] = new Dictionary<string, object?>
+                {
+                    ["fixture/1.0.0"] = new Dictionary<string, object?>
+                    {
+                        ["runtime"] = new Dictionary<string, object?> { [rootedPath] = new Dictionary<string, object?>() },
+                    },
+                },
+            },
+        };
+        File.WriteAllText(Path.Combine(output, projectName + ".deps.json"), JsonSerializer.Serialize(deps));
     }
 
     private static async Task<ProcessResult> RunPublisherAsync(TerminalEvidenceFixture fixture, string finalPath)

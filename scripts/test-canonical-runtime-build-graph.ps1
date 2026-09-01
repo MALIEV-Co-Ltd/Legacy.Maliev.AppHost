@@ -28,6 +28,35 @@ function Assert-InReviewedRoot([string]$Path, [string]$Label) {
     return $fullPath
 }
 
+function Test-RootedFileSystemPath([string]$Value) {
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
+    return [IO.Path]::IsPathRooted($Value) -or
+        $Value -match '^[A-Za-z]:[\\/]' -or $Value -match '^\\\\' -or $Value -match '^/'
+}
+
+function Get-RootedJsonPaths([object]$Value) {
+    if ($null -eq $Value) { return }
+    if ($Value -is [string]) {
+        if (Test-RootedFileSystemPath $Value) { Write-Output ([string]$Value) }
+        return
+    }
+    if ($Value -is [Collections.IDictionary]) {
+        foreach ($key in $Value.Keys) {
+            if (Test-RootedFileSystemPath ([string]$key)) { Write-Output ([string]$key) }
+            Get-RootedJsonPaths $Value[$key]
+        }
+        return
+    }
+    if ($Value -is [Collections.IEnumerable]) {
+        foreach ($item in $Value) { Get-RootedJsonPaths $item }
+        return
+    }
+    foreach ($property in $Value.PSObject.Properties) {
+        if (Test-RootedFileSystemPath ([string]$property.Name)) { Write-Output ([string]$property.Name) }
+        Get-RootedJsonPaths $property.Value
+    }
+}
+
 $rootProject = Assert-InReviewedRoot $RootProjectPath 'Root project'
 $pending = [Collections.Generic.Queue[string]]::new()
 $visited = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -72,6 +101,10 @@ if ($RequireReleaseDeps) {
             $depsCount++
             $depsText = [IO.File]::ReadAllText($depsFile.FullName, [Text.Encoding]::UTF8)
             if ($depsText -match '(?i)[\\/]\.worktrees[\\/]') { throw "Release dependency manifest contains a worktree path: $($depsFile.FullName)" }
+            $deps = $depsText | ConvertFrom-Json -DateKind String
+            foreach ($rootedPath in @(Get-RootedJsonPaths $deps)) {
+                [void](Assert-InReviewedRoot $rootedPath "Rooted path in Release dependency manifest '$($depsFile.FullName)'")
+            }
         }
     }
     if ($depsCount -eq 0) { throw 'No Release dependency manifests were produced for the reviewed runtime graph.' }
