@@ -27,10 +27,11 @@ For all 24 migrated databases the receipt must reconcile:
 - every planned sequence or identity next value.
 
 Database totals must equal the sum of all planned table and batch receipts. Missing, extra,
-duplicated, or renamed evidence fails. The complete 26-database disposition inventory is also
-signed: 24 migrate, including `ContactRequest`, `LocationData`, and `Log`; only
-`MachineLearning` and `MachineLearningData` are excluded under the retired PredictionService
-decision.
+duplicated, or renamed evidence fails. The complete 27-database disposition inventory is also
+signed: 24 migrate, including `ContactRequest`, `LocationData`, and `Log`; `Hangfire` is excluded
+under its retirement decision, and `MachineLearning` and `MachineLearningData` are excluded under
+the retired PredictionService decision. Excluded databases must never appear in migrated database
+evidence.
 
 ## Signed execution and replay boundary
 
