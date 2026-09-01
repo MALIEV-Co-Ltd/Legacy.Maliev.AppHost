@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "services": [
+    { "name": "legacy-maliev-country-service", "readinessPath": "/countries/readiness" },
+    { "name": "legacy-maliev-document-service", "readinessPath": "/documents/readiness" },
+    { "name": "legacy-maliev-auth-service", "readinessPath": "/auth/readiness" },
+    { "name": "legacy-maliev-customer-service", "readinessPath": "/customer/readiness" },
+    { "name": "legacy-maliev-employee-service", "readinessPath": "/employee/readiness" },
+    { "name": "legacy-maliev-catalog-service", "readinessPath": "/catalog/readiness" },
+    { "name": "legacy-maliev-procurement-service", "readinessPath": "/procurement/readiness" },
+    { "name": "legacy-maliev-file-service", "readinessPath": "/file/readiness" },
+    { "name": "legacy-maliev-order-service", "readinessPath": "/order/readiness" },
+    { "name": "legacy-maliev-quotation-service", "readinessPath": "/quotation/readiness" },
+    { "name": "legacy-maliev-notification-service", "readinessPath": "/emails/readiness" },
+    { "name": "legacy-maliev-web", "readinessPath": "/web/readiness" },
+    { "name": "legacy-maliev-intranet-bff", "readinessPath": "/intranet-bff/readiness" },
+    { "name": "legacy-maliev-career-service", "readinessPath": "/Jobs/readiness" },
+    { "name": "legacy-maliev-contact-service", "readinessPath": "/messages/readiness" },
+    { "name": "legacy-maliev-accounting-service", "readinessPath": "/accounting/readiness" }
+  ],
+  "authenticatedQueries": [
+    { "id": "customer-list", "resource": "legacy-maliev-customer-service", "method": "GET", "path": "/customers?index=1&size=1" },
+    { "id": "employee-list", "resource": "legacy-maliev-employee-service", "method": "GET", "path": "/employees?index=1&size=1" },
+    { "id": "catalog-material-list", "resource": "legacy-maliev-catalog-service", "method": "GET", "path": "/materials?index=1&size=1" },
+    { "id": "procurement-supplier-list", "resource": "legacy-maliev-procurement-service", "method": "GET", "path": "/suppliers?index=1&size=1" },
+    { "id": "order-list", "resource": "legacy-maliev-order-service", "method": "GET", "path": "/orders?index=1&size=1" },
+    { "id": "quotation-request-list", "resource": "legacy-maliev-quotation-service", "method": "GET", "path": "/quotationrequests?index=1&size=1" },
+    { "id": "accounting-payment-list", "resource": "legacy-maliev-accounting-service", "method": "GET", "path": "/payments?index=1&size=1" }
+  ]
+}
