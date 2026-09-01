@@ -109,9 +109,21 @@ public sealed class PostgresMigrationEvidenceContractTests
     }
 
     [Fact]
-    public async Task Validator_RejectsRetiredHangfireDatabase()
+    public async Task Validator_RejectsRetiredHangfireDatabaseWhenMigrated()
     {
         using var evidence = TemporaryEvidence.Create("duplicate-database:Hangfire");
+        var result = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
+
+        Assert.NotEqual(0, result.ExitCode);
+    }
+
+    [Theory]
+    [InlineData("missing-inventory:Hangfire")]
+    [InlineData("duplicate-inventory:Hangfire")]
+    [InlineData("hangfire-migrated-disposition")]
+    public async Task Validator_RejectsMissingDuplicateOrMigratedHangfireDisposition(string mutation)
+    {
+        using var evidence = TemporaryEvidence.Create(mutation);
         var result = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
 
         Assert.NotEqual(0, result.ExitCode);
@@ -245,6 +257,9 @@ public sealed class PostgresMigrationEvidenceContractTests
         Assert.Contains("-TrustedPublicKeyPath", docs, StringComparison.Ordinal);
         Assert.Contains("For all 24 migrated databases", docs, StringComparison.Ordinal);
         Assert.Contains("signed: 24 migrate", docs, StringComparison.Ordinal);
+        Assert.Contains("complete 27-database disposition inventory", docs, StringComparison.Ordinal);
+        Assert.Contains("Hangfire = @('Legacy.Maliev.CompatibilityContracts', 'excluded')", script, StringComparison.Ordinal);
+        Assert.Contains("`Hangfire` is excluded", docs, StringComparison.Ordinal);
         Assert.DoesNotContain("21 migrated databases", docs, StringComparison.Ordinal);
         Assert.DoesNotContain("archive-only", docs, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("held for review", docs, StringComparison.OrdinalIgnoreCase);
@@ -263,8 +278,6 @@ public sealed class PostgresMigrationEvidenceContractTests
         Assert.DoesNotContain("kubectl", script, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("gcloud", script, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("psql", script, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Hangfire", script, StringComparison.Ordinal);
-        Assert.DoesNotContain("Hangfire", docs, StringComparison.Ordinal);
         Assert.DoesNotContain("Hangfire", readme, StringComparison.Ordinal);
     }
 
@@ -496,7 +509,8 @@ public sealed class PostgresMigrationEvidenceContractTests
                 ("Employee", "Legacy.Maliev.EmployeeService", "migrate"), ("EmployeeIdentity", "Legacy.Maliev.AuthService", "migrate"),
                 ("Invoice", "Legacy.Maliev.AccountingService", "migrate"),
                 ("JobOffers", "Legacy.Maliev.CareerService", "migrate"), ("LocationData", "Legacy.Maliev.CatalogService", "migrate"),
-                ("Log", "Legacy.Maliev.CompatibilityContracts", "migrate"), ("MachineLearning", "Legacy.Maliev.CompatibilityContracts", "excluded"),
+                ("Log", "Legacy.Maliev.CompatibilityContracts", "migrate"), ("Hangfire", "Legacy.Maliev.CompatibilityContracts", "excluded"),
+                ("MachineLearning", "Legacy.Maliev.CompatibilityContracts", "excluded"),
                 ("MachineLearningData", "Legacy.Maliev.CompatibilityContracts", "excluded"), ("Material", "Legacy.Maliev.CatalogService", "migrate"),
                 ("Message", "Legacy.Maliev.ContactService", "migrate"), ("Order", "Legacy.Maliev.OrderService", "migrate"),
                 ("OrderStatus", "Legacy.Maliev.OrderService", "migrate"), ("Payment", "Legacy.Maliev.AccountingService", "migrate"),
@@ -708,6 +722,26 @@ public sealed class PostgresMigrationEvidenceContractTests
                 return;
             }
 
+            if (mutation is not null && mutation.StartsWith("missing-inventory:", StringComparison.Ordinal))
+            {
+                string databaseName = mutation["missing-inventory:".Length..];
+                JsonArray inventory = (JsonArray)root["inventory"]!;
+                JsonNode entry = inventory.Single(item =>
+                    string.Equals(((JsonObject)item!)["name"]!.GetValue<string>(), databaseName, StringComparison.Ordinal))!;
+                inventory.Remove(entry);
+                return;
+            }
+
+            if (mutation is not null && mutation.StartsWith("duplicate-inventory:", StringComparison.Ordinal))
+            {
+                string databaseName = mutation["duplicate-inventory:".Length..];
+                JsonArray inventory = (JsonArray)root["inventory"]!;
+                JsonNode entry = inventory.Single(item =>
+                    string.Equals(((JsonObject)item!)["name"]!.GetValue<string>(), databaseName, StringComparison.Ordinal))!;
+                inventory.Add(entry.DeepClone());
+                return;
+            }
+
             switch (mutation)
             {
                 case "source-stale": source["capturedAtUtc"] = "2026-08-06T23:59:59.0000000+00:00"; break;
@@ -727,6 +761,10 @@ public sealed class PostgresMigrationEvidenceContractTests
                 case "duplicate-database": databases.Add(Database(MigratedDatabases[0], mappingHash, 0)); break;
                 case "missing-database": databases.RemoveAt(0); break;
                 case "wrong-disposition": ((JsonObject)((JsonArray)root["inventory"]!)[1]!)["disposition"] = "excluded"; break;
+                case "hangfire-migrated-disposition":
+                    ((JsonObject)((JsonArray)root["inventory"]!).Single(item =>
+                        string.Equals(((JsonObject)item!)["name"]!.GetValue<string>(), "Hangfire", StringComparison.Ordinal))!)["disposition"] = "migrate";
+                    break;
                 case "unexpected-archive": ((JsonArray)root["archives"]!).Add(Archive("Log", '2')); break;
                 case "unknown-field": root["unexpected"] = true; break;
                 case "sensitive-field": source["apiToken"] = "must-not-be-recorded"; break;
