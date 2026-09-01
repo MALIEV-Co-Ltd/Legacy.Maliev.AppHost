@@ -106,4 +106,20 @@ public static class LegacySnapshotReviewContract
         "Supplier",
         "Upload",
     });
+
+    /// <summary>Gets the authenticated, read-only query observations required before terminal success.</summary>
+    public static IReadOnlyList<string> AuthenticatedReadQueries { get; } = Array.AsReadOnly(new[]
+    {
+        "auth-session-current",
+        "document-receipt-read",
+        "customer-list",
+        "employee-list",
+        "catalog-material-list",
+        "procurement-supplier-list",
+        "file-list",
+        "order-list",
+        "quotation-list",
+        "intranet-customer-list",
+        "accounting-invoice-list",
+    });
 }

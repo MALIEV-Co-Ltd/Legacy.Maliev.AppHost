@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory = $true)] [ValidatePattern('^[0-9a-f]{40}$')] [string]$ExpectedAppHostCommit,
     [Parameter(Mandatory = $true)] [ValidatePattern('^[0-9a-f]{40}$')] [string]$ExpectedSourceCommitSha,
     [Parameter(Mandatory = $true)] [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')] [string]$ExpectedSnapshotId,
-    [Parameter(Mandatory = $true)] [ValidatePattern('^[0-9a-f]{64}$')] [string]$ExpectedManifestDigestSha256,
+    [Parameter(Mandatory = $true)] [ValidatePattern('^[0-9a-f]{64}$')] [string]$ExpectedSemanticManifestDigestSha256,
+    [Parameter(Mandatory = $true)] [ValidatePattern('^[0-9a-f]{64}$')] [string]$ExpectedManifestFileSha256,
     [Parameter(Mandatory = $true)] [ValidatePattern('^[0-9a-f]{64}$')] [string]$ExpectedMigrationEvidencePayloadSha256,
     [Parameter(Mandatory = $true)] [ValidatePattern('^[0-9a-f]{64}$')] [string]$ExpectedApprovedBaselineSha256,
     [Parameter(Mandatory = $true)] [ValidatePattern('^[0-9a-f]{64}$')] [string]$ExpectedRepositoryBaselineSha256,
@@ -49,6 +50,11 @@ $migratedDatabases = @(
     'PurchaseOrder', 'Quotation', 'QuotationRequest', 'Receipt', 'Supplier', 'Upload'
 )
 $runtimeDatabases = @($migratedDatabases) + @('Auth')
+$authenticatedQueries = @(
+    'auth-session-current', 'document-receipt-read', 'customer-list', 'employee-list',
+    'catalog-material-list', 'procurement-supplier-list', 'file-list', 'order-list',
+    'quotation-list', 'intranet-customer-list', 'accounting-invoice-list'
+)
 
 function Assert-ExactKeys {
     param([System.Collections.IDictionary]$Value, [string[]]$Expected, [string]$Path)
@@ -96,10 +102,58 @@ function Assert-ExactInventory {
     }
 }
 
-if (-not (Test-Path -LiteralPath $EvidencePath -PathType Leaf)) {
-    throw "Terminal evidence does not exist: $EvidencePath"
+function Assert-OwnerOnlyRegularFile {
+    param([string]$Path)
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    for ($directory = [IO.DirectoryInfo]::new([IO.Path]::GetDirectoryName($fullPath)); $null -ne $directory; $directory = $directory.Parent) {
+        $directory.Refresh()
+        if ($directory.Exists -and (($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $null -ne $directory.LinkTarget)) {
+            throw 'Terminal evidence path contains a link or reparse-point ancestor.'
+        }
+    }
+    $file = [IO.FileInfo]::new($fullPath)
+    $file.Refresh()
+    if (-not $file.Exists -or $null -ne $file.LinkTarget -or
+        ($file.Attributes -band ([IO.FileAttributes]::Directory -bor [IO.FileAttributes]::ReparsePoint)) -ne 0) {
+        throw 'Terminal evidence must be a regular non-link file.'
+    }
+    if ($IsWindows) {
+        $owner = [Security.Principal.WindowsIdentity]::GetCurrent().User
+        $security = [IO.FileSystemAclExtensions]::GetAccessControl($file)
+        if ($security.GetOwner([Security.Principal.SecurityIdentifier]) -ne $owner) {
+            throw 'Terminal evidence must be owned by the current user.'
+        }
+        foreach ($rule in $security.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
+            if ($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and $rule.IdentityReference -ne $owner) {
+                throw 'Terminal evidence must have owner-only permissions.'
+            }
+        }
+    }
+    else {
+        $mode = [IO.File]::GetUnixFileMode($fullPath)
+        $forbidden = [IO.UnixFileMode]::GroupRead -bor [IO.UnixFileMode]::GroupWrite -bor
+            [IO.UnixFileMode]::GroupExecute -bor [IO.UnixFileMode]::OtherRead -bor
+            [IO.UnixFileMode]::OtherWrite -bor [IO.UnixFileMode]::OtherExecute
+        if (($mode -band [IO.UnixFileMode]::UserRead) -eq 0 -or ($mode -band $forbidden) -ne 0) {
+            throw 'Terminal evidence must have owner-only permissions.'
+        }
+    }
+    return $fullPath
 }
-$evidence = Get-Content -LiteralPath $EvidencePath -Raw | ConvertFrom-Json -AsHashtable -Depth 30 -DateKind String
+
+function Read-SecureJson {
+    param([string]$Path)
+    $fullPath = Assert-OwnerOnlyRegularFile $Path
+    $stream = [IO.File]::Open($fullPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+    try {
+        $reader = [IO.StreamReader]::new($stream, [Text.UTF8Encoding]::new($false, $true), $false, 4096, $true)
+        try { $json = $reader.ReadToEnd() } finally { $reader.Dispose() }
+        return $json | ConvertFrom-Json -AsHashtable -Depth 30 -DateKind String
+    }
+    finally { $stream.Dispose() }
+}
+
+$evidence = Read-SecureJson $EvidencePath
 if ($evidence -isnot [System.Collections.IDictionary]) {
     throw 'Terminal evidence root must be a JSON object.'
 }
@@ -108,7 +162,7 @@ Assert-ExactKeys -Value $evidence -Expected @(
     'schemaVersion', 'status', 'startedAtUtc', 'completedAtUtc', 'appHostCommit',
     'authoritativeSourceCommitSha', 'migrationEvidencePayloadSha256', 'approvedBaselineSha256',
     'repositoryBaselineSha256', 'snapshot', 'repositories', 'jobs', 'databases', 'services',
-    'constraints', 'cleanup'
+    'authenticatedQueries', 'constraints', 'cleanup'
 ) -Path '$'
 
 if ($evidence.schemaVersion -ne 1 -or $evidence.status -ne 'passed') {
@@ -138,12 +192,14 @@ if (-not [DateTimeOffset]::TryParse([string]$evidence.startedAtUtc, [ref]$starte
 }
 
 if ($evidence.snapshot -isnot [System.Collections.IDictionary]) { throw '$.snapshot must be an object.' }
-Assert-ExactKeys $evidence.snapshot @('id', 'format', 'manifestDigestSha256') '$.snapshot'
+Assert-ExactKeys $evidence.snapshot @('id', 'format', 'semanticManifestDigestSha256', 'manifestFileSha256') '$.snapshot'
 if ($evidence.snapshot.id -cne $ExpectedSnapshotId -or $evidence.snapshot.format -cne 'MLVSNP02') {
     throw 'Terminal evidence does not identify the expected authenticated MLVSNP02 snapshot.'
 }
-Assert-Sha $evidence.snapshot.manifestDigestSha256 64 '$.snapshot.manifestDigestSha256'
-if ($evidence.snapshot.manifestDigestSha256 -cne $ExpectedManifestDigestSha256) {
+Assert-Sha $evidence.snapshot.semanticManifestDigestSha256 64 '$.snapshot.semanticManifestDigestSha256'
+Assert-Sha $evidence.snapshot.manifestFileSha256 64 '$.snapshot.manifestFileSha256'
+if ($evidence.snapshot.semanticManifestDigestSha256 -cne $ExpectedSemanticManifestDigestSha256 -or
+    $evidence.snapshot.manifestFileSha256 -cne $ExpectedManifestFileSha256) {
     throw 'Terminal evidence is not bound to the expected authenticated snapshot manifest.'
 }
 
@@ -151,7 +207,7 @@ if ($evidence.repositories -isnot [object[]]) { throw '$.repositories must be an
 $repositoryNames = @()
 foreach ($repository in $evidence.repositories) {
     if ($repository -isnot [System.Collections.IDictionary]) { throw '$.repositories contains a non-object value.' }
-    Assert-ExactKeys $repository @('name', 'commitSha', 'branch', 'clean', 'headMatchesOriginMain') '$.repositories[]'
+    Assert-ExactKeys $repository @('name', 'commitSha', 'branch', 'clean', 'headMatchesOriginMain', 'originUrl') '$.repositories[]'
     $repositoryNames += [string]$repository.name
     Assert-Sha $repository.commitSha 40 '$.repositories[].commitSha'
     if ($repository.branch -cne 'main' -or $repository.clean -ne $true -or $repository.headMatchesOriginMain -ne $true) {
@@ -159,6 +215,10 @@ foreach ($repository in $evidence.repositories) {
     }
     if ($repository.name -ceq 'Legacy.Maliev.AppHost' -and $repository.commitSha -cne $ExpectedAppHostCommit) {
         throw 'AppHost repository evidence does not match the expected commit.'
+    }
+    $expectedOrigin = "https://github.com/MALIEV-Co-Ltd/$($repository.name)"
+    if ($repository.originUrl -cne $expectedOrigin -and $repository.originUrl -cne "$expectedOrigin.git") {
+        throw "Repository '$($repository.name)' has an unreviewed origin URL."
     }
 }
 Assert-ExactInventory $repositoryNames $repositories '$.repositories[].name'
@@ -181,13 +241,23 @@ if ($evidence.services -isnot [object[]]) { throw '$.services must be an array.'
 $serviceNames = @()
 foreach ($service in $evidence.services) {
     if ($service -isnot [System.Collections.IDictionary]) { throw '$.services contains a non-object value.' }
-    Assert-ExactKeys $service @('name', 'healthy', 'readProbe') '$.services[]'
+    Assert-ExactKeys $service @('name', 'healthy', 'probeId', 'probeStatus') '$.services[]'
     $serviceNames += [string]$service.name
-    if ($service.healthy -ne $true -or $service.readProbe -cne 'passed') {
+    if ($service.healthy -ne $true -or $service.probeId -cne 'readiness' -or $service.probeStatus -cne 'passed') {
         throw "Service '$($service.name)' did not pass health and read-only validation."
     }
 }
 Assert-ExactInventory $serviceNames $services '$.services[].name'
+
+if ($evidence.authenticatedQueries -isnot [object[]]) { throw '$.authenticatedQueries must be an array.' }
+$queryIds = @()
+foreach ($query in $evidence.authenticatedQueries) {
+    if ($query -isnot [System.Collections.IDictionary]) { throw '$.authenticatedQueries contains a non-object value.' }
+    Assert-ExactKeys $query @('id', 'status') '$.authenticatedQueries[]'
+    $queryIds += [string]$query.id
+    if ($query.status -cne 'passed') { throw "Authenticated read-only query '$($query.id)' did not pass." }
+}
+Assert-ExactInventory $queryIds $authenticatedQueries '$.authenticatedQueries[].id'
 
 if ($evidence.constraints -isnot [System.Collections.IDictionary]) { throw '$.constraints must be an object.' }
 Assert-ExactKeys $evidence.constraints @('fixturesEnabled', 'mutatingProbes', 'gkeWrites', 'productionEndpointAccess') '$.constraints'
