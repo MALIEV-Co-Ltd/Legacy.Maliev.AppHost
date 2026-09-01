@@ -11,7 +11,9 @@ ahead, or unexpected-origin repositories fail closed.
 The snapshot must contain the exact 24 migrated databases; Hangfire is retired and is rejected.
 Local runtime topology must contain those 24 migrated databases plus Auth.
 
-The gate performs a clean non-incremental Release build after checking all pinned repositories,
+The gate performs an explicit canonical restore and clean non-incremental Release build after
+checking all pinned repositories. It rejects restore assets, project references, or Release
+dependency manifests containing `.worktrees` or projects outside the 19 reviewed repository roots,
 starts Aspire with fixtures disabled, waits for all 25 terminal jobs, requires all 16 services to
 be healthy, and performs an actual loopback HTTP GET against each service-specific readiness path
 frozen in `contracts/local-snapshot-review-routes.json`. It then obtains an in-memory short-lived

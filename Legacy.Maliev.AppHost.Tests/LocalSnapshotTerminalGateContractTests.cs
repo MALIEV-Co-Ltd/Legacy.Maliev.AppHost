@@ -48,6 +48,9 @@ public sealed class LocalSnapshotTerminalGateContractTests
         Assert.Contains("dcpProcessId", source, StringComparison.Ordinal);
         Assert.Contains("localContainerNames", source, StringComparison.Ordinal);
         Assert.Contains("protectedHandles", source, StringComparison.Ordinal);
+        Assert.Contains("'restore', $appHostProject", source, StringComparison.Ordinal);
+        Assert.Contains("test-canonical-runtime-build-graph.ps1", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("--no-restore", source, StringComparison.Ordinal);
         Assert.Contains("$validationSucceeded = $false", source, StringComparison.Ordinal);
         Assert.Contains("-not $cleanupCompleted", source, StringComparison.Ordinal);
         Assert.DoesNotContain("Move-Item", source, StringComparison.OrdinalIgnoreCase);
@@ -222,6 +225,77 @@ public sealed class LocalSnapshotTerminalGateContractTests
         Assert.True(result.ExitCode == 0, $"stdout: {result.Output}{Environment.NewLine}stderr: {result.Error}");
         Assert.True(File.Exists(finalPath));
         Assert.False(File.Exists(fixture.Path));
+    }
+
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("worktree-assets", false)]
+    [InlineData("outside-reference", false)]
+    public async Task CanonicalBuildGraphValidator_RejectsUnreviewedRestorePaths(string? mutation, bool expectedSuccess)
+    {
+        string directory = Directory.CreateTempSubdirectory("legacy-build-graph-").FullName;
+        try
+        {
+            string repository = Directory.CreateDirectory(Path.Combine(directory, "RepoA")).FullName;
+            string rootProject = WriteProjectAssets(repository, "Root", Path.Combine(repository, "Child", "Child.csproj"));
+            string childProject = WriteProjectAssets(repository, "Child", null, mutation == "worktree-assets");
+            if (mutation == "outside-reference")
+            {
+                string outside = WriteProjectAssets(directory, "Outside", null);
+                rootProject = WriteProjectAssets(repository, "Root", outside);
+            }
+
+            string root = FindRepositoryRoot();
+            var startInfo = new ProcessStartInfo("pwsh")
+            {
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+            };
+            foreach (string argument in new[]
+            {
+                "-NoLogo", "-NoProfile", "-File", Path.Combine(root, "scripts", "test-canonical-runtime-build-graph.ps1"),
+                "-RootProjectPath", rootProject, "-WorkspaceRoot", directory, "-ReviewedRepository", "RepoA",
+            }) startInfo.ArgumentList.Add(argument);
+            using Process process = Process.Start(startInfo) ?? throw new InvalidOperationException("PowerShell could not start.");
+            string output = await process.StandardOutput.ReadToEndAsync();
+            string error = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            Assert.Equal(expectedSuccess, process.ExitCode == 0);
+            if (expectedSuccess) Assert.Contains("PASS: canonical runtime graph", output, StringComparison.Ordinal);
+            else Assert.NotEmpty(error);
+            Assert.True(File.Exists(childProject));
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    private static string WriteProjectAssets(string repository, string projectName, string? reference, bool worktreeMarker = false)
+    {
+        string projectDirectory = Directory.CreateDirectory(Path.Combine(repository, projectName)).FullName;
+        string projectPath = Path.Combine(projectDirectory, projectName + ".csproj");
+        File.WriteAllText(projectPath, "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+        string obj = Directory.CreateDirectory(Path.Combine(projectDirectory, "obj")).FullName;
+        var references = new Dictionary<string, object?>();
+        if (reference is not null) references[reference] = new Dictionary<string, object?> { ["projectPath"] = reference };
+        var assets = new Dictionary<string, object?>
+        {
+            ["project"] = new Dictionary<string, object?>
+            {
+                ["restore"] = new Dictionary<string, object?>
+                {
+                    ["projectUniqueName"] = projectPath,
+                    ["projectPath"] = projectPath,
+                    ["outputPath"] = obj + Path.DirectorySeparatorChar,
+                    ["frameworks"] = new Dictionary<string, object?>
+                    {
+                        ["net10.0"] = new Dictionary<string, object?> { ["projectReferences"] = references },
+                    },
+                },
+            },
+        };
+        if (worktreeMarker) assets["unreviewedPath"] = @"B:\maliev-legacy\.worktrees\Legacy.Maliev.CustomerService";
+        File.WriteAllText(Path.Combine(obj, "project.assets.json"), JsonSerializer.Serialize(assets));
+        return projectPath;
     }
 
     private static async Task<ProcessResult> RunPublisherAsync(TerminalEvidenceFixture fixture, string finalPath)

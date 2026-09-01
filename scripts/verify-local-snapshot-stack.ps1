@@ -403,12 +403,22 @@ if ($LASTEXITCODE -ne 0 -or $scriptCommit -cne $appHostCommit -or
 }
 $appHostProject = Join-Path $scriptRepositoryRoot 'Legacy.Maliev.AppHost\Legacy.Maliev.AppHost.csproj'
 $webProject = Join-Path $WorkspaceRoot 'Legacy.Maliev.Web\Legacy.Maliev.Web\Legacy.Maliev.Web.csproj'
+$restoreArguments = @(
+    'restore', $appHostProject,
+    "-p:MalievWorkspaceRoot=$WorkspaceRoot", "-p:LegacyMalievWebProject=$webProject"
+)
+& dotnet @restoreArguments
+if ($LASTEXITCODE -ne 0) { throw 'Canonical restore of the reviewed repository baseline failed.' }
+$graphVerifier = Join-Path $PSScriptRoot 'test-canonical-runtime-build-graph.ps1'
+& $graphVerifier -RootProjectPath $appHostProject -WorkspaceRoot $WorkspaceRoot -ReviewedRepository $repositories
 $buildArguments = @(
-    'build', $appHostProject, '--configuration', 'Release', '--no-restore', '--no-incremental',
+    'build', $appHostProject, '--configuration', 'Release', '--no-incremental',
     "-p:MalievWorkspaceRoot=$WorkspaceRoot", "-p:LegacyMalievWebProject=$webProject"
 )
 & dotnet @buildArguments
 if ($LASTEXITCODE -ne 0) { throw 'Clean Release build of the reviewed repository baseline failed.' }
+& $graphVerifier -RootProjectPath $appHostProject -WorkspaceRoot $WorkspaceRoot `
+    -ReviewedRepository $repositories -RequireReleaseDeps
 foreach ($entry in @($repositoryBaseline.repositories)) {
     $path = Join-Path $WorkspaceRoot $entry.name
     if ((& git -C $path branch --show-current).Trim() -cne 'main' -or
