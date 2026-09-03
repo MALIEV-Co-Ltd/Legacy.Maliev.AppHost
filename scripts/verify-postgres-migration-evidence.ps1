@@ -308,6 +308,27 @@ foreach ($entry in $evidence.inventory) {
     }
 }
 
+$exactDispositionInventorySha256 = 'd836f2bc5615daf02746ba54d9b9a8e767cbbb7e9a4f690838bdaafd584e2a4b'
+$approvedInventoryNames = @($approvedInventory.Keys)
+[Array]::Sort($approvedInventoryNames, [StringComparer]::Ordinal)
+$approvedInventoryCanonical = @($approvedInventoryNames | ForEach-Object {
+    $approved = $approvedInventory[$_]
+    $producerDisposition = switch ($approved[1])
+    {
+        'migrate' { 'Migrate'; break }
+        'excluded' { 'Excluded'; break }
+        default { throw "Approved inventory has an unsupported disposition '$($approved[1])'." }
+    }
+    "$_|$($approved[0])|$producerDisposition"
+}) -join "`n"
+$approvedInventorySha256 = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($approvedInventoryCanonical))).ToLowerInvariant()
+if ($approvedInventorySha256 -cne $exactDispositionInventorySha256) {
+    throw 'The built-in disposition inventory does not match the exact approved digest contract.'
+}
+if ($evidence.source.backup.databaseInventorySha256 -cne $exactDispositionInventorySha256) {
+    throw 'The signed source backup disposition inventory hash does not match the exact approved contract.'
+}
+
 $approvedMigrated = @($approvedInventory.Keys | Where-Object { $approvedInventory[$_][1] -eq 'migrate' } | Sort-Object)
 $callerExpectedRaw = @($ExpectedDatabase | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $callerExpected = @($callerExpectedRaw | Sort-Object -Unique)

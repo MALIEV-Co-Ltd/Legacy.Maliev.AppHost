@@ -92,7 +92,7 @@ public sealed class EncryptedSnapshotOrchestrationContractTests
     }
 
     [Fact]
-    public void EvidenceDocumentation_UsesExactTwentyFourDatabaseExample()
+    public void EvidenceDocumentation_UsesExactTwentyThreeDatabaseExample()
     {
         string source = File.ReadAllText(Path.Combine(Root, "docs", "postgres-migration-evidence.md"));
         const string expected = "ContactRequest,Country,Currency,Customer,CustomerIdentity,DataProtectionKeys,DataProtectionKeysEmployee,Employee,EmployeeIdentity,Invoice,JobOffers,LocationData,Material,Message,Order,OrderStatus,Payment,PurchaseOrder,Quotation,QuotationRequest,Receipt,Supplier,Upload";

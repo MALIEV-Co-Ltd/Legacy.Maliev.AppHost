@@ -4,11 +4,14 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Legacy.Maliev.AppHost.Topology;
 
 namespace Legacy.Maliev.AppHost.Tests;
 
 public sealed class PostgresMigrationEvidenceContractTests
 {
+    private const string ExactDispositionInventorySha256 = "d836f2bc5615daf02746ba54d9b9a8e767cbbb7e9a4f690838bdaafd584e2a4b";
+
     private static readonly string[] MigratedDatabases =
     [
         "ContactRequest", "Country", "Currency", "Customer", "CustomerIdentity", "DataProtectionKeys",
@@ -18,11 +21,50 @@ public sealed class PostgresMigrationEvidenceContractTests
     ];
 
     [Fact]
-    public async Task Validator_AcceptsSignedMappedSchemaAndReconciledContent()
+    public async Task Validator_AcceptsSignedEvidenceWithExactSourceBackupDispositionDigest()
     {
         using var evidence = TemporaryEvidence.Create();
         var result = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
         Assert.True(result.ExitCode == 0, result.StandardError);
+    }
+
+    [Fact]
+    public async Task Validator_RejectsSignedSourceBackupInventoryHashThatDriftsFromExactDispositionContract()
+    {
+        using var evidence = TemporaryEvidence.Create("backup-inventory-hash-drift");
+        var result = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
+
+        Assert.NotEqual(0, result.ExitCode);
+    }
+
+    [Fact]
+    public async Task Validator_RejectsSignedSourceBackupInventoryHashFromThePreviousDispositionContract()
+    {
+        using var evidence = TemporaryEvidence.Create("backup-inventory-hash:5e6061790b86e816624e0a6e318a12c1c294e4d4fc165bc8a93c2af40b5a37f6");
+        var result = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
+
+        Assert.NotEqual(0, result.ExitCode);
+    }
+
+    [Fact]
+    public void DispositionInventoryDigest_AndMigratedTopologyMatchTheIndependentExactContract()
+    {
+        JsonArray inventory = TemporaryEvidence.BuildInventory();
+        string[] canonicalEntries = [.. inventory
+            .Select(node => (JsonObject)node!)
+            .OrderBy(entry => entry["name"]!.GetValue<string>(), StringComparer.Ordinal)
+            .Select(entry => $"{entry["name"]!.GetValue<string>()}|{entry["owner"]!.GetValue<string>()}|{ToProducerDisposition(entry["disposition"]!.GetValue<string>())}")];
+        string actualDigest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', canonicalEntries)))).ToLowerInvariant();
+        string[] migrated = [.. inventory
+            .Select(node => (JsonObject)node!)
+            .Where(entry => entry["disposition"]!.GetValue<string>() == "migrate")
+            .Select(entry => entry["name"]!.GetValue<string>())
+            .Order(StringComparer.Ordinal)];
+
+        Assert.Equal(27, inventory.Count);
+        Assert.Equal(ExactDispositionInventorySha256, actualDigest);
+        Assert.Equal(LegacyTopology.DatabaseNames, migrated);
+        Assert.DoesNotContain("Log", migrated);
     }
 
     [Theory]
@@ -339,6 +381,16 @@ public sealed class PostgresMigrationEvidenceContractTests
         return directory?.FullName ?? throw new DirectoryNotFoundException("Repository root was not found.");
     }
 
+    private static string ToProducerDisposition(string disposition)
+    {
+        return disposition switch
+        {
+            "migrate" => "Migrate",
+            "excluded" => "Excluded",
+            _ => throw new InvalidOperationException($"Unexpected test disposition '{disposition}'."),
+        };
+    }
+
     private sealed class TemporaryEvidence : IDisposable
     {
         private readonly string _directory;
@@ -461,7 +513,7 @@ public sealed class PostgresMigrationEvidenceContractTests
                 {
                     ["uri"] = "gs://maliev.com/database/full/2026-08-07/",
                     ["manifestSha256"] = new string('a', 64),
-                    ["databaseInventorySha256"] = new string('b', 64),
+                    ["databaseInventorySha256"] = ExactDispositionInventorySha256,
                     ["objectGeneration"] = "generation-20260807",
                     ["immutable"] = true,
                 },
@@ -512,7 +564,7 @@ public sealed class PostgresMigrationEvidenceContractTests
             },
         };
 
-        private static JsonArray BuildInventory()
+        internal static JsonArray BuildInventory()
         {
             (string Name, string Owner, string Disposition)[] entries =
             [
@@ -756,9 +808,16 @@ public sealed class PostgresMigrationEvidenceContractTests
                 return;
             }
 
+            if (mutation is not null && mutation.StartsWith("backup-inventory-hash:", StringComparison.Ordinal))
+            {
+                ((JsonObject)source["backup"]!)["databaseInventorySha256"] = mutation["backup-inventory-hash:".Length..];
+                return;
+            }
+
             switch (mutation)
             {
                 case "source-stale": source["capturedAtUtc"] = "2026-08-06T23:59:59.0000000+00:00"; break;
+                case "backup-inventory-hash-drift": ((JsonObject)source["backup"]!)["databaseInventorySha256"] = new string('b', 64); break;
                 case "target-before-source": target["capturedAtUtc"] = "2026-08-07T00:04:59.0000000+00:00"; break;
                 case "target-before-authorization":
                     target["capturedAtUtc"] = DateTimeOffset.Parse(executionNode["issuedAtUtc"]!.GetValue<string>()).AddSeconds(-1).ToString("O");
