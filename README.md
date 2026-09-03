@@ -6,7 +6,7 @@ cloud resource.
 
 ## Current topology
 
-- PostgreSQL 18 with all 24 retained legacy database names preserved exactly and a separate `Auth` database
+- PostgreSQL 18 with all 23 retained legacy database names preserved exactly (Log excluded) and a separate `Auth` database
   for refresh sessions and single-use account-action tokens. Application traffic passes through a
   resource-bounded PgBouncer 1.25.2 container using the same transaction-pool limits as the dormant
   CloudNativePG Pooler; migration and bootstrap jobs keep direct PostgreSQL connections.
@@ -113,7 +113,7 @@ service boundaries, renders the seeded Career listing through Web, persists a Co
 the create-only Web identity, keeps Accounting frontend-disconnected, validates the exact Intranet
 service-token permissions, signs into the
 Intranet, exercises Dashboard plus Customer/Employee/Material/Supplier/Order/PurchaseOrder pages,
-checks all 24
+checks all 23
 preserved database names plus the isolated Auth runtime database, proves a real Country query
 through PgBouncer, rejects ambient credential
 leakage, and removes the local containers in `finally` even when validation fails.
@@ -165,7 +165,7 @@ without creating a host process when the snapshot, manifest, snapshot id, encryp
 exact-23 preflight is missing or invalid. This keeps credential and migration verification tied to
 the production-derived shadow copy rather than `local.employee@maliev.test`.
 
-The snapshot directory must contain the authenticated schema-version-2 manifest and all 24 encrypted
+The snapshot directory must contain the authenticated schema-version-2 manifest and all 23 encrypted
 `*.dump.aes256` archives produced by the read-only PostgreSQL export from `legacy-postgres-main`.
 Each migration runner loads the 32-byte base64 root key from the external file reference, derives
 domain-separated encryption and manifest-authentication keys with HKDF-SHA256, authenticates the
@@ -176,8 +176,8 @@ then restores it with `pg_restore --clean --if-exists --single-transaction`. Ver
 deleted on success, failure, or cancellation. Keep the key file outside Git and the snapshot
 directory; never pass key bytes in an argument, environment variable, manifest, or log.
 
-The six preserved stores without an extracted service migration runner (ContactRequest,
-Currency, both data-protection-key databases, LocationData, and Log) are restored by
+The five preserved stores without an extracted service migration runner (ContactRequest,
+Currency, both data-protection-key databases, and LocationData) are restored by
 dedicated snapshot resources as well. The Auth refresh
 session database remains local-only and is migrated normally, so local sign-in state cannot write
 to GKE.
