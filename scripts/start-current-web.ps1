@@ -111,7 +111,7 @@ try {
     [Environment]::SetEnvironmentVariable('LEGACY_SNAPSHOT_ID', $SnapshotId)
     & dotnet run --project $migrationRunnerProject --configuration $Configuration -- snapshot-preflight
     if ($LASTEXITCODE -ne 0) {
-        throw 'Authenticated encrypted exact-24 snapshot preflight failed.'
+        throw 'Authenticated encrypted exact-23 snapshot preflight failed.'
     }
 }
 finally {

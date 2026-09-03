@@ -36,7 +36,6 @@ public static class LegacyTopology
         "Invoice",
         "JobOffers",
         "LocationData",
-        "Log",
         "Material",
         "Message",
         "Order",

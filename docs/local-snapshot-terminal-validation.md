@@ -8,14 +8,14 @@ generation, restore identity, and independently reviewed baseline digests.
 The repository baseline must name the exact 19 compiled repositories and pin each clean `main`
 commit to the same `origin/main` commit and reviewed public `origin` URL. Dirty, detached, stale,
 ahead, or unexpected-origin repositories fail closed.
-The snapshot must contain the exact 24 migrated databases; Hangfire is retired and is rejected.
-Local runtime topology must contain those 24 migrated databases plus Auth.
+The snapshot must contain the exact 23 migrated databases; Hangfire and Log are excluded and rejected.
+Local runtime topology must contain those 23 migrated databases plus Auth.
 
 The gate performs an explicit canonical restore and clean non-incremental Release build after
 checking all pinned repositories. It rejects restore assets, project references, or Release
 dependency manifests containing `.worktrees`; every rooted filesystem path in a dependency
 manifest and every project reference must remain inside the 19 reviewed repository roots. It then
-starts Aspire with fixtures disabled, waits for all 25 terminal jobs, requires all 16 services to
+starts Aspire with fixtures disabled, waits for all 24 terminal jobs, requires all 16 services to
 be healthy, and performs an actual loopback HTTP GET against each service-specific readiness path
 frozen in `contracts/local-snapshot-review-routes.json`. It then obtains an in-memory short-lived
 `legacy-intranet` service token and executes seven authenticated read-only list queries itself.

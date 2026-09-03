@@ -17,7 +17,7 @@ commit, and exact table/foreign-key/sequence inventories must also equal the ind
 baseline. Empty relationship or sequence arrays are accepted only when that external baseline
 explicitly expects none.
 
-For all 24 migrated databases the receipt must reconcile:
+For all 23 migrated databases the receipt must reconcile:
 
 - database and table row counts;
 - per-column null counts;
@@ -28,10 +28,10 @@ For all 24 migrated databases the receipt must reconcile:
 
 Database totals must equal the sum of all planned table and batch receipts. Missing, extra,
 duplicated, or renamed evidence fails. The complete 27-database disposition inventory is also
-signed: 24 migrate, including `ContactRequest`, `LocationData`, and `Log`; `Hangfire` is excluded
-under its retirement decision, and `MachineLearning` and `MachineLearningData` are excluded under
-the retired PredictionService decision. Excluded databases must never appear in migrated database
-evidence.
+signed: 23 migrate, including `ContactRequest` and `LocationData`; `Log` is excluded under its retirement
+decision. `Hangfire` is excluded under its retirement decision, and `MachineLearning` and
+`MachineLearningData` are excluded under the retired PredictionService decision. Excluded databases must
+never appear in migrated database evidence.
 
 ## Signed execution and replay boundary
 
@@ -157,8 +157,8 @@ receipts:
 ```
 
 The source backup includes its credential-free `gs://` URI, manifest and database-inventory
-hashes, immutable object generation, and `immutable=true`. `Log` remains covered by signed migrated
-schema and content evidence. Constraints remain zero
+hashes, immutable object generation, and `immutable=true`. `Log` is excluded and must not appear in
+signed migrated schema or content evidence. Constraints remain zero
 cutover, no canonical/production writes, no new node pool, no Cloud SQL, and no added cost.
 
 ## Attestation canonicalization
@@ -173,7 +173,7 @@ signature over the 32 hash bytes. Producers must use those rules exactly.
 ```powershell
 pwsh ./scripts/verify-postgres-migration-evidence.ps1 `
   -EvidencePath C:/review/postgres-shadow.json `
-  -ExpectedDatabase ContactRequest,Country,Currency,Customer,CustomerIdentity,DataProtectionKeys,DataProtectionKeysEmployee,Employee,EmployeeIdentity,Invoice,JobOffers,LocationData,Log,Material,Message,Order,OrderStatus,Payment,PurchaseOrder,Quotation,QuotationRequest,Receipt,Supplier,Upload `
+  -ExpectedDatabase ContactRequest,Country,Currency,Customer,CustomerIdentity,DataProtectionKeys,DataProtectionKeysEmployee,Employee,EmployeeIdentity,Invoice,JobOffers,LocationData,Material,Message,Order,OrderStatus,Payment,PurchaseOrder,Quotation,QuotationRequest,Receipt,Supplier,Upload `
   -RequiredAsOfUtc 2026-08-29T00:00:00Z `
   -TrustedPublicKeyPath C:/review/migration-review-public.pem `
   -ExpectedAttestationKeyId migration-review-2026-08 `

@@ -30,7 +30,6 @@ public static class LegacySnapshotReviewContract
         "legacy-data-protection-keys-snapshot",
         "legacy-data-protection-keys-employee-snapshot",
         "legacy-location-data-snapshot",
-        "legacy-log-archive-snapshot",
     });
 
     /// <summary>Gets the services that must become healthy and pass a read-only probe.</summary>
@@ -93,7 +92,6 @@ public static class LegacySnapshotReviewContract
         "Invoice",
         "JobOffers",
         "LocationData",
-        "Log",
         "Material",
         "Message",
         "Order",

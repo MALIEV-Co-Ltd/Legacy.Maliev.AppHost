@@ -40,7 +40,7 @@ if (workload == "snapshot-preflight")
     }
 
     VerifySnapshot(snapshotDirectory);
-    Console.WriteLine("Authenticated encrypted exact-24 snapshot preflight passed.");
+    Console.WriteLine("Authenticated encrypted exact-23 snapshot preflight passed.");
     return;
 }
 

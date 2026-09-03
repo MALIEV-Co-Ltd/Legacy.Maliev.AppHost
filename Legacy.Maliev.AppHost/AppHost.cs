@@ -344,8 +344,8 @@ var employeeIdentityMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHo
 
 // These preserved stores do not have an extracted service-owned EF migration
 // runner. In local exact-data mode they still need to be restored so the snapshot
-// represents the complete retained migrated production inventory, including
-// log data, rather than only databases with active APIs.
+// represents the complete retained migrated production inventory rather than only
+// databases with active APIs. Log is excluded from the current inventory.
 if (localSnapshotMode)
 {
     _ = AddSnapshotMigration("legacy-contact-request-snapshot", "ContactRequest");
@@ -355,7 +355,6 @@ if (localSnapshotMode)
         "legacy-data-protection-keys-employee-snapshot",
         "DataProtectionKeysEmployee");
     _ = AddSnapshotMigration("legacy-location-data-snapshot", "LocationData");
-    _ = AddSnapshotMigration("legacy-log-archive-snapshot", "Log");
 }
 
 IResourceBuilder<ProjectResource> AddSnapshotMigration(string resourceName, string databaseName)

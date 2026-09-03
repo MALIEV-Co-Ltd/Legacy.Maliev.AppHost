@@ -41,7 +41,6 @@ public sealed class LegacyTopologyTests
             "Invoice",
             "JobOffers",
             "LocationData",
-            "Log",
             "Material",
             "Message",
             "Order",

@@ -8,20 +8,22 @@ using System.Security.Principal;
 using Legacy.Maliev.AppHost.MigrationRunner;
 using Legacy.Maliev.AppHost.Topology;
 using Npgsql;
+using Testcontainers.PostgreSql;
 
 namespace Legacy.Maliev.AppHost.Tests;
 
+[Collection("PgRestoreEnvironment")]
 public sealed class LegacyLocalSnapshotTests : IDisposable
 {
     private readonly string root = Path.Combine(Path.GetTempPath(), $"maliev-snapshot-consumer-{Guid.NewGuid():N}");
 
     [Fact]
-    public async Task Load_AcceptsProducerExactTwentyFourEncryptedManifest()
+    public async Task Load_AcceptsProducerExactTwentyThreeEncryptedManifest()
     {
         byte[] key = RandomNumberGenerator.GetBytes(32);
         await WriteProducerFixtureAsync(key);
         var snapshot = LegacyLocalSnapshot.Load(root, key, "test-snapshot-20260830");
-        Assert.Equal(24, snapshot.DatabaseCount);
+        Assert.Equal(23, snapshot.DatabaseCount);
         Assert.EndsWith("Country.dump.aes256", await snapshot.GetVerifiedEncryptedArchivePathAsync("Country"), StringComparison.Ordinal);
     }
 
@@ -45,22 +47,22 @@ public sealed class LegacyLocalSnapshotTests : IDisposable
     {
         byte[] key = RandomNumberGenerator.GetBytes(32);
         await WriteProducerFixtureAsync(key, LegacyTopology.DatabaseNames.Take(LegacyTopology.DatabaseNames.Count - 1));
-        Assert.Contains("exact 24", Assert.Throws<InvalidOperationException>(() => LegacyLocalSnapshot.Load(root, key, "test-snapshot-20260830")).Message,
+        Assert.Contains("exact 23", Assert.Throws<InvalidOperationException>(() => LegacyLocalSnapshot.Load(root, key, "test-snapshot-20260830")).Message,
             StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task Load_RejectsManifestContainingRetiredHangfireDatabase()
+    public async Task Load_RejectsManifestContainingExcludedLogDatabase()
     {
         byte[] key = RandomNumberGenerator.GetBytes(32);
         await WriteProducerFixtureAsync(
             key,
-            LegacyTopology.DatabaseNames.Append("Hangfire").Order(StringComparer.Ordinal));
+            LegacyTopology.DatabaseNames.Append("Log").Order(StringComparer.Ordinal));
 
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
             () => LegacyLocalSnapshot.Load(root, key, "test-snapshot-20260830"));
 
-        Assert.Contains("exact 24", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("exact 23", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -96,7 +98,7 @@ public sealed class LegacyLocalSnapshotTests : IDisposable
     {
         Directory.CreateDirectory(root);
         string manifestPath = Path.Combine(root, "manifest.json");
-        File.WriteAllText(manifestPath, """{"format":"MALIEV legacy PostgreSQL local snapshot v1","databaseCount":24,"databases":[]}""");
+        File.WriteAllText(manifestPath, """{"format":"MALIEV legacy PostgreSQL local snapshot v1","databaseCount":23,"databases":[]}""");
         RestrictKeyFile(manifestPath);
         Assert.Contains("schema version", Assert.Throws<InvalidOperationException>(() => LegacyLocalSnapshot.Load(root, new byte[32], "test-snapshot-20260830")).Message,
             StringComparison.OrdinalIgnoreCase);
@@ -287,19 +289,25 @@ public sealed class LegacyLocalSnapshotTests : IDisposable
     [PostgreSql18SnapshotConsumerIntegrationFact]
     public async Task ProducerCustomArchive_RestoresSchemaAndRowsThroughProductionStreamingConsumer()
     {
-        string archivePath = RequiredIntegrationEnvironment("LEGACY_SNAPSHOT_INTEGRATION_CUSTOM_ARCHIVE");
-        string pgRestore = RequiredIntegrationEnvironment("PG_RESTORE_PATH");
-        string administrativeConnection = RequiredIntegrationEnvironment("LEGACY_SNAPSHOT_INTEGRATION_RESTORE_CONNECTION");
+        string pgRestore = Environment.GetEnvironmentVariable("PG_RESTORE_PATH") ?? "pg_restore";
         AssertPostgreSql18Tool(pgRestore);
-        byte[] customArchive = await File.ReadAllBytesAsync(archivePath);
         byte[] key = RandomNumberGenerator.GetBytes(32);
-        await WriteProducerFixtureAsync(key, overrides: new Dictionary<string, byte[]> { ["Country"] = customArchive });
+        await using var fixture = new PostgreSqlBuilder("postgres:18-alpine")
+            .WithDatabase("snapshot_source")
+            .WithUsername("snapshot")
+            .WithPassword("snapshot-test-password")
+            .Build();
+        await fixture.StartAsync();
+        await ExecuteDatabaseCommandAsync(fixture.GetConnectionString(),
+            "CREATE TABLE snapshot_probe (id integer PRIMARY KEY, value text NOT NULL); INSERT INTO snapshot_probe (id, value) VALUES (1, 'pg18');");
+        await using MemoryStream customArchive = await DumpSyntheticArchiveAsync(fixture, CancellationToken.None);
+        await WriteProducerFixtureAsync(key, overrides: new Dictionary<string, byte[]> { ["Country"] = customArchive.ToArray() });
         LegacyLocalSnapshot snapshot = LegacyLocalSnapshot.Load(root, key, "test-snapshot-20260830");
         string restoredDatabase = $"legacy_snapshot_consumer_{Guid.NewGuid():N}";
         try
         {
-            await ExecuteAdministrativeCommandAsync(administrativeConnection, $"CREATE DATABASE \"{restoredDatabase}\"");
-            var target = new NpgsqlConnectionStringBuilder(administrativeConnection) { Database = restoredDatabase };
+            await ExecuteAdministrativeCommandAsync(fixture.GetConnectionString(), $"CREATE DATABASE \"{restoredDatabase}\"");
+            var target = new NpgsqlConnectionStringBuilder(fixture.GetConnectionString()) { Database = restoredDatabase };
             await snapshot.RestoreVerifiedAsync("Country", key,
                 (writeArchive, token) => PgRestoreRunner.RunPgRestoreAsync(writeArchive, "Country", target.ConnectionString, token),
                 CancellationToken.None);
@@ -311,26 +319,49 @@ public sealed class LegacyLocalSnapshotTests : IDisposable
         }
         finally
         {
-            await ExecuteAdministrativeCommandAsync(administrativeConnection,
+            await ExecuteAdministrativeCommandAsync(fixture.GetConnectionString(),
                 $"DROP DATABASE IF EXISTS \"{restoredDatabase}\" WITH (FORCE)");
         }
+    }
+
+    private static async Task<MemoryStream> DumpSyntheticArchiveAsync(PostgreSqlContainer fixture, CancellationToken cancellationToken)
+    {
+        var start = new ProcessStartInfo("docker")
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        foreach (string argument in new[]
+        {
+            "exec", "-e", "PGPASSWORD=snapshot-test-password", fixture.Id,
+            "pg_dump", "--format=custom", "--no-owner", "--no-privileges", "--host", "127.0.0.1",
+            "--username", "snapshot", "--dbname", "snapshot_source",
+        }) start.ArgumentList.Add(argument);
+
+        using Process process = Process.Start(start) ?? throw new InvalidOperationException("Synthetic pg_dump did not start.");
+        var archive = new MemoryStream();
+        Task copy = process.StandardOutput.BaseStream.CopyToAsync(archive, cancellationToken);
+        string error = await process.StandardError.ReadToEndAsync(cancellationToken);
+        await Task.WhenAll(copy, process.WaitForExitAsync(cancellationToken));
+        Assert.True(process.ExitCode == 0, error);
+        Assert.True(archive.Length > 0, "The synthetic pg_dump archive was empty.");
+        archive.Position = 0;
+        return archive;
     }
 
     private static async Task ExecuteAdministrativeCommandAsync(string connectionString, string sql)
     {
         var builder = new NpgsqlConnectionStringBuilder(connectionString) { Database = "postgres" };
-        await using var connection = new NpgsqlConnection(builder.ConnectionString);
+        await ExecuteDatabaseCommandAsync(builder.ConnectionString, sql);
+    }
+
+    private static async Task ExecuteDatabaseCommandAsync(string connectionString, string sql)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync();
         await using var command = new NpgsqlCommand(sql, connection);
         _ = await command.ExecuteNonQueryAsync();
-    }
-
-    private static string RequiredIntegrationEnvironment(string name)
-    {
-        string? value = Environment.GetEnvironmentVariable(name);
-        return !string.IsNullOrWhiteSpace(value)
-            ? value
-            : throw new InvalidOperationException($"{name} is required when PostgreSQL 18 snapshot consumer integration is enabled.");
     }
 
     private static void AssertPostgreSql18Tool(string executable)
@@ -492,7 +523,7 @@ public sealed class PostgreSql18SnapshotConsumerIntegrationFactAttribute : FactA
             "1",
             StringComparison.Ordinal))
         {
-            Skip = "PostgreSQL 18 snapshot consumer compatibility is explicitly gated: set MALIEV_RUN_PG18_SNAPSHOT_INTEGRATION=1 and configure the archive and pg_restore prerequisites.";
+            Skip = "PostgreSQL 18 snapshot consumer compatibility is explicitly gated: set MALIEV_RUN_PG18_SNAPSHOT_INTEGRATION=1 when native Docker and pg_restore 18 are available.";
         }
     }
 }

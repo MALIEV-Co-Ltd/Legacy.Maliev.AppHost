@@ -162,14 +162,14 @@ dotnet build .\Legacy.Maliev.AppHost\Legacy.Maliev.AppHost.csproj -c Release --n
 The review launcher has no empty-database or local-fixture fallback. It validates and authenticates
 the exact snapshot before starting Aspire, always sets `LEGACY_LOCAL_FIXTURES=false`, and exits
 without creating a host process when the snapshot, manifest, snapshot id, encryption key, or
-exact-24 preflight is missing or invalid. This keeps credential and migration verification tied to
+exact-23 preflight is missing or invalid. This keeps credential and migration verification tied to
 the production-derived shadow copy rather than `local.employee@maliev.test`.
 
 The snapshot directory must contain the authenticated schema-version-2 manifest and all 24 encrypted
 `*.dump.aes256` archives produced by the read-only PostgreSQL export from `legacy-postgres-main`.
 Each migration runner loads the 32-byte base64 root key from the external file reference, derives
 domain-separated encryption and manifest-authentication keys with HKDF-SHA256, authenticates the
-canonical exact-24 manifest, and rejects a stale snapshot id before using any entry. It opens each
+canonical exact-23 manifest, and rejects a stale snapshot id before using any entry. It opens each
 ciphertext once as an owner-only non-link file, hashes and decrypts that same handle, validates the
 plaintext length and SHA-256,
 then restores it with `pg_restore --clean --if-exists --single-transaction`. Verified plaintext is
@@ -263,7 +263,7 @@ validated migrated snapshot for existing employee credentials, and refuses to re
 launcher fails closed when no snapshot containing `manifest.json` exists under
 `%LOCALAPPDATA%\MALIEV\legacy-postgres-snapshots`; use `-SnapshotDirectory` to select another approved
 snapshot explicitly. Before reporting preflight success it uses the production snapshot reader to authenticate
-the v2 manifest, exact-24 inventory, snapshot ID, and MAC with the external key file, then immediately zeroes
+the v2 manifest, exact-23 inventory, snapshot ID, and MAC with the external key file, then immediately zeroes
 the loaded key bytes. It never enables synthetic identities in this owner-review path. For a non-disruptive
 replacement review while the existing listener remains on `5088`, use:
 

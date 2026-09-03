@@ -13,7 +13,7 @@ public sealed class PostgresMigrationEvidenceContractTests
     [
         "ContactRequest", "Country", "Currency", "Customer", "CustomerIdentity", "DataProtectionKeys",
         "DataProtectionKeysEmployee", "Employee", "EmployeeIdentity", "Invoice", "JobOffers",
-        "LocationData", "Log", "Material", "Message", "Order", "OrderStatus", "Payment", "PurchaseOrder", "Quotation",
+        "LocationData", "Material", "Message", "Order", "OrderStatus", "Payment", "PurchaseOrder", "Quotation",
         "QuotationRequest", "Receipt", "Supplier", "Upload",
     ];
 
@@ -89,7 +89,6 @@ public sealed class PostgresMigrationEvidenceContractTests
     [Theory]
     [InlineData("ContactRequest")]
     [InlineData("LocationData")]
-    [InlineData("Log")]
     public async Task Validator_RejectsMissingNewlyRetainedDatabase(string databaseName)
     {
         using var evidence = TemporaryEvidence.Create($"missing-database:{databaseName}");
@@ -100,10 +99,25 @@ public sealed class PostgresMigrationEvidenceContractTests
     [Theory]
     [InlineData("ContactRequest")]
     [InlineData("LocationData")]
-    [InlineData("Log")]
     public async Task Validator_RejectsDuplicateNewlyRetainedDatabase(string databaseName)
     {
         using var evidence = TemporaryEvidence.Create($"duplicate-database:{databaseName}");
+        var result = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
+        Assert.NotEqual(0, result.ExitCode);
+    }
+
+    [Fact]
+    public async Task Validator_RejectsExcludedLogAsAnExtraMigratedDatabase()
+    {
+        using var evidence = TemporaryEvidence.Create("excluded-log-extra-database");
+        var result = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
+        Assert.NotEqual(0, result.ExitCode);
+    }
+
+    [Fact]
+    public async Task Validator_RejectsExcludedLogAsASubstitutedMigratedDatabase()
+    {
+        using var evidence = TemporaryEvidence.Create("excluded-log-substituted-database");
         var result = await RunValidatorAsync(evidence, evidence.RequiredAsOfUtc);
         Assert.NotEqual(0, result.ExitCode);
     }
@@ -255,8 +269,8 @@ public sealed class PostgresMigrationEvidenceContractTests
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
 
         Assert.Contains("-TrustedPublicKeyPath", docs, StringComparison.Ordinal);
-        Assert.Contains("For all 24 migrated databases", docs, StringComparison.Ordinal);
-        Assert.Contains("signed: 24 migrate", docs, StringComparison.Ordinal);
+        Assert.Contains("For all 23 migrated databases", docs, StringComparison.Ordinal);
+        Assert.Contains("signed: 23 migrate", docs, StringComparison.Ordinal);
         Assert.Contains("complete 27-database disposition inventory", docs, StringComparison.Ordinal);
         Assert.Contains("Hangfire = @('Legacy.Maliev.CompatibilityContracts', 'excluded')", script, StringComparison.Ordinal);
         Assert.Contains("`Hangfire` is excluded", docs, StringComparison.Ordinal);
@@ -509,7 +523,7 @@ public sealed class PostgresMigrationEvidenceContractTests
                 ("Employee", "Legacy.Maliev.EmployeeService", "migrate"), ("EmployeeIdentity", "Legacy.Maliev.AuthService", "migrate"),
                 ("Invoice", "Legacy.Maliev.AccountingService", "migrate"),
                 ("JobOffers", "Legacy.Maliev.CareerService", "migrate"), ("LocationData", "Legacy.Maliev.CatalogService", "migrate"),
-                ("Log", "Legacy.Maliev.CompatibilityContracts", "migrate"), ("Hangfire", "Legacy.Maliev.CompatibilityContracts", "excluded"),
+                ("Log", "Legacy.Maliev.CompatibilityContracts", "excluded"), ("Hangfire", "Legacy.Maliev.CompatibilityContracts", "excluded"),
                 ("MachineLearning", "Legacy.Maliev.CompatibilityContracts", "excluded"),
                 ("MachineLearningData", "Legacy.Maliev.CompatibilityContracts", "excluded"), ("Material", "Legacy.Maliev.CatalogService", "migrate"),
                 ("Message", "Legacy.Maliev.ContactService", "migrate"), ("Order", "Legacy.Maliev.OrderService", "migrate"),
@@ -765,6 +779,8 @@ public sealed class PostgresMigrationEvidenceContractTests
                     ((JsonObject)((JsonArray)root["inventory"]!).Single(item =>
                         string.Equals(((JsonObject)item!)["name"]!.GetValue<string>(), "Hangfire", StringComparison.Ordinal))!)["disposition"] = "migrate";
                     break;
+                case "excluded-log-extra-database": databases.Add(Database("Log", mappingHash, databases.Count)); break;
+                case "excluded-log-substituted-database": ((JsonObject)databases[0]!)["name"] = "Log"; break;
                 case "unexpected-archive": ((JsonArray)root["archives"]!).Add(Archive("Log", '2')); break;
                 case "unknown-field": root["unexpected"] = true; break;
                 case "sensitive-field": source["apiToken"] = "must-not-be-recorded"; break;

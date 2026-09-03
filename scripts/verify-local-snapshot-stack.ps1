@@ -46,7 +46,7 @@ $terminalJobs = @(
     'legacy-contact-migrations', 'legacy-payment-migrations', 'legacy-invoice-migrations',
     'legacy-receipt-migrations', 'legacy-contact-request-snapshot', 'legacy-currency-snapshot',
     'legacy-data-protection-keys-snapshot', 'legacy-data-protection-keys-employee-snapshot',
-    'legacy-location-data-snapshot', 'legacy-log-archive-snapshot'
+    'legacy-location-data-snapshot'
 )
 $services = @(
     'legacy-maliev-country-service', 'legacy-maliev-document-service', 'legacy-maliev-auth-service',
@@ -68,7 +68,7 @@ $repositories = @(
 $migratedDatabases = @(
     'ContactRequest', 'Country', 'Currency', 'Customer', 'CustomerIdentity', 'DataProtectionKeys',
     'DataProtectionKeysEmployee', 'Employee', 'EmployeeIdentity', 'Invoice', 'JobOffers',
-    'LocationData', 'Log', 'Material', 'Message', 'Order', 'OrderStatus', 'Payment',
+    'LocationData', 'Material', 'Message', 'Order', 'OrderStatus', 'Payment',
     'PurchaseOrder', 'Quotation', 'QuotationRequest', 'Receipt', 'Supplier', 'Upload'
 )
 $runtimeDatabases = @($migratedDatabases) + @('Auth')

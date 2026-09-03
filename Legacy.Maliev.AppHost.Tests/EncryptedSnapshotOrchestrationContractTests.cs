@@ -95,7 +95,7 @@ public sealed class EncryptedSnapshotOrchestrationContractTests
     public void EvidenceDocumentation_UsesExactTwentyFourDatabaseExample()
     {
         string source = File.ReadAllText(Path.Combine(Root, "docs", "postgres-migration-evidence.md"));
-        const string expected = "ContactRequest,Country,Currency,Customer,CustomerIdentity,DataProtectionKeys,DataProtectionKeysEmployee,Employee,EmployeeIdentity,Invoice,JobOffers,LocationData,Log,Material,Message,Order,OrderStatus,Payment,PurchaseOrder,Quotation,QuotationRequest,Receipt,Supplier,Upload";
+        const string expected = "ContactRequest,Country,Currency,Customer,CustomerIdentity,DataProtectionKeys,DataProtectionKeysEmployee,Employee,EmployeeIdentity,Invoice,JobOffers,LocationData,Material,Message,Order,OrderStatus,Payment,PurchaseOrder,Quotation,QuotationRequest,Receipt,Supplier,Upload";
         Assert.Contains($"-ExpectedDatabase {expected}", source, StringComparison.Ordinal);
     }
 
