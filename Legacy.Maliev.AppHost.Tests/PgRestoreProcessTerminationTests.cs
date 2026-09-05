@@ -3,6 +3,7 @@ using Legacy.Maliev.AppHost.MigrationRunner;
 
 namespace Legacy.Maliev.AppHost.Tests;
 
+[Collection("PgRestoreEnvironment")]
 public sealed class PgRestoreProcessTerminationTests
 {
     [Fact]
@@ -61,3 +62,6 @@ public sealed class PgRestoreProcessTerminationTests
         }
     }
 }
+
+[CollectionDefinition("PgRestoreEnvironment", DisableParallelization = true)]
+public sealed class PgRestoreEnvironmentCollection;

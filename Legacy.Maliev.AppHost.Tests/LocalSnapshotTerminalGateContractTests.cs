@@ -13,14 +13,15 @@ public sealed class LocalSnapshotTerminalGateContractTests
     [Fact]
     public void Contract_FreezesExactRuntimeInventory()
     {
-        Assert.Equal(25, LegacySnapshotReviewContract.TerminalJobs.Count);
+        Assert.Equal(24, LegacySnapshotReviewContract.TerminalJobs.Count);
         Assert.Equal(16, LegacySnapshotReviewContract.Services.Count);
         Assert.Equal(19, LegacySnapshotReviewContract.Repositories.Count);
-        Assert.Equal(24, LegacySnapshotReviewContract.MigratedDatabases.Count);
+        Assert.Equal(23, LegacySnapshotReviewContract.MigratedDatabases.Count);
         Assert.Equal(7, LegacySnapshotReviewContract.AuthenticatedReadQueries.Count);
         Assert.DoesNotContain("Hangfire", LegacySnapshotReviewContract.MigratedDatabases);
+        Assert.DoesNotContain("Log", LegacySnapshotReviewContract.MigratedDatabases);
         Assert.Contains("legacy-auth-migrations", LegacySnapshotReviewContract.TerminalJobs);
-        Assert.Contains("legacy-log-archive-snapshot", LegacySnapshotReviewContract.TerminalJobs);
+        Assert.DoesNotContain("legacy-log-archive-snapshot", LegacySnapshotReviewContract.TerminalJobs);
     }
 
     [Fact]
@@ -104,8 +105,8 @@ public sealed class LocalSnapshotTerminalGateContractTests
         string docs = File.ReadAllText(Path.Combine(root, "docs", "local-snapshot-terminal-validation.md"));
 
         Assert.Contains("authoritative source commit", docs, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("25 terminal jobs", docs, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("24 migrated databases plus Auth", docs, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("24 terminal jobs", docs, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("23 migrated databases plus Auth", docs, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("non-mutating", docs, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("no PII", docs, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Hangfire", docs, StringComparison.Ordinal);

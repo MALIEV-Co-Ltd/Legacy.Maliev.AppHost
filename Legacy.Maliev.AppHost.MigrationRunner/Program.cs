@@ -40,7 +40,27 @@ if (workload == "snapshot-preflight")
     }
 
     VerifySnapshot(snapshotDirectory);
-    Console.WriteLine("Authenticated encrypted exact-24 snapshot preflight passed.");
+    Console.WriteLine("Authenticated encrypted exact-23 snapshot preflight passed.");
+    return;
+}
+
+if (workload == "catalog-snapshot-compose")
+{
+    if (!string.Equals(Environment.GetEnvironmentVariable("LEGACY_SKIP_MIGRATE"), "true", StringComparison.OrdinalIgnoreCase) ||
+        string.IsNullOrWhiteSpace(snapshotDirectory))
+    {
+        throw new InvalidOperationException("Catalog snapshot composition is only available in local snapshot mode.");
+    }
+
+    var currencyConnectionString = Environment.GetEnvironmentVariable("ConnectionStrings__CurrencySnapshotDb")
+        ?? throw new InvalidOperationException("The CurrencySnapshotDb connection string is required.");
+    var catalogConnectionString = Environment.GetEnvironmentVariable("ConnectionStrings__CatalogDbContext")
+        ?? throw new InvalidOperationException("The CatalogDbContext connection string is required.");
+    await CatalogSnapshotComposer.ComposeCurrenciesAsync(
+        currencyConnectionString,
+        catalogConnectionString,
+        shutdown.Token);
+    Console.WriteLine("Composed the verified currency snapshot into the local catalog database.");
     return;
 }
 

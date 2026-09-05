@@ -79,7 +79,7 @@ public sealed partial class LegacyLocalSnapshot
             !ordered.Select(entry => entry.Database).SequenceEqual(LegacyTopology.DatabaseNames, StringComparer.Ordinal) ||
             ordered.Select(entry => entry.Database).Distinct(StringComparer.Ordinal).Count() != ordered.Length)
         {
-            throw new InvalidOperationException("Legacy local snapshot manifest must contain the exact 24 database inventory.");
+            throw new InvalidOperationException("Legacy local snapshot manifest must contain the exact 23 database inventory.");
         }
 
         string expectedMac = ComputeManifestMac(manifest with { Databases = ordered, ManifestMacSha256 = string.Empty }, rootKey);
@@ -340,7 +340,7 @@ public static class SnapshotEncryptionKey
         if (!info.Exists || info.Attributes.HasFlag(FileAttributes.ReparsePoint) || info.LinkTarget is not null)
             throw new InvalidOperationException("The snapshot encryption key file is missing or unsafe.");
 
-        using var stream = SecureSnapshotFile.OpenRead(fullPath, exclusive: true);
+        using var stream = SecureSnapshotFile.OpenRead(fullPath);
         if (stream.Length is <= 0 or > 4096)
             throw new InvalidOperationException("The snapshot encryption key file has an invalid size.");
         using var reader = new StreamReader(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false,

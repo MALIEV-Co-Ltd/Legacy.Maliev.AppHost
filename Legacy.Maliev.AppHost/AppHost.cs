@@ -344,18 +344,18 @@ var employeeIdentityMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHo
 
 // These preserved stores do not have an extracted service-owned EF migration
 // runner. In local exact-data mode they still need to be restored so the snapshot
-// represents the complete retained migrated production inventory, including
-// log data, rather than only databases with active APIs.
+// represents the complete retained migrated production inventory rather than only
+// databases with active APIs. Log is excluded from the current inventory.
+IResourceBuilder<ProjectResource>? currencySnapshot = null;
 if (localSnapshotMode)
 {
     _ = AddSnapshotMigration("legacy-contact-request-snapshot", "ContactRequest");
-    _ = AddSnapshotMigration("legacy-currency-snapshot", "Currency");
+    currencySnapshot = AddSnapshotMigration("legacy-currency-snapshot", "Currency");
     _ = AddSnapshotMigration("legacy-data-protection-keys-snapshot", "DataProtectionKeys");
     _ = AddSnapshotMigration(
         "legacy-data-protection-keys-employee-snapshot",
         "DataProtectionKeysEmployee");
     _ = AddSnapshotMigration("legacy-location-data-snapshot", "LocationData");
-    _ = AddSnapshotMigration("legacy-log-archive-snapshot", "Log");
 }
 
 IResourceBuilder<ProjectResource> AddSnapshotMigration(string resourceName, string databaseName)
@@ -539,6 +539,21 @@ var catalogMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_Migrat
     .WithEnvironment("PGGSSENCMODE", "disable")
     .WaitFor(catalogDatabase);
 
+IResourceBuilder<ProjectResource> catalogReady = catalogMigrations;
+if (localSnapshotMode)
+{
+    catalogReady = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-catalog-snapshot-compose")
+        .WithArgs("catalog-snapshot-compose")
+        .WithEnvironment("LEGACY_SKIP_MIGRATE", "true")
+        .WithEnvironment("LEGACY_SNAPSHOT_DIRECTORY", localSnapshotDirectoryRequested)
+        .WithEnvironment("ConnectionStrings__CurrencySnapshotDb", databases["Currency"].Resource.ConnectionStringExpression)
+        .WithEnvironment("ConnectionStrings__CatalogDbContext", catalogDatabase.Resource.ConnectionStringExpression)
+        .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+        .WithEnvironment("PGGSSENCMODE", "disable")
+        .WaitForCompletion(catalogMigrations)
+        .WaitForCompletion(currencySnapshot!);
+}
+
 var catalog = builder.AddProject<Projects.Legacy_Maliev_CatalogService_Api>(
         "legacy-maliev-catalog-service",
         launchProfileName: "http")
@@ -559,12 +574,12 @@ var catalog = builder.AddProject<Projects.Legacy_Maliev_CatalogService_Api>(
         url.Url = "/catalog/scalar";
         url.DisplayText = "Catalog Scalar";
     })
-    .WaitForCompletion(catalogMigrations)
+    .WaitForCompletion(catalogReady)
     .WaitFor(pgbouncer)
     .WaitFor(redis)
     .WaitFor(auth);
 
-catalogMigrations.WithParentRelationship(catalog.Resource);
+catalogReady.WithParentRelationship(catalog.Resource);
 
 var supplierDatabase = databases["Supplier"];
 var purchaseOrderDatabase = databases["PurchaseOrder"];

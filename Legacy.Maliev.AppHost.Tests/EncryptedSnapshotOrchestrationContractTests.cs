@@ -80,11 +80,11 @@ public sealed class EncryptedSnapshotOrchestrationContractTests
     }
 
     [Fact]
-    public void KeyLoader_UsesExclusiveOpenedHandleIdentityAndOwnerOnlyPermissions()
+    public void SnapshotFiles_UseOpenedHandleIdentityAndOwnerOnlyPermissions()
     {
         string source = File.ReadAllText(Path.Combine(Root, "Legacy.Maliev.AppHost.Topology", "LegacyLocalSnapshot.cs")) +
             File.ReadAllText(Path.Combine(Root, "Legacy.Maliev.AppHost.Topology", "SecureSnapshotFile.cs"));
-        Assert.Contains("FileShare.None", source, StringComparison.Ordinal);
+        Assert.Contains("FileShare.Read", source, StringComparison.Ordinal);
         Assert.Contains("GetFinalPathNameByHandle", source, StringComparison.Ordinal);
         Assert.Contains("GetEffectiveUserIdNative", source, StringComparison.Ordinal);
         Assert.Contains("statx", source, StringComparison.OrdinalIgnoreCase);
@@ -92,10 +92,10 @@ public sealed class EncryptedSnapshotOrchestrationContractTests
     }
 
     [Fact]
-    public void EvidenceDocumentation_UsesExactTwentyFourDatabaseExample()
+    public void EvidenceDocumentation_UsesExactTwentyThreeDatabaseExample()
     {
         string source = File.ReadAllText(Path.Combine(Root, "docs", "postgres-migration-evidence.md"));
-        const string expected = "ContactRequest,Country,Currency,Customer,CustomerIdentity,DataProtectionKeys,DataProtectionKeysEmployee,Employee,EmployeeIdentity,Invoice,JobOffers,LocationData,Log,Material,Message,Order,OrderStatus,Payment,PurchaseOrder,Quotation,QuotationRequest,Receipt,Supplier,Upload";
+        const string expected = "ContactRequest,Country,Currency,Customer,CustomerIdentity,DataProtectionKeys,DataProtectionKeysEmployee,Employee,EmployeeIdentity,Invoice,JobOffers,LocationData,Material,Message,Order,OrderStatus,Payment,PurchaseOrder,Quotation,QuotationRequest,Receipt,Supplier,Upload";
         Assert.Contains($"-ExpectedDatabase {expected}", source, StringComparison.Ordinal);
     }
 
