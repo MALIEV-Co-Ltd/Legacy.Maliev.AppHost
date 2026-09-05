@@ -306,22 +306,40 @@ public sealed class LegacyLocalSnapshotTests : IDisposable
         string pgRestore = Environment.GetEnvironmentVariable("PG_RESTORE_PATH") ?? "pg_restore";
         AssertPostgreSql18Tool(pgRestore);
         byte[] key = RandomNumberGenerator.GetBytes(32);
-        await using var fixture = new PostgreSqlBuilder("postgres:18-alpine")
-            .WithDatabase("snapshot_source")
-            .WithUsername("snapshot")
-            .WithPassword("snapshot-test-password")
-            .Build();
-        await fixture.StartAsync();
-        await ExecuteDatabaseCommandAsync(fixture.GetConnectionString(),
-            "CREATE TABLE snapshot_probe (id integer PRIMARY KEY, value text NOT NULL); INSERT INTO snapshot_probe (id, value) VALUES (1, 'pg18');");
-        await using MemoryStream customArchive = await DumpSyntheticArchiveAsync(fixture, CancellationToken.None);
-        await WriteProducerFixtureAsync(key, overrides: new Dictionary<string, byte[]> { ["Country"] = customArchive.ToArray() });
+        string? archivePath = Environment.GetEnvironmentVariable("LEGACY_SNAPSHOT_INTEGRATION_CUSTOM_ARCHIVE");
+        string? administrativeConnection = Environment.GetEnvironmentVariable("LEGACY_SNAPSHOT_INTEGRATION_RESTORE_CONNECTION");
+        bool useExternalFixture = !string.IsNullOrWhiteSpace(archivePath) &&
+            !string.IsNullOrWhiteSpace(administrativeConnection);
+        await using PostgreSqlContainer? fixture = useExternalFixture
+            ? null
+            : new PostgreSqlBuilder("postgres:18-alpine")
+                .WithDatabase("snapshot_source")
+                .WithUsername("snapshot")
+                .WithPassword("snapshot-test-password")
+                .Build();
+        string restoreConnection;
+        byte[] customArchive;
+        if (useExternalFixture)
+        {
+            restoreConnection = administrativeConnection!;
+            customArchive = await File.ReadAllBytesAsync(archivePath!);
+        }
+        else
+        {
+            await fixture!.StartAsync();
+            restoreConnection = fixture.GetConnectionString();
+            await ExecuteDatabaseCommandAsync(restoreConnection,
+                "CREATE TABLE snapshot_probe (id integer PRIMARY KEY, value text NOT NULL); INSERT INTO snapshot_probe (id, value) VALUES (1, 'pg18');");
+            await using MemoryStream generatedArchive = await DumpSyntheticArchiveAsync(fixture, CancellationToken.None);
+            customArchive = generatedArchive.ToArray();
+        }
+        await WriteProducerFixtureAsync(key, overrides: new Dictionary<string, byte[]> { ["Country"] = customArchive });
         LegacyLocalSnapshot snapshot = LegacyLocalSnapshot.Load(root, key, "test-snapshot-20260830");
         string restoredDatabase = $"legacy_snapshot_consumer_{Guid.NewGuid():N}";
         try
         {
-            await ExecuteAdministrativeCommandAsync(fixture.GetConnectionString(), $"CREATE DATABASE \"{restoredDatabase}\"");
-            var target = new NpgsqlConnectionStringBuilder(fixture.GetConnectionString()) { Database = restoredDatabase };
+            await ExecuteAdministrativeCommandAsync(restoreConnection, $"CREATE DATABASE \"{restoredDatabase}\"");
+            var target = new NpgsqlConnectionStringBuilder(restoreConnection) { Database = restoredDatabase };
             await snapshot.RestoreVerifiedAsync("Country", key,
                 (writeArchive, token) => PgRestoreRunner.RunPgRestoreAsync(writeArchive, "Country", target.ConnectionString, token),
                 CancellationToken.None);
@@ -333,7 +351,7 @@ public sealed class LegacyLocalSnapshotTests : IDisposable
         }
         finally
         {
-            await ExecuteAdministrativeCommandAsync(fixture.GetConnectionString(),
+            await ExecuteAdministrativeCommandAsync(restoreConnection,
                 $"DROP DATABASE IF EXISTS \"{restoredDatabase}\" WITH (FORCE)");
         }
     }
