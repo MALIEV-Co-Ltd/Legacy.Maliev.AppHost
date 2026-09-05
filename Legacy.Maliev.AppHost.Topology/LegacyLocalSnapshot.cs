@@ -340,7 +340,7 @@ public static class SnapshotEncryptionKey
         if (!info.Exists || info.Attributes.HasFlag(FileAttributes.ReparsePoint) || info.LinkTarget is not null)
             throw new InvalidOperationException("The snapshot encryption key file is missing or unsafe.");
 
-        using var stream = SecureSnapshotFile.OpenRead(fullPath, exclusive: true);
+        using var stream = SecureSnapshotFile.OpenRead(fullPath);
         if (stream.Length is <= 0 or > 4096)
             throw new InvalidOperationException("The snapshot encryption key file has an invalid size.");
         using var reader = new StreamReader(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false,

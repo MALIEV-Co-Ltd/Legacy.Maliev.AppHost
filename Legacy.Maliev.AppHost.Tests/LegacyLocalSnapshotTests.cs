@@ -261,6 +261,20 @@ public sealed class LegacyLocalSnapshotTests : IDisposable
     }
 
     [Fact]
+    public void SnapshotEncryptionKey_AllowsConcurrentReadOnlyConsumers()
+    {
+        Directory.CreateDirectory(root);
+        string keyPath = Path.Combine(root, "shared-snapshot.key");
+        byte[] expected = RandomNumberGenerator.GetBytes(32);
+        File.WriteAllText(keyPath, Convert.ToBase64String(expected));
+        RestrictKeyFile(keyPath);
+
+        using var firstReader = new FileStream(keyPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+        Assert.Equal(expected, SnapshotEncryptionKey.Load(keyPath));
+    }
+
+    [Fact]
     public void SnapshotEncryptionKey_RejectsKeyFileReadableByAnotherPrincipal()
     {
         Directory.CreateDirectory(root);

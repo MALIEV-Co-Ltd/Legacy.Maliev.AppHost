@@ -80,11 +80,11 @@ public sealed class EncryptedSnapshotOrchestrationContractTests
     }
 
     [Fact]
-    public void KeyLoader_UsesExclusiveOpenedHandleIdentityAndOwnerOnlyPermissions()
+    public void SnapshotFiles_UseOpenedHandleIdentityAndOwnerOnlyPermissions()
     {
         string source = File.ReadAllText(Path.Combine(Root, "Legacy.Maliev.AppHost.Topology", "LegacyLocalSnapshot.cs")) +
             File.ReadAllText(Path.Combine(Root, "Legacy.Maliev.AppHost.Topology", "SecureSnapshotFile.cs"));
-        Assert.Contains("FileShare.None", source, StringComparison.Ordinal);
+        Assert.Contains("FileShare.Read", source, StringComparison.Ordinal);
         Assert.Contains("GetFinalPathNameByHandle", source, StringComparison.Ordinal);
         Assert.Contains("GetEffectiveUserIdNative", source, StringComparison.Ordinal);
         Assert.Contains("statx", source, StringComparison.OrdinalIgnoreCase);
