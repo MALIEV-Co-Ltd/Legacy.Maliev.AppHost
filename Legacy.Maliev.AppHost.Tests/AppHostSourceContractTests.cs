@@ -318,7 +318,7 @@ public sealed class AppHostSourceContractTests
 
         // Auth uses the shared authConnectionString expression so explicit GKE validation can
         // target the GitOps RefreshSessions database; its local branch remains direct.
-        Assert.Equal(18, directMigrationConnectionCount);
+        Assert.Equal(19, directMigrationConnectionCount);
         Assert.Equal(19, pooledApplicationConnectionCount);
         Assert.Contains(
             "? CreatePooledDatabaseConnectionString(\"Auth\")\n    : authDatabase.Resource.ConnectionStringExpression",
