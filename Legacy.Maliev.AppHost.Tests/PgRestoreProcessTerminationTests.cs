@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.ComponentModel;
 using Legacy.Maliev.AppHost.MigrationRunner;
 
 namespace Legacy.Maliev.AppHost.Tests;
@@ -6,6 +7,20 @@ namespace Legacy.Maliev.AppHost.Tests;
 [Collection("PgRestoreEnvironment")]
 public sealed class PgRestoreProcessTerminationTests
 {
+    [Fact]
+    public void IsStillRunning_ProcessExitsDuringStartTimeRead_ReturnsFalse()
+    {
+        using Process current = Process.GetCurrentProcess();
+        var identity = new PgRestoreProcessTermination.ProcessIdentity(current.Id, current.StartTime.ToUniversalTime().Ticks);
+
+        bool running = PgRestoreProcessTermination.IsStillRunning(
+            identity,
+            _ => Process.GetCurrentProcess(),
+            _ => throw new Win32Exception("controlled process-exit race"));
+
+        Assert.False(running);
+    }
+
     [Fact]
     public async Task TerminateAndObserveAsync_LeavesNoResidualChildProcess()
     {
