@@ -1,0 +1,787 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "03dc9a1271c16e6535934445e9dd6e3f30e8fffe",
+  "scope": "XML documentation isolation only; does not account for logging commit 5ac7d04.",
+  "repositories": [
+    {
+      "name": "Legacy.Maliev.AccountingService",
+      "commit": "887ba566db3468e62d4d027a2fd7196dcecd7a5f"
+    },
+    {
+      "name": "Legacy.Maliev.AuthService",
+      "commit": "9d7a3201eb866f36e93cf3f1a1b0cff067bd2dd9"
+    },
+    {
+      "name": "Legacy.Maliev.CareerService",
+      "commit": "320eb60eb45061a6543aaba64159dbdf1df43973"
+    },
+    {
+      "name": "Legacy.Maliev.CatalogService",
+      "commit": "2a97266a77e60c6fa98113bf960ca4232e14fcbd"
+    },
+    {
+      "name": "Legacy.Maliev.ContactService",
+      "commit": "1d145919a9e89e56b36c44b43e43b606f38a3de5"
+    },
+    {
+      "name": "Legacy.Maliev.CountryService",
+      "commit": "6b4455a3490a48eb68ab41a386dc72ee11505dc8"
+    },
+    {
+      "name": "Legacy.Maliev.CustomerService",
+      "commit": "a5c3d109c58e726783187b9c5234be70814e1ae2"
+    },
+    {
+      "name": "Legacy.Maliev.DocumentService",
+      "commit": "632c8494439815b91b01e7b69b325790e91a2355"
+    },
+    {
+      "name": "Legacy.Maliev.EmployeeService",
+      "commit": "e5b6f8ad12964d6f57713b375c65de52bb44ca9d"
+    },
+    {
+      "name": "Legacy.Maliev.FileService",
+      "commit": "20f7c65d6ac5c7456a771287b0a1728a280d0e41"
+    },
+    {
+      "name": "Legacy.Maliev.Intranet",
+      "commit": "736eeb74f53e9f8c58b1d0f5ddabf01d124262ea"
+    },
+    {
+      "name": "Legacy.Maliev.NotificationService",
+      "commit": "218170e2d398ffe5837173f9e0912618d7532406"
+    },
+    {
+      "name": "Legacy.Maliev.OrderService",
+      "commit": "6d4d94c86b26dcb2e8045c4da775c8a3436273a3"
+    },
+    {
+      "name": "Legacy.Maliev.ProcurementService",
+      "commit": "26d7ab3e3963ea5127998e53a98af82d4a54176f"
+    },
+    {
+      "name": "Legacy.Maliev.QuotationService",
+      "commit": "5da25f3488b1dc91eb94d6366bd3aaf7667345db"
+    },
+    {
+      "name": "Legacy.Maliev.ServiceDefaults",
+      "commit": "81830f4f0fdf25b655b09918f51c969a11eaed01"
+    },
+    {
+      "name": "Legacy.Maliev.Web",
+      "commit": "e4ab426d071082cf11231e26111d79003ae62c6e"
+    },
+    {
+      "name": "Legacy.Maliev.CompatibilityContracts",
+      "commit": "13eefdb44cad42b46216bb0378af8c76e3672c2c"
+    }
+  ],
+  "projects": [
+    {
+      "sourceProject": "Maliev.AspNetCore.DataAnnotations/Maliev.AspNetCore.DataAnnotations.csproj",
+      "owners": [
+        "Legacy.Maliev.CompatibilityContracts",
+        "Legacy.Maliev.ServiceDefaults"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "Source helper/project is decomposed into target shared contracts or application middleware; documentation isolation is audited for all committed project metadata in these owners, not a one-to-one binary claim."
+    },
+    {
+      "sourceProject": "Maliev.AuthService.Api/Maliev.AuthService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.AuthService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.AuthService.JwtSecurity/Maliev.AuthService.JwtSecurity.csproj",
+      "owners": [
+        "Legacy.Maliev.AuthService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.AuthService.JwtToken/Maliev.AuthService.JwtToken.csproj",
+      "owners": [
+        "Legacy.Maliev.AuthService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.AuthService.Tests/Maliev.AuthService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.AuthService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.Common/Maliev.Common.csproj",
+      "owners": [
+        "Legacy.Maliev.CompatibilityContracts",
+        "Legacy.Maliev.ServiceDefaults"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "Source helper/project is decomposed into target shared contracts or application middleware; documentation isolation is audited for all committed project metadata in these owners, not a one-to-one binary claim."
+    },
+    {
+      "sourceProject": "Maliev.CountryService.Api/Maliev.CountryService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.CountryService",
+        "Legacy.Maliev.CatalogService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.CountryService.Data/Maliev.CountryService.Data.csproj",
+      "owners": [
+        "Legacy.Maliev.CountryService",
+        "Legacy.Maliev.CatalogService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.CountryService.Tests/Maliev.CountryService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.CountryService",
+        "Legacy.Maliev.CatalogService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.CurrencyService.Api/Maliev.CurrencyService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.CatalogService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.CurrencyService.Data/Maliev.CurrencyService.Data.csproj",
+      "owners": [
+        "Legacy.Maliev.CatalogService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.CurrencyService.Tests/Maliev.CurrencyService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.CatalogService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.CustomerService.Api/Maliev.CustomerService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.CustomerService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.CustomerService.Common/Maliev.CustomerService.Common.csproj",
+      "owners": [
+        "Legacy.Maliev.CustomerService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.CustomerService.Data/Maliev.CustomerService.Data.csproj",
+      "owners": [
+        "Legacy.Maliev.CustomerService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.CustomerService.Tests/Maliev.CustomerService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.CustomerService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.EmailService.Api/Maliev.EmailService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.NotificationService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.EmailService.Client/Maliev.EmailService.Client.csproj",
+      "owners": [
+        "Legacy.Maliev.NotificationService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.EmailService.Tests/Maliev.EmailService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.NotificationService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.EmployeeService.Api/Maliev.EmployeeService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.EmployeeService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.EmployeeService.Common/Maliev.EmployeeService.Common.csproj",
+      "owners": [
+        "Legacy.Maliev.EmployeeService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.EmployeeService.Data/Maliev.EmployeeService.Data.csproj",
+      "owners": [
+        "Legacy.Maliev.EmployeeService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.EmployeeService.Tests/Maliev.EmployeeService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.EmployeeService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.Entities/Maliev.Entities.csproj",
+      "owners": [
+        "Legacy.Maliev.CompatibilityContracts",
+        "Legacy.Maliev.ServiceDefaults"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "Source helper/project is decomposed into target shared contracts or application middleware; documentation isolation is audited for all committed project metadata in these owners, not a one-to-one binary claim."
+    },
+    {
+      "sourceProject": "Maliev.Identities/Maliev.Identities.csproj",
+      "owners": [
+        "Legacy.Maliev.AuthService",
+        "Legacy.Maliev.CompatibilityContracts"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "Source helper/project is decomposed into target shared contracts or application middleware; documentation isolation is audited for all committed project metadata in these owners, not a one-to-one binary claim."
+    },
+    {
+      "sourceProject": "Maliev.Intranet/Maliev.Intranet.csproj",
+      "owners": [
+        "Legacy.Maliev.Intranet"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "Source helper/project is decomposed into target shared contracts or application middleware; documentation isolation is audited for all committed project metadata in these owners, not a one-to-one binary claim."
+    },
+    {
+      "sourceProject": "Maliev.InvoiceService.Api/Maliev.InvoiceService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.AccountingService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.InvoiceService.Common/Maliev.InvoiceService.Common.csproj",
+      "owners": [
+        "Legacy.Maliev.AccountingService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.InvoiceService.Data/Maliev.InvoiceService.Data.csproj",
+      "owners": [
+        "Legacy.Maliev.AccountingService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.InvoiceService.Tests/Maliev.InvoiceService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.AccountingService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.JobService.Api/Maliev.JobService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.CareerService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.JobService.Common/Maliev.JobService.Common.csproj",
+      "owners": [
+        "Legacy.Maliev.CareerService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.JobService.Data/Maliev.JobService.Data.csproj",
+      "owners": [
+        "Legacy.Maliev.CareerService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.JobService.Tests/Maliev.JobService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.CareerService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.MaterialService.Api/Maliev.MaterialService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.CatalogService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.MaterialService.Common/Maliev.MaterialService.Common.csproj",
+      "owners": [
+        "Legacy.Maliev.CatalogService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.MaterialService.Data/Maliev.MaterialService.Data.csproj",
+      "owners": [
+        "Legacy.Maliev.CatalogService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.MaterialService.Tests/Maliev.MaterialService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.CatalogService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.MessageService.Api/Maliev.MessageService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.ContactService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.MessageService.Common/Maliev.MessageService.Common.csproj",
+      "owners": [
+        "Legacy.Maliev.ContactService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.MessageService.Data/Maliev.MessageService.Data.csproj",
+      "owners": [
+        "Legacy.Maliev.ContactService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.MessageService.Tests/Maliev.MessageService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.ContactService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.Middleware.Localization/Maliev.Middleware.Localization.csproj",
+      "owners": [
+        "Legacy.Maliev.Web",
+        "Legacy.Maliev.Intranet"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "Source helper/project is decomposed into target shared contracts or application middleware; documentation isolation is audited for all committed project metadata in these owners, not a one-to-one binary claim."
+    },
+    {
+      "sourceProject": "Maliev.Middleware.SwaggerAuthorized/Maliev.Middleware.SwaggerAuthorized.csproj",
+      "owners": [
+        "Legacy.Maliev.ServiceDefaults"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "Source helper/project is decomposed into target shared contracts or application middleware; documentation isolation is audited for all committed project metadata in these owners, not a one-to-one binary claim."
+    },
+    {
+      "sourceProject": "Maliev.OrderService.Api/Maliev.OrderService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.OrderService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.OrderService.Common/Maliev.OrderService.Common.csproj",
+      "owners": [
+        "Legacy.Maliev.OrderService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.OrderService.Data/Maliev.OrderService.Data.csproj",
+      "owners": [
+        "Legacy.Maliev.OrderService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.OrderService.Tests/Maliev.OrderService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.OrderService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.OrderStatusService.Api/Maliev.OrderStatusService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.OrderService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.OrderStatusService.Data/Maliev.OrderStatusService.Data.csproj",
+      "owners": [
+        "Legacy.Maliev.OrderService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.OrderStatusService.Tests/Maliev.OrderStatusService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.OrderService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.PaymentService.Api/Maliev.PaymentService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.AccountingService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.PaymentService.Common/Maliev.PaymentService.Common.csproj",
+      "owners": [
+        "Legacy.Maliev.AccountingService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.PaymentService.Data/Maliev.PaymentService.Data.csproj",
+      "owners": [
+        "Legacy.Maliev.AccountingService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.PaymentService.Tests/Maliev.PaymentService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.AccountingService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.PdfService.Api/Maliev.PdfService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.DocumentService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.PdfService.Entities/Maliev.PdfService.Entities.csproj",
+      "owners": [
+        "Legacy.Maliev.DocumentService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.PdfService.Pdf/Maliev.PdfService.Pdf.csproj",
+      "owners": [
+        "Legacy.Maliev.DocumentService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.PdfService.Tests/Maliev.PdfService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.DocumentService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.PdfService.Utilities/Maliev.PdfService.Utilities.csproj",
+      "owners": [
+        "Legacy.Maliev.DocumentService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.PredictionService.Api/Maliev.PredictionService.Api.csproj",
+      "owners": [],
+      "disposition": "approved-retirement",
+      "rationale": "PredictionService retired under deterministic-pricing disposition; see Web source-parity-delta-through-4486f0e.json f0640fe retirement. No target project is resurrected."
+    },
+    {
+      "sourceProject": "Maliev.PredictionService.ConsoleTrainer/Maliev.PredictionService.ConsoleTrainer.csproj",
+      "owners": [],
+      "disposition": "approved-retirement",
+      "rationale": "PredictionService retired under deterministic-pricing disposition; see Web source-parity-delta-through-4486f0e.json f0640fe retirement. No target project is resurrected."
+    },
+    {
+      "sourceProject": "Maliev.PredictionService.Data/Maliev.PredictionService.Data.csproj",
+      "owners": [],
+      "disposition": "approved-retirement",
+      "rationale": "PredictionService retired under deterministic-pricing disposition; see Web source-parity-delta-through-4486f0e.json f0640fe retirement. No target project is resurrected."
+    },
+    {
+      "sourceProject": "Maliev.PurchaseOrderService.Api/Maliev.PurchaseOrderService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.ProcurementService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.PurchaseOrderService.Common/Maliev.PurchaseOrderService.Common.csproj",
+      "owners": [
+        "Legacy.Maliev.ProcurementService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.PurchaseOrderService.Data/Maliev.PurchaseOrderService.Data.csproj",
+      "owners": [
+        "Legacy.Maliev.ProcurementService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.PurchaseOrderService.Tests/Maliev.PurchaseOrderService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.ProcurementService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.QuotationRequestService.Api/Maliev.QuotationRequestService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.QuotationService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.QuotationRequestService.Common/Maliev.QuotationRequestService.Common.csproj",
+      "owners": [
+        "Legacy.Maliev.QuotationService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.QuotationRequestService.Data/Maliev.QuotationRequestService.Data.csproj",
+      "owners": [
+        "Legacy.Maliev.QuotationService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.QuotationRequestService.Tests/Maliev.QuotationRequestService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.QuotationService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.QuotationService.Api/Maliev.QuotationService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.QuotationService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.QuotationService.Common/Maliev.QuotationService.Common.csproj",
+      "owners": [
+        "Legacy.Maliev.QuotationService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.QuotationService.Data/Maliev.QuotationService.Data.csproj",
+      "owners": [
+        "Legacy.Maliev.QuotationService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.QuotationService.Tests/Maliev.QuotationService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.QuotationService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.ReceiptService.Api/Maliev.ReceiptService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.AccountingService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.ReceiptService.Common/Maliev.ReceiptService.Common.csproj",
+      "owners": [
+        "Legacy.Maliev.AccountingService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.ReceiptService.Data/Maliev.ReceiptService.Data.csproj",
+      "owners": [
+        "Legacy.Maliev.AccountingService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.ReceiptService.Tests/Maliev.ReceiptService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.AccountingService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.Service.WebApi/Maliev.Service.WebApi.csproj",
+      "owners": [
+        "Legacy.Maliev.ServiceDefaults"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "Source helper/project is decomposed into target shared contracts or application middleware; documentation isolation is audited for all committed project metadata in these owners, not a one-to-one binary claim."
+    },
+    {
+      "sourceProject": "Maliev.SupplierService.Api/Maliev.SupplierService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.ProcurementService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.SupplierService.Data/Maliev.SupplierService.Data.csproj",
+      "owners": [
+        "Legacy.Maliev.ProcurementService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.SupplierService.Tests/Maliev.SupplierService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.ProcurementService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.UploadService.Api/Maliev.UploadService.Api.csproj",
+      "owners": [
+        "Legacy.Maliev.FileService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.UploadService.Common/Maliev.UploadService.Common.csproj",
+      "owners": [
+        "Legacy.Maliev.FileService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.UploadService.Data/Maliev.UploadService.Data.csproj",
+      "owners": [
+        "Legacy.Maliev.FileService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.UploadService.GoogleCloudStorage/Maliev.UploadService.GoogleCloudStorage.csproj",
+      "owners": [
+        "Legacy.Maliev.FileService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    },
+    {
+      "sourceProject": "Maliev.UploadService.Tests/Maliev.UploadService.Tests.csproj",
+      "owners": [
+        "Legacy.Maliev.FileService"
+      ],
+      "disposition": "architecture-equivalent",
+      "rationale": "SDK-managed target project metadata replaces source assembly documentation outputs; retained API/domain/data/test ownership."
+    }
+  ]
+}
