@@ -945,6 +945,21 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
+    public void AppHost_ProjectsTheLocalWebEndpointForCustomerPasswordSetupLinks()
+    {
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "AppHost.cs"));
+        var bff = ExtractResource(
+            source,
+            "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>",
+            "builder.Build().Run()");
+
+        Assert.Contains(
+            "WithEnvironment(\"CustomerOnboarding__PublicWebBaseUrl\", web.GetEndpoint(\"http\"))",
+            bff,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AppHost_WiresCustomerOwnedQuotationReadsWithPreservedDatabases()
     {
         var root = FindRepositoryRoot();
