@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 
 namespace Legacy.Maliev.AppHost.MigrationRunner;
@@ -41,13 +42,19 @@ public static class PgRestoreProcessTermination
         => Task.WhenAll(standardOutput, standardError).WaitAsync(timeout);
 
     private static bool IsStillRunning(ProcessIdentity identity)
+        => IsStillRunning(identity, Process.GetProcessById, process => process.StartTime.ToUniversalTime().Ticks);
+
+    internal static bool IsStillRunning(
+        ProcessIdentity identity,
+        Func<int, Process> findProcess,
+        Func<Process, long> getStartTimeUtcTicks)
     {
         try
         {
-            using Process observed = Process.GetProcessById(identity.Id);
-            return !observed.HasExited && observed.StartTime.ToUniversalTime().Ticks == identity.StartTimeUtcTicks;
+            using Process observed = findProcess(identity.Id);
+            return !observed.HasExited && getStartTimeUtcTicks(observed) == identity.StartTimeUtcTicks;
         }
-        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException) { return false; }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or Win32Exception) { return false; }
     }
 
     private static ProcessIdentity[] CaptureDescendants(int root)
@@ -97,7 +104,7 @@ public static class PgRestoreProcessTermination
         return result;
     }
 
-    private sealed record ProcessIdentity(int Id, long StartTimeUtcTicks);
+    internal sealed record ProcessIdentity(int Id, long StartTimeUtcTicks);
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct ProcessEntry32
     {
