@@ -947,7 +947,7 @@ paymentMigrations.WithParentRelationship(accounting.Resource);
 invoiceMigrations.WithParentRelationship(accounting.Resource);
 receiptMigrations.WithParentRelationship(accounting.Resource);
 
-builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
+var web = builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
     .WithHttpEndpoint(port: legacyWebIdentity.Port, name: "http")
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
     .WithEnvironment("DOTNET_ENVIRONMENT", "Development")
@@ -1020,6 +1020,7 @@ var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legac
     .WithEnvironment("ServiceAuthentication__ClientSecret", intranetCredential.Secret)
     .WithEnvironment("Authentication__Google__ClientId", googleIdentityClientId)
     .WithEnvironment("GoogleMaps__BrowserApiKey", intranetGoogleMapsBrowserApiKey)
+    .WithEnvironment("CustomerOnboarding__PublicWebBaseUrl", web.GetEndpoint("http"))
     .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
     .WithEnvironment("Services__Catalog", catalog.GetEndpoint("http"))
     .WithEnvironment("Services__Order", order.GetEndpoint("http"))
