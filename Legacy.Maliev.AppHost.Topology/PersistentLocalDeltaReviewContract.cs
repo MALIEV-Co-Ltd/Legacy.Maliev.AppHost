@@ -8,6 +8,9 @@ public static class PersistentLocalDeltaReviewContract
     /// <summary>Gets the stable, local-only Docker volume used across Aspire review runs.</summary>
     public const string PostgresVolumeName = "legacy-maliev-exact23-postgres-data";
 
+    /// <summary>Gets the PostgreSQL 18 parent data directory mounted by the container.</summary>
+    public const string PostgresVolumeTarget = "/var/lib/postgresql";
+
     /// <summary>Gets the exact migrated inventory accepted by the local delta boundary.</summary>
     public static IReadOnlyList<string> Databases => LegacySnapshotReviewContract.MigratedDatabases;
 
