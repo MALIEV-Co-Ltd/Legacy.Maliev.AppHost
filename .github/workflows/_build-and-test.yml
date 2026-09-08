@@ -35,6 +35,13 @@ jobs:
         with:
           path: Legacy.Maliev.AppHost
           persist-credentials: false
+      - name: Check out data migration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: MALIEV-Co-Ltd/Legacy.Maliev.DataMigration
+          ref: d4beb4b432da3dd64c024466022dd1c451f81650
+          path: Legacy.Maliev.DataMigration
+          persist-credentials: false
       - name: Check out Country service
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:

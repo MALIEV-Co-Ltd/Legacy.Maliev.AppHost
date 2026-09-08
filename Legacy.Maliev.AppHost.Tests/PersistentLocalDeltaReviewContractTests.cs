@@ -58,4 +58,15 @@ public sealed class PersistentLocalDeltaReviewContractTests
         Assert.Contains("baseline_evidence_sha256 ~ '^[0-9a-f]{64}$'", runner, StringComparison.Ordinal);
         Assert.Contains("source_cutoff_utc <= reconciled_at_utc", runner, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Workflow_PinsGuardedDeltaProducerUsedByTheRunner()
+    {
+        string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string workflow = File.ReadAllText(Path.Combine(root, ".github", "workflows", "_build-and-test.yml"));
+
+        Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.DataMigration", workflow, StringComparison.Ordinal);
+        Assert.Contains("ref: d4beb4b432da3dd64c024466022dd1c451f81650", workflow, StringComparison.Ordinal);
+        Assert.Contains("path: Legacy.Maliev.DataMigration", workflow, StringComparison.Ordinal);
+    }
 }
