@@ -378,11 +378,10 @@ var employeeIdentityMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHo
 // runner. In local exact-data mode they still need to be restored so the snapshot
 // represents the complete retained migrated production inventory rather than only
 // databases with active APIs. Log is excluded from the current inventory.
-IResourceBuilder<ProjectResource>? currencySnapshot = null;
 if (localSnapshotMode)
 {
     _ = AddSnapshotMigration("legacy-contact-request-snapshot", "ContactRequest");
-    currencySnapshot = AddSnapshotMigration("legacy-currency-snapshot", "Currency");
+    _ = AddSnapshotMigration("legacy-currency-snapshot", "Currency");
     _ = AddSnapshotMigration("legacy-data-protection-keys-snapshot", "DataProtectionKeys");
     _ = AddSnapshotMigration(
         "legacy-data-protection-keys-employee-snapshot",
@@ -571,26 +570,13 @@ var catalogMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_Migrat
     .WithEnvironment("PGGSSENCMODE", "disable")
     .WaitFor(catalogDatabase);
 
-IResourceBuilder<ProjectResource> catalogReady = catalogMigrations;
-if (localSnapshotMode)
-{
-    catalogReady = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-catalog-snapshot-compose")
-        .WithArgs("catalog-snapshot-compose")
-        .WithEnvironment("LEGACY_SKIP_MIGRATE", "true")
-        .WithEnvironment("LEGACY_SNAPSHOT_DIRECTORY", localSnapshotDirectoryRequested)
-        .WithEnvironment("ConnectionStrings__CurrencySnapshotDb", databases["Currency"].Resource.ConnectionStringExpression)
-        .WithEnvironment("ConnectionStrings__CatalogDbContext", catalogDatabase.Resource.ConnectionStringExpression)
-        .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-        .WithEnvironment("PGGSSENCMODE", "disable")
-        .WaitForCompletion(catalogMigrations)
-        .WaitForCompletion(currencySnapshot!);
-}
-
 var catalog = builder.AddProject<Projects.Legacy_Maliev_CatalogService_Api>(
         "legacy-maliev-catalog-service",
         launchProfileName: "http")
     .ConfigureDynamicHttpEndpoint()
     .WithEnvironment("ConnectionStrings__CatalogDbContext", CreatePooledDatabaseConnectionString("Material"))
+    .WithEnvironment("ConnectionStrings__CountryDbContext", CreatePooledDatabaseConnectionString("Country"))
+    .WithEnvironment("ConnectionStrings__CurrencyDbContext", CreatePooledDatabaseConnectionString("Currency"))
     .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
     .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
     .WithEnvironment("Jwt__Issuer", jwtIssuer)
@@ -606,12 +592,12 @@ var catalog = builder.AddProject<Projects.Legacy_Maliev_CatalogService_Api>(
         url.Url = "/catalog/scalar";
         url.DisplayText = "Catalog Scalar";
     })
-    .WaitForCompletion(catalogReady)
+    .WaitForCompletion(catalogMigrations)
     .WaitFor(pgbouncer)
     .WaitFor(redis)
     .WaitFor(auth);
 
-catalogReady.WithParentRelationship(catalog.Resource);
+catalogMigrations.WithParentRelationship(catalog.Resource);
 
 var supplierDatabase = databases["Supplier"];
 var purchaseOrderDatabase = databases["PurchaseOrder"];
