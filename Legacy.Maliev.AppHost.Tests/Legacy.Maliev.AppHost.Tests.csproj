@@ -24,7 +24,6 @@
     <Compile Include="..\Legacy.Maliev.AppHost.MigrationRunner\SchemaBaselineGate.cs" Link="SchemaBaselineGate.cs" />
     <Compile Include="..\Legacy.Maliev.AppHost.MigrationRunner\PgRestoreProcessTermination.cs" Link="PgRestoreProcessTermination.cs" />
     <Compile Include="..\Legacy.Maliev.AppHost.MigrationRunner\PgRestoreRunner.cs" Link="PgRestoreRunner.cs" />
-    <Compile Include="..\Legacy.Maliev.AppHost.MigrationRunner\CatalogSnapshotComposer.cs" Link="CatalogSnapshotComposer.cs" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

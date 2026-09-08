@@ -318,8 +318,12 @@ public sealed class AppHostSourceContractTests
 
         // Auth uses the shared authConnectionString expression so explicit GKE validation can
         // target the GitOps RefreshSessions database; its local branch remains direct.
-        Assert.Equal(19, directMigrationConnectionCount);
-        Assert.Equal(19, pooledApplicationConnectionCount);
+        // Eighteen EF migration runners own active application schemas. Catalog exposes
+        // three retained exact-23 databases (Material, Country, and Currency), so runtime
+        // application traffic has three pooled connections while only Material owns the
+        // consolidated Catalog migration history.
+        Assert.Equal(18, directMigrationConnectionCount);
+        Assert.Equal(21, pooledApplicationConnectionCount);
         Assert.Contains(
             "? CreatePooledDatabaseConnectionString(\"Auth\")\n    : authDatabase.Resource.ConnectionStringExpression",
             source,
