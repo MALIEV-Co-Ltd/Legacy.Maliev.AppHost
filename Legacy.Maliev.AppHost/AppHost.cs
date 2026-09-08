@@ -1111,7 +1111,10 @@ foreach (IResourceBuilder<ProjectResource> snapshotRunner in new[]
     snapshotRunner.WithEnvironment("LEGACY_SNAPSHOT_DIRECTORY", localSnapshotDirectoryRequested);
     snapshotRunner.WithEnvironment("LEGACY_SNAPSHOT_ENCRYPTION_KEY_FILE", localSnapshotKeyFileRequested);
     snapshotRunner.WithEnvironment("LEGACY_SNAPSHOT_ID", localSnapshotIdRequested);
-    if (localDeltaApply is not null)
+    // Auth is runtime-only state and is deliberately outside the exact-23 production-data
+    // inventory. It still needs its own PostgreSQL schema when the persistent data volume is
+    // adopted; only the source-derived database migrations must remain disabled here.
+    if (localDeltaApply is not null && !ReferenceEquals(snapshotRunner, authMigrations))
     {
         snapshotRunner
             .WithEnvironment("LEGACY_SKIP_MIGRATE", "true")

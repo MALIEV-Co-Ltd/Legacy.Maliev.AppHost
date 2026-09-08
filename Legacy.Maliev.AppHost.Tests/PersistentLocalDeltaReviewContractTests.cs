@@ -46,6 +46,8 @@ public sealed class PersistentLocalDeltaReviewContractTests
         Assert.DoesNotContain("WithDataVolume(PersistentLocalDeltaReviewContract.PostgresVolumeName)", source, StringComparison.Ordinal);
         Assert.Contains(".WaitForCompletion(localDeltaApply)", source, StringComparison.Ordinal);
         Assert.Contains("WithEnvironment(\"LEGACY_SKIP_MIGRATE\", \"true\")", source, StringComparison.Ordinal);
+        Assert.Contains("!ReferenceEquals(snapshotRunner, authMigrations)", source, StringComparison.Ordinal);
+        Assert.Contains("Auth is runtime-only state", source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -70,7 +72,7 @@ public sealed class PersistentLocalDeltaReviewContractTests
         string workflow = File.ReadAllText(Path.Combine(root, ".github", "workflows", "_build-and-test.yml"));
 
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.DataMigration", workflow, StringComparison.Ordinal);
-        Assert.Contains("ref: d4beb4b432da3dd64c024466022dd1c451f81650", workflow, StringComparison.Ordinal);
+        Assert.Contains("ref: 5d7414e0f7a3c838bf470818b681559ed89cac0a", workflow, StringComparison.Ordinal);
         Assert.Contains("path: Legacy.Maliev.DataMigration", workflow, StringComparison.Ordinal);
     }
 }
