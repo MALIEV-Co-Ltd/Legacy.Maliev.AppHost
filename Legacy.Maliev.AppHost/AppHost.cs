@@ -12,13 +12,18 @@ var recaptchaProjectIdFromProcess = Environment.GetEnvironmentVariable("MALIEV_R
 // LegacyWebLaunchIdentity.Capture() above must also run first).
 var gkeValidationModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_GKE_VALIDATION"), "true", StringComparison.OrdinalIgnoreCase);
 var localSnapshotModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_SNAPSHOT"), "true", StringComparison.OrdinalIgnoreCase);
+var localDeltaModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_DELTA"), "true", StringComparison.OrdinalIgnoreCase);
+var localDeltaConfigRequested = Environment.GetEnvironmentVariable("LEGACY_LOCAL_DELTA_CONFIG")?.Trim();
 var localSnapshotDirectoryRequested = Environment.GetEnvironmentVariable("LEGACY_LOCAL_SNAPSHOT_DIR")?.Trim();
 var localSnapshotKeyFileRequested = Environment.GetEnvironmentVariable("LEGACY_MIGRATION_SNAPSHOT_ENCRYPTION_KEY_FILE")?.Trim();
 var localSnapshotIdRequested = Environment.GetEnvironmentVariable("LEGACY_LOCAL_SNAPSHOT_ID")?.Trim();
 var localFixturesRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_FIXTURES"), "true", StringComparison.OrdinalIgnoreCase);
-if (gkeValidationModeRequested && localSnapshotModeRequested)
+if ((gkeValidationModeRequested ? 1 : 0) +
+    (localSnapshotModeRequested ? 1 : 0) +
+    (localDeltaModeRequested ? 1 : 0) > 1)
 {
-    throw new InvalidOperationException("LEGACY_GKE_VALIDATION and LEGACY_LOCAL_SNAPSHOT cannot be enabled together.");
+    throw new InvalidOperationException(
+        "LEGACY_GKE_VALIDATION, LEGACY_LOCAL_SNAPSHOT, and LEGACY_LOCAL_DELTA are mutually exclusive.");
 }
 
 if (localSnapshotModeRequested && string.IsNullOrWhiteSpace(localSnapshotDirectoryRequested))
@@ -41,6 +46,14 @@ if (localSnapshotModeRequested && string.IsNullOrWhiteSpace(localSnapshotIdReque
 if (localFixturesRequested && !localSnapshotModeRequested)
 {
     throw new InvalidOperationException("LEGACY_LOCAL_FIXTURES requires LEGACY_LOCAL_SNAPSHOT=true.");
+}
+
+if (localDeltaModeRequested)
+{
+    if (string.IsNullOrWhiteSpace(localDeltaConfigRequested))
+    {
+        throw new InvalidOperationException("LEGACY_LOCAL_DELTA_CONFIG is required when LEGACY_LOCAL_DELTA=true.");
+    }
 }
 
 LocalEnvironmentPolicy.SanitizeCurrentProcess();
@@ -189,6 +202,21 @@ var postgres = builder.AddPostgres("legacy-postgres-main", postgresUsername, pos
         "-c", "wal_compression=on")
     .WithEnvironment("PGGSSENCMODE", "disable")
     .WithContainerRuntimeArgs("--cpus", "0.75", "--memory", "1024m");
+
+if (localDeltaModeRequested)
+{
+    postgres.WithDataVolume(PersistentLocalDeltaReviewContract.PostgresVolumeName);
+}
+
+IResourceBuilder<ProjectResource>? localDeltaApply = null;
+if (localDeltaModeRequested)
+{
+    localDeltaApply = builder.AddProject<Projects.Legacy_Maliev_AppHost_LocalDeltaRunner>("legacy-local-delta-apply")
+        .WithEnvironment("LEGACY_LOCAL_DELTA_CONFIG", localDeltaConfigRequested)
+        .WithReference(postgres)
+        .WaitFor(postgres);
+    localDeltaApply.WithParentRelationship(postgres.Resource);
+}
 
 var pgbouncer = builder.AddContainer("legacy-postgres-pooler-rw", "edoburu/pgbouncer", "v1.25.2-p0")
     .WithEndpoint(targetPort: 5432, name: "tcp")
@@ -1079,6 +1107,13 @@ foreach (IResourceBuilder<ProjectResource> snapshotRunner in new[]
     snapshotRunner.WithEnvironment("LEGACY_SNAPSHOT_DIRECTORY", localSnapshotDirectoryRequested);
     snapshotRunner.WithEnvironment("LEGACY_SNAPSHOT_ENCRYPTION_KEY_FILE", localSnapshotKeyFileRequested);
     snapshotRunner.WithEnvironment("LEGACY_SNAPSHOT_ID", localSnapshotIdRequested);
+    if (localDeltaApply is not null)
+    {
+        snapshotRunner
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", "true")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", "false")
+            .WaitForCompletion(localDeltaApply);
+    }
 }
 
 builder.Build().Run();
