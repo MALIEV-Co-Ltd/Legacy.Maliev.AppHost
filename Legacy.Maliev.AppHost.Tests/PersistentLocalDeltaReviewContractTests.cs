@@ -8,6 +8,7 @@ public sealed class PersistentLocalDeltaReviewContractTests
     public void Contract_BindsPersistentTargetToExactMigratedInventory()
     {
         Assert.Equal("legacy-maliev-exact23-postgres-data", PersistentLocalDeltaReviewContract.PostgresVolumeName);
+        Assert.Equal("/var/lib/postgresql", PersistentLocalDeltaReviewContract.PostgresVolumeTarget);
         Assert.Equal(LegacySnapshotReviewContract.MigratedDatabases, PersistentLocalDeltaReviewContract.Databases);
         Assert.DoesNotContain("Hangfire", PersistentLocalDeltaReviewContract.Databases);
         Assert.DoesNotContain("Log", PersistentLocalDeltaReviewContract.Databases);
@@ -39,7 +40,10 @@ public sealed class PersistentLocalDeltaReviewContractTests
 
         Assert.Contains("LEGACY_LOCAL_DELTA", source, StringComparison.Ordinal);
         Assert.Contains("legacy-local-delta-apply", source, StringComparison.Ordinal);
-        Assert.Contains("WithDataVolume(PersistentLocalDeltaReviewContract.PostgresVolumeName)", source, StringComparison.Ordinal);
+        Assert.Contains("WithVolume(", source, StringComparison.Ordinal);
+        Assert.Contains("PersistentLocalDeltaReviewContract.PostgresVolumeName", source, StringComparison.Ordinal);
+        Assert.Contains("PersistentLocalDeltaReviewContract.PostgresVolumeTarget", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("WithDataVolume(PersistentLocalDeltaReviewContract.PostgresVolumeName)", source, StringComparison.Ordinal);
         Assert.Contains(".WaitForCompletion(localDeltaApply)", source, StringComparison.Ordinal);
         Assert.Contains("WithEnvironment(\"LEGACY_SKIP_MIGRATE\", \"true\")", source, StringComparison.Ordinal);
     }

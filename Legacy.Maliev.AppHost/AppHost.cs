@@ -205,7 +205,11 @@ var postgres = builder.AddPostgres("legacy-postgres-main", postgresUsername, pos
 
 if (localDeltaModeRequested)
 {
-    postgres.WithDataVolume(PersistentLocalDeltaReviewContract.PostgresVolumeName);
+    // Adopt the independently reconciled exact-23 Docker volume. Aspire's
+    // lifecycle-managed data volume creates a different physical volume.
+    postgres.WithVolume(
+        PersistentLocalDeltaReviewContract.PostgresVolumeName,
+        PersistentLocalDeltaReviewContract.PostgresVolumeTarget);
 }
 
 IResourceBuilder<ProjectResource>? localDeltaApply = null;
