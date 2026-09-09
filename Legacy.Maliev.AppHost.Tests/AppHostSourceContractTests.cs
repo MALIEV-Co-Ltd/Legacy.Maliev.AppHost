@@ -1040,7 +1040,7 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
-    public void LocalSnapshot_ServiceClaimFallback_IsScopedToForcedLiveServicesAndDisabledOtherwise()
+    public void ExactLocalData_ServiceClaimFallback_IsScopedToForcedLiveServicesAndDisabledOtherwise()
     {
         var appHost = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
@@ -1048,7 +1048,7 @@ public sealed class AppHostSourceContractTests
             "AppHost.cs"));
 
         Assert.Contains(
-            "var allowExactSnapshotServiceClaims = localSnapshotMode ? \"true\" : \"false\";",
+            "var allowExactSnapshotServiceClaims = localSnapshotMode || localPersistentDataMode ? \"true\" : \"false\";",
             appHost,
             StringComparison.Ordinal);
         Assert.Equal(

@@ -51,6 +51,45 @@ public sealed class PersistentLocalDeltaReviewContractTests
     }
 
     [Fact]
+    public void AppHost_CanReviewReconciledPersistentVolumeWithoutReplayingDeltaAuthorization()
+    {
+        string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string source = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost", "AppHost.cs"));
+
+        Assert.Contains("LEGACY_LOCAL_DELTA_REVIEW", source, StringComparison.Ordinal);
+        Assert.Contains(
+            "var localPersistentDataMode = localDeltaModeRequested || localDeltaReviewModeRequested;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains("if (localPersistentDataMode)", source, StringComparison.Ordinal);
+        Assert.Contains(
+            "if (localPersistentDataMode && !ReferenceEquals(snapshotRunner, authMigrations))",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "var allowExactSnapshotServiceClaims = localSnapshotMode || localPersistentDataMode ? \"true\" : \"false\";",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReviewLauncher_UsesProtectedPersistentCredentialWithoutDeltaExecution()
+    {
+        string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string launcher = File.ReadAllText(Path.Combine(root, "scripts", "start-local-delta-review-aspire.ps1"));
+
+        Assert.Contains("LEGACY_LOCAL_DELTA_REVIEW = 'true'", launcher, StringComparison.Ordinal);
+        Assert.Contains("Assert-OwnerOnlyFile -Path $PostgresCredentialFile", launcher, StringComparison.Ordinal);
+        Assert.Contains("Parameters__legacy-postgres-username", launcher, StringComparison.Ordinal);
+        Assert.Contains("Parameters__legacy-postgres-password", launcher, StringComparison.Ordinal);
+        Assert.Contains("$connection.ContainsKey('ConnectionString')", launcher, StringComparison.Ordinal);
+        Assert.Contains("$connection.set_ConnectionString", launcher, StringComparison.Ordinal);
+        Assert.DoesNotContain("LEGACY_LOCAL_DELTA_CONFIG", launcher, StringComparison.Ordinal);
+        Assert.DoesNotContain("authorize-delta", launcher, StringComparison.Ordinal);
+        Assert.DoesNotContain("SIGNING_KEY", launcher, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Runner_HardcodesLocalApplyAndNeverOffersProductionOrSigningCommands()
     {
         string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
