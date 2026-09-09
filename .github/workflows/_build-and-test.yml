@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.DataMigration
-          ref: 40b3e5d128c0959bb6cc57b597d429580baf42e2
+          ref: 77c8f3c62ee74bee40c08654fdf457d639ba423f
           path: Legacy.Maliev.DataMigration
           persist-credentials: false
       - name: Check out Country service
