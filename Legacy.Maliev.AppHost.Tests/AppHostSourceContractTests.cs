@@ -265,11 +265,11 @@ public sealed class AppHostSourceContractTests
             "Legacy.Maliev.AppHost.MigrationRunner.csproj"));
 
         Assert.Contains(
-            "<PackageReference Include=\"Microsoft.EntityFrameworkCore\" Version=\"10.0.11\" />",
+            "<PackageReference Include=\"Microsoft.EntityFrameworkCore\" Version=\"10.0.12\" />",
             project,
             StringComparison.Ordinal);
         Assert.Contains(
-            "<PackageReference Include=\"Microsoft.EntityFrameworkCore.Relational\" Version=\"10.0.11\" />",
+            "<PackageReference Include=\"Microsoft.EntityFrameworkCore.Relational\" Version=\"10.0.12\" />",
             project,
             StringComparison.Ordinal);
         Assert.Contains(
