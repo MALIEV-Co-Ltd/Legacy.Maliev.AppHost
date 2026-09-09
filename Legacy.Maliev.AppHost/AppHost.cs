@@ -13,6 +13,7 @@ var recaptchaProjectIdFromProcess = Environment.GetEnvironmentVariable("MALIEV_R
 var gkeValidationModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_GKE_VALIDATION"), "true", StringComparison.OrdinalIgnoreCase);
 var localSnapshotModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_SNAPSHOT"), "true", StringComparison.OrdinalIgnoreCase);
 var localDeltaModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_DELTA"), "true", StringComparison.OrdinalIgnoreCase);
+var localDeltaReviewModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_DELTA_REVIEW"), "true", StringComparison.OrdinalIgnoreCase);
 var localDeltaConfigRequested = Environment.GetEnvironmentVariable("LEGACY_LOCAL_DELTA_CONFIG")?.Trim();
 var localSnapshotDirectoryRequested = Environment.GetEnvironmentVariable("LEGACY_LOCAL_SNAPSHOT_DIR")?.Trim();
 var localSnapshotKeyFileRequested = Environment.GetEnvironmentVariable("LEGACY_MIGRATION_SNAPSHOT_ENCRYPTION_KEY_FILE")?.Trim();
@@ -20,10 +21,11 @@ var localSnapshotIdRequested = Environment.GetEnvironmentVariable("LEGACY_LOCAL_
 var localFixturesRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_FIXTURES"), "true", StringComparison.OrdinalIgnoreCase);
 if ((gkeValidationModeRequested ? 1 : 0) +
     (localSnapshotModeRequested ? 1 : 0) +
-    (localDeltaModeRequested ? 1 : 0) > 1)
+    (localDeltaModeRequested ? 1 : 0) +
+    (localDeltaReviewModeRequested ? 1 : 0) > 1)
 {
     throw new InvalidOperationException(
-        "LEGACY_GKE_VALIDATION, LEGACY_LOCAL_SNAPSHOT, and LEGACY_LOCAL_DELTA are mutually exclusive.");
+        "LEGACY_GKE_VALIDATION, LEGACY_LOCAL_SNAPSHOT, LEGACY_LOCAL_DELTA, and LEGACY_LOCAL_DELTA_REVIEW are mutually exclusive.");
 }
 
 if (localSnapshotModeRequested && string.IsNullOrWhiteSpace(localSnapshotDirectoryRequested))
@@ -77,7 +79,8 @@ var gkeValidationMode = gkeValidationModeRequested;
 var gkeSecrets = gkeValidationMode ? LoadGkeValidationSecrets() : null;
 var localSnapshotMode = localSnapshotModeRequested;
 var localFixtures = localSnapshotMode && localFixturesRequested;
-var allowExactSnapshotServiceClaims = localSnapshotMode ? "true" : "false";
+var localPersistentDataMode = localDeltaModeRequested || localDeltaReviewModeRequested;
+var allowExactSnapshotServiceClaims = localSnapshotMode || localPersistentDataMode ? "true" : "false";
 if (gkeValidationMode)
 {
     // Auto-starts with the app host; no other resource WaitFor()s it so the local
@@ -203,7 +206,7 @@ var postgres = builder.AddPostgres("legacy-postgres-main", postgresUsername, pos
     .WithEnvironment("PGGSSENCMODE", "disable")
     .WithContainerRuntimeArgs("--cpus", "0.75", "--memory", "1024m");
 
-if (localDeltaModeRequested)
+if (localPersistentDataMode)
 {
     // Adopt the independently reconciled exact-23 Docker volume. Aspire's
     // lifecycle-managed data volume creates a different physical volume.
@@ -1100,12 +1103,15 @@ foreach (IResourceBuilder<ProjectResource> snapshotRunner in new[]
     // Auth is runtime-only state and is deliberately outside the exact-23 production-data
     // inventory. It still needs its own PostgreSQL schema when the persistent data volume is
     // adopted; only the source-derived database migrations must remain disabled here.
-    if (localDeltaApply is not null && !ReferenceEquals(snapshotRunner, authMigrations))
+    if (localPersistentDataMode && !ReferenceEquals(snapshotRunner, authMigrations))
     {
         snapshotRunner
             .WithEnvironment("LEGACY_SKIP_MIGRATE", "true")
-            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", "false")
-            .WaitForCompletion(localDeltaApply);
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", "false");
+        if (localDeltaApply is not null)
+        {
+            snapshotRunner.WaitForCompletion(localDeltaApply);
+        }
     }
 }
 
