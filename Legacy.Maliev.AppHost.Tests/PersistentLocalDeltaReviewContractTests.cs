@@ -111,7 +111,7 @@ public sealed class PersistentLocalDeltaReviewContractTests
         string workflow = File.ReadAllText(Path.Combine(root, ".github", "workflows", "_build-and-test.yml"));
 
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.DataMigration", workflow, StringComparison.Ordinal);
-        Assert.Contains("ref: 5d7414e0f7a3c838bf470818b681559ed89cac0a", workflow, StringComparison.Ordinal);
+        Assert.Contains("ref: 40b3e5d128c0959bb6cc57b597d429580baf42e2", workflow, StringComparison.Ordinal);
         Assert.Contains("path: Legacy.Maliev.DataMigration", workflow, StringComparison.Ordinal);
     }
 }
