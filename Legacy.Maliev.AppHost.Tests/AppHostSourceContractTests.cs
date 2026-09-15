@@ -257,7 +257,7 @@ public sealed class AppHostSourceContractTests
     }
 
     [Fact]
-    public void MigrationRunner_PinsTheHighestLegacyEfCorePatchForMultiContextBuilds()
+    public void MigrationRunner_PinsValidatedProviderVersionsForMultiContextBuilds()
     {
         var project = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
@@ -277,7 +277,7 @@ public sealed class AppHostSourceContractTests
             project,
             StringComparison.Ordinal);
         Assert.Contains(
-            "<PackageReference Include=\"StackExchange.Redis\" Version=\"3.1.31\" />",
+            "<PackageReference Include=\"StackExchange.Redis\" Version=\"3.2.1\" />",
             project,
             StringComparison.Ordinal);
         Assert.Contains(
