@@ -277,7 +277,7 @@ public sealed class AppHostSourceContractTests
             project,
             StringComparison.Ordinal);
         Assert.Contains(
-            "<PackageReference Include=\"StackExchange.Redis\" Version=\"3.2.1\" />",
+            "<PackageReference Include=\"StackExchange.Redis\" Version=\"3.3.0\" />",
             project,
             StringComparison.Ordinal);
         Assert.Contains(
