@@ -62,7 +62,7 @@ public sealed partial class WorkflowContractTests
         Assert.Contains("ref: 7d4d0061cdb595c86bfa67074fec7c61b9f3812f", source, StringComparison.Ordinal);
         Assert.Contains("path: Legacy.Maliev.QuotationService", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.ServiceDefaults", source, StringComparison.Ordinal);
-        Assert.Contains("ref: 9c4ac9d44a08bcd0aa2088348790ab863814669c", source, StringComparison.Ordinal);
+        Assert.Contains("ref: d22f0e6f95254b10cf4fe891c8dce5df7c419f3f", source, StringComparison.Ordinal);
         Assert.Contains("path: Legacy.Maliev.ServiceDefaults", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.CompatibilityContracts", source, StringComparison.Ordinal);
         Assert.Contains("ref: 13eefdb44cad42b46216bb0378af8c76e3672c2c", source, StringComparison.Ordinal);
@@ -99,6 +99,19 @@ public sealed partial class WorkflowContractTests
         Assert.DoesNotMatch(DuplicatedDotnetValidationRegex(), source);
         Assert.DoesNotContain("GITHUB_ACTIONS=false dotnet", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotMatch(UnpinnedActionRegex(), source);
+    }
+
+    [Fact]
+    public void Source5ac_RemovedNativeLoggingFromTheAppHostBuildGraph()
+    {
+        var root = FindRepositoryRoot();
+        var solution = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost.slnx"));
+        var workflow = File.ReadAllText(Path.Combine(root, ".github", "workflows", "_build-and-test.yml"));
+
+        Assert.DoesNotContain("NativeLogging", solution, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("NativeLogging", workflow, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ref: d22f0e6f95254b10cf4fe891c8dce5df7c419f3f", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("ref: 9c4ac9d44a08bcd0aa2088348790ab863814669c", workflow, StringComparison.Ordinal);
     }
 
     [Fact]
