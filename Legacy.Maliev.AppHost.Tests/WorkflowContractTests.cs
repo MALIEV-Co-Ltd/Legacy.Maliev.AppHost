@@ -102,6 +102,18 @@ public sealed partial class WorkflowContractTests
     }
 
     [Fact]
+    public void Source5ac_RemovedNativeLoggingFromTheAppHostBuildGraph()
+    {
+        var root = FindRepositoryRoot();
+        var solution = File.ReadAllText(Path.Combine(root, "Legacy.Maliev.AppHost.slnx"));
+        var workflow = File.ReadAllText(Path.Combine(root, ".github", "workflows", "_build-and-test.yml"));
+
+        Assert.DoesNotContain("NativeLogging", solution, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("NativeLogging", workflow, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.ServiceDefaults", workflow, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Dependabot_MonitorsNuGetAndActions()
     {
         var dependabotPath = Path.Combine(FindRepositoryRoot(), ".github", "dependabot.yml");
