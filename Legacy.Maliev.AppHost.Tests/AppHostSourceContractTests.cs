@@ -705,6 +705,7 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("Services__Employee", source, StringComparison.Ordinal);
         Assert.Contains("Services__Procurement", source, StringComparison.Ordinal);
         Assert.Contains("Services__File", source, StringComparison.Ordinal);
+        Assert.Contains("intranetBff.WithEnvironment(\"EmployeeConfirmation__PublicOrigin\", intranetBff.GetEndpoint(\"https\"))", source, StringComparison.Ordinal);
         // The Razor Pages compatibility host's own "/intranet/*" health checks are dormant
         // locally; the Bff (the sole live host) answers on "/intranet-bff/*" instead.
         Assert.Contains("/intranet-bff/liveness", source, StringComparison.Ordinal);
