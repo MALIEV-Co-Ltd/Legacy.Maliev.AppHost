@@ -1080,6 +1080,11 @@ var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legac
     .WaitFor(order)
     .WaitFor(employee)
     .WaitFor(quotation);
+
+// Confirmation links must return to the browser-facing HTTPS endpoint, not a
+// service-discovery URL or an untrusted request Host header. Resolve the local
+// Aspire port from this resource's own endpoint after it has been declared.
+intranetBff.WithEnvironment("EmployeeConfirmation__PublicOrigin", intranetBff.GetEndpoint("https"));
 // Customer/Procurement/Document/File/Notification/Accounting are intentionally not
 // WaitFor'd: login only needs Auth. Hard-waiting the Bff on every downstream page's
 // service would reintroduce "login doesn't work locally" whenever any one of those six
