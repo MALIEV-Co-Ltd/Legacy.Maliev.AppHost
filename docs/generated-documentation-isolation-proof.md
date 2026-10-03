@@ -72,3 +72,45 @@ service suites and database/container tests are not applicable to these standalo
 metadata scripts; no .NET source/project was changed and no shared dependency was
 built. This evidence can support the parent's reviewed source classification; the
 script deliberately does not edit source registers, issues, or approval state.
+
+## Superseding owner retirement overlay (2026-10-03)
+
+The historical 88-project manifest and its 18 repository pins remain unchanged.
+`contracts/source-03dc9a1-retirement-overlay.json` records the later explicit owner
+approvals for SwaggerAuthorized and the three Prediction projects, without
+rewriting the historical three-retired-project result. Modern OpenAPI/Scalar,
+other Country behavior, and all other 84 projects are outside this overlay.
+
+Root observed the no-op scaffold's two real-manifest regressions fail for the
+intended behavior: historical/effective counts were 3/3 instead of 3/4, and
+Swagger remained architecture-equivalent. Root also observed all original 27
+standalone cases pass. This is RED evidence, not completed validation.
+
+The optional `-RetirementOverlayPath` now requires the working manifest's actual
+Git blob to equal `2f0a015e44382f9485e0285d5db7d640f921334e`. Read-only
+`git hash-object --path` applies repository normalization; the verifier then reads
+that immutable committed blob for parsing, rather than rereading a mutable file.
+The overlay's own declared identity cannot substitute for this observation.
+Only four exact, unique projects with exact historical ownership/dispositions
+and approved scope-specific reasons/URLs may be projected. No input is mutated.
+Unknown fields, missing projects, changed history, wrong authority and changed
+historical files are rejected, including an actual CLI file-identity regression.
+
+Existing invocations without the overlay keep their historical report schema and
+retired count of 3. Overlay invocations additionally report historical count 3,
+effective count 4, immutable identity, and four bounded approval records; the
+other 84 projects and all 18 repository pins remain unchanged. This supersedes
+classification only, not runtime, evaluated build, deployment or data acceptance.
+The required build-and-test workflow adds the standalone suite without changing
+any dependency pin, .NET validation, snapshot test, image or manifest check.
+Root executed the standalone suite: 27 historical and 27 overlay cases passed,
+including the actual CLI historical-file rejection. The intentional child failure
+is captured and asserted without leaking its native exit status into CI.
+Both committed metadata audits passed for all 88 source projects and 18 pinned
+repositories: the legacy report retains three retirements; the overlay adds the
+effective count of four. PowerShell AST parsing, workflow actionlint, owned-file
+redacted secret scans and `git diff --check` passed. The historical manifest has
+no diff. .NET build, service/runtime suites and database operations are not
+applicable to this metadata-only slice; no C# or project/runtime input changed.
+Required PR and post-main CI remain pending; these local checks are not runtime
+migration acceptance or a claim that the overall migration is complete.

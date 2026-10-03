@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "03dc9a1271c16e6535934445e9dd6e3f30e8fffe",
+  "historicalManifestBlob": "2f0a015e44382f9485e0285d5db7d640f921334e",
+  "projects": [
+    {
+      "sourceProject": "Maliev.Middleware.SwaggerAuthorized/Maliev.Middleware.SwaggerAuthorized.csproj",
+      "previousDisposition": "architecture-equivalent",
+      "previousOwners": ["Legacy.Maliev.ServiceDefaults"],
+      "disposition": "approved-retirement",
+      "owners": [],
+      "reason": "The owner explicitly deprecated Swagger authorization and its dedicated test; other Country and modern OpenAPI behavior remain owned.",
+      "evidenceUrl": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.ServiceDefaults/issues/64#issuecomment-5955804225"
+    },
+    {
+      "sourceProject": "Maliev.PredictionService.Api/Maliev.PredictionService.Api.csproj",
+      "previousDisposition": "approved-retirement",
+      "previousOwners": [],
+      "disposition": "approved-retirement",
+      "owners": [],
+      "reason": "The owner explicitly deprecated PredictionService runtime, tests and tools; retired, not migrated.",
+      "evidenceUrl": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Workflows/issues/204#issuecomment-5955802792"
+    },
+    {
+      "sourceProject": "Maliev.PredictionService.ConsoleTrainer/Maliev.PredictionService.ConsoleTrainer.csproj",
+      "previousDisposition": "approved-retirement",
+      "previousOwners": [],
+      "disposition": "approved-retirement",
+      "owners": [],
+      "reason": "The owner explicitly deprecated PredictionService runtime, tests and tools; retired, not migrated.",
+      "evidenceUrl": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Workflows/issues/204#issuecomment-5955802792"
+    },
+    {
+      "sourceProject": "Maliev.PredictionService.Data/Maliev.PredictionService.Data.csproj",
+      "previousDisposition": "approved-retirement",
+      "previousOwners": [],
+      "disposition": "approved-retirement",
+      "owners": [],
+      "reason": "The owner explicitly deprecated PredictionService runtime, tests and tools; retired, not migrated.",
+      "evidenceUrl": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Workflows/issues/204#issuecomment-5955802792"
+    }
+  ]
+}

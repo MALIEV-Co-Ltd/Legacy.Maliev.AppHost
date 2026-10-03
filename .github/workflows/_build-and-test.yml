@@ -168,6 +168,10 @@ jobs:
           ref: 4cc64bd9b419b3a73307af6265d2e59a37eb0e20
           path: Legacy.Maliev.AccountingService
           persist-credentials: false
+      - name: Verify documentation metadata and approved retirement overlay contracts
+        shell: pwsh
+        working-directory: Legacy.Maliev.AppHost
+        run: ./scripts/tests/test-generated-documentation-isolation.ps1
       - name: Validate .NET solution
         uses: MALIEV-Co-Ltd/Legacy.Maliev.Workflows/actions/dotnet-validate@d7efac266bc66273bc45eab583618871292ecbd6
         with:
