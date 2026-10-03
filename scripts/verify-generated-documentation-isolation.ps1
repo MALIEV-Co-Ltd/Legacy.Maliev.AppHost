@@ -1,5 +1,82 @@
 [CmdletBinding()]
-param([string]$SourceRepository, [string]$WorkspaceRoot, [string]$ManifestPath)
+param([string]$SourceRepository, [string]$WorkspaceRoot, [string]$ManifestPath, [string]$RetirementOverlayPath)
+
+function Resolve-DocumentationRetirementOverlay($Manifest, $Overlay, [string]$HistoricalManifestBlob) {
+    $historicalCount = @($Manifest.projects | Where-Object { $_.disposition -ceq 'approved-retirement' }).Count
+    if ($null -eq $Overlay) {
+        return @{ historicalRetiredProjects = $historicalCount; effectiveRetiredProjects = $historicalCount; projects = $Manifest.projects }
+    }
+    $expectedBlob = '2f0a015e44382f9485e0285d5db7d640f921334e'
+    $sourceCommit = '03dc9a1271c16e6535934445e9dd6e3f30e8fffe'
+    if ($HistoricalManifestBlob -cne $expectedBlob) { throw 'Historical manifest file identity mismatch.' }
+    if ($Overlay -isnot [Collections.IDictionary] -or
+        (@($Overlay.Keys | Sort-Object -CaseSensitive) -join '|') -cne 'historicalManifestBlob|projects|schemaVersion|sourceCommit' -or
+        ($Overlay.schemaVersion -isnot [long] -and $Overlay.schemaVersion -isnot [int]) -or
+        $Overlay.schemaVersion -ne 1 -or $Overlay.sourceCommit -cne $sourceCommit -or
+        $Overlay.historicalManifestBlob -cne $expectedBlob -or $Manifest.sourceCommit -cne $sourceCommit) {
+        throw 'Invalid retirement overlay identity or fields.'
+    }
+    if (@($Manifest.projects).Count -ne 88 -or @($Manifest.repositories).Count -ne 18 -or $historicalCount -ne 3) {
+        throw 'Historical manifest inventory mismatch.'
+    }
+    $swagger = 'Maliev.Middleware.SwaggerAuthorized/Maliev.Middleware.SwaggerAuthorized.csproj'
+    $expected = @{}
+    $expected[$swagger] = @{
+        previousDisposition = 'architecture-equivalent'; previousOwners = @('Legacy.Maliev.ServiceDefaults')
+        reason = 'The owner explicitly deprecated Swagger authorization and its dedicated test; other Country and modern OpenAPI behavior remain owned.'
+        evidenceUrl = 'https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.ServiceDefaults/issues/64#issuecomment-5955804225'
+    }
+    foreach ($name in @('Api', 'ConsoleTrainer', 'Data')) {
+        $expected["Maliev.PredictionService.$name/Maliev.PredictionService.$name.csproj"] = @{
+            previousDisposition = 'approved-retirement'; previousOwners = @()
+            reason = 'The owner explicitly deprecated PredictionService runtime, tests and tools; retired, not migrated.'
+            evidenceUrl = 'https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Workflows/issues/204#issuecomment-5955802792'
+        }
+    }
+    if ($Overlay.projects -isnot [array] -or $Overlay.projects.Count -ne 4) { throw 'Exactly four overlay projects are required.' }
+    $approved = [Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+    foreach ($entry in $Overlay.projects) {
+        if ($entry -isnot [Collections.IDictionary] -or
+            (@($entry.Keys | Sort-Object -CaseSensitive) -join '|') -cne 'disposition|evidenceUrl|owners|previousDisposition|previousOwners|reason|sourceProject') {
+            throw 'Invalid retirement project fields.'
+        }
+        $path = [string]$entry.sourceProject
+        if (-not @($expected.Keys | Where-Object { $_ -ceq $path }).Count -or $approved.ContainsKey($path)) {
+            throw 'Unknown or duplicate retirement project.'
+        }
+        $authority = $expected[$path]
+        if ($entry.owners -isnot [array] -or $entry.owners.Count -ne 0 -or
+            $entry.previousOwners -isnot [array] -or
+            ($entry.previousOwners | ConvertTo-Json -Compress) -cne ($authority.previousOwners | ConvertTo-Json -Compress) -or
+            $entry.previousDisposition -cne $authority.previousDisposition -or
+            $entry.disposition -cne 'approved-retirement' -or $entry.reason -cne $authority.reason -or
+            $entry.evidenceUrl -cne $authority.evidenceUrl) { throw 'Retirement authority or historical expectation mismatch.' }
+        $historical = @($Manifest.projects | Where-Object { $_.sourceProject -ceq $path })
+        if ($historical.Count -ne 1 -or $historical[0].disposition -cne $authority.previousDisposition -or
+            ($historical[0].owners | ConvertTo-Json -Compress) -cne ($authority.previousOwners | ConvertTo-Json -Compress)) {
+            throw 'Retirement does not match its historical project.'
+        }
+        $approved.Add($path, $entry)
+    }
+    $projects = foreach ($project in $Manifest.projects) {
+        # Deep-copy before projection: neither success nor rejection mutates caller inputs.
+        $copy = $project | ConvertTo-Json -Depth 20 | ConvertFrom-Json -AsHashtable
+        if ($approved.ContainsKey([string]$project.sourceProject)) {
+            $copy.disposition = 'approved-retirement'
+            $copy.owners = @()
+            $copy.rationale = $approved[[string]$project.sourceProject].reason
+        }
+        $copy
+    }
+    return @{
+        historicalRetiredProjects = $historicalCount
+        effectiveRetiredProjects = @($projects | Where-Object { $_.disposition -ceq 'approved-retirement' }).Count
+        projects = @($projects)
+        sourceCommit = $sourceCommit
+        historicalManifestBlob = $HistoricalManifestBlob
+        approvals = @($Overlay.projects | ForEach-Object { @{ sourceProject = $_.sourceProject; reason = $_.reason; evidenceUrl = $_.evidenceUrl } })
+    }
+}
 
 function Test-DocumentationOwnerManifest($Manifest, [string[]]$SourceProjects) {
     $known = @('AccountingService', 'AuthService', 'CareerService', 'CatalogService', 'ContactService', 'CountryService', 'CustomerService', 'DocumentService', 'EmployeeService', 'FileService', 'Intranet', 'NotificationService', 'OrderService', 'ProcurementService', 'QuotationService', 'ServiceDefaults', 'Web', 'CompatibilityContracts') | ForEach-Object { "Legacy.Maliev.$_" }
@@ -110,7 +187,19 @@ function Test-DocumentationMetadata {
 if ($MyInvocation.InvocationName -ne '.') {
     $ErrorActionPreference = 'Stop'
     if (-not $SourceRepository -or -not $WorkspaceRoot -or -not $ManifestPath) { throw 'SourceRepository, WorkspaceRoot, and ManifestPath are required.' }
-    $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json -AsHashtable
+    $effective = $null
+    if ($RetirementOverlayPath) {
+        $overlay = Get-Content -LiteralPath $RetirementOverlayPath -Raw | ConvertFrom-Json -AsHashtable
+        $manifestFile = (Resolve-Path -LiteralPath $ManifestPath).Path
+        $repository = Join-Path $PSScriptRoot '..'
+        $observedBlob = Invoke-ReadOnlyGit $repository @('hash-object', '--path=contracts/source-03dc9a1-documentation-owners.json', '--', $manifestFile)
+        if ([string]$observedBlob -cne '2f0a015e44382f9485e0285d5db7d640f921334e') { throw 'Historical manifest file identity mismatch.' }
+        # Parse the observed immutable object, not a second mutable working-file read.
+        $manifest = ((Invoke-ReadOnlyGit $repository @('show', [string]$observedBlob)) -join "`n") | ConvertFrom-Json -AsHashtable
+        $effective = Resolve-DocumentationRetirementOverlay $manifest $overlay ([string]$observedBlob)
+    } else {
+        $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json -AsHashtable
+    }
     $source = @(Invoke-ReadOnlyGit $SourceRepository @('diff-tree', '--no-commit-id', '--name-only', '-r', '03dc9a1271c16e6535934445e9dd6e3f30e8fffe', '--', '*.csproj'))
     if ($source.Count -ne 88) { throw 'Expected exactly 88 committed source project changes.' }
     Test-DocumentationOwnerManifest $manifest $source
@@ -121,5 +210,13 @@ if ($MyInvocation.InvocationName -ne '.') {
         if ($issues.Count) { throw "$($repo.name): $($issues -join '; ')" }
         $reports += @{ repository = $repo.name; commit = $repo.commit; metadataFiles = $metadata.Files.Count; projects = @($metadata.Files.Keys | Where-Object { $_ -like '*.csproj' }).Count }
     }
-    @{ status = 'committed-metadata-pass'; sourceCommit = $manifest.sourceCommit; sourceProjects = $source.Count; retiredProjects = @($manifest.projects | Where-Object { $_.disposition -eq 'approved-retirement' }).Count; repositories = $reports; limitation = 'Structural committed metadata only; not evaluated MSBuild, generated outputs, external imports, or runtime evidence.' } | ConvertTo-Json -Depth 6
+    $report = @{ status = 'committed-metadata-pass'; sourceCommit = $manifest.sourceCommit; sourceProjects = $source.Count; retiredProjects = @($manifest.projects | Where-Object { $_.disposition -eq 'approved-retirement' }).Count; repositories = $reports; limitation = 'Structural committed metadata only; not evaluated MSBuild, generated outputs, external imports, or runtime evidence.' }
+    if ($RetirementOverlayPath) {
+        $report.historicalRetiredProjects = $effective.historicalRetiredProjects
+        $report.effectiveRetiredProjects = $effective.effectiveRetiredProjects
+        $report.retirementOverlaySourceCommit = $effective.sourceCommit
+        $report.historicalManifestBlob = $effective.historicalManifestBlob
+        $report.retirementApprovals = $effective.approvals
+    }
+    $report | ConvertTo-Json -Depth 6
 }
