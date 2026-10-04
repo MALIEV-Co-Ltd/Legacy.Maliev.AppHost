@@ -19,45 +19,10 @@ var localSnapshotDirectoryRequested = Environment.GetEnvironmentVariable("LEGACY
 var localSnapshotKeyFileRequested = Environment.GetEnvironmentVariable("LEGACY_MIGRATION_SNAPSHOT_ENCRYPTION_KEY_FILE")?.Trim();
 var localSnapshotIdRequested = Environment.GetEnvironmentVariable("LEGACY_LOCAL_SNAPSHOT_ID")?.Trim();
 var localFixturesRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_FIXTURES"), "true", StringComparison.OrdinalIgnoreCase);
-if ((gkeValidationModeRequested ? 1 : 0) +
-    (localSnapshotModeRequested ? 1 : 0) +
-    (localDeltaModeRequested ? 1 : 0) +
-    (localDeltaReviewModeRequested ? 1 : 0) > 1)
-{
-    throw new InvalidOperationException(
-        "LEGACY_GKE_VALIDATION, LEGACY_LOCAL_SNAPSHOT, LEGACY_LOCAL_DELTA, and LEGACY_LOCAL_DELTA_REVIEW are mutually exclusive.");
-}
-
-if (localSnapshotModeRequested && string.IsNullOrWhiteSpace(localSnapshotDirectoryRequested))
-{
-    throw new InvalidOperationException("LEGACY_LOCAL_SNAPSHOT_DIR is required when LEGACY_LOCAL_SNAPSHOT=true.");
-}
-
-if (localSnapshotModeRequested && (string.IsNullOrWhiteSpace(localSnapshotKeyFileRequested) ||
-    !File.Exists(Path.GetFullPath(localSnapshotKeyFileRequested))))
-{
-    throw new InvalidOperationException(
-        "LEGACY_MIGRATION_SNAPSHOT_ENCRYPTION_KEY_FILE must reference an existing key file when LEGACY_LOCAL_SNAPSHOT=true.");
-}
-
-if (localSnapshotModeRequested && string.IsNullOrWhiteSpace(localSnapshotIdRequested))
-{
-    throw new InvalidOperationException("LEGACY_LOCAL_SNAPSHOT_ID is required when LEGACY_LOCAL_SNAPSHOT=true.");
-}
-
-if (localFixturesRequested && !localSnapshotModeRequested)
-{
-    throw new InvalidOperationException("LEGACY_LOCAL_FIXTURES requires LEGACY_LOCAL_SNAPSHOT=true.");
-}
-
-if (localDeltaModeRequested)
-{
-    if (string.IsNullOrWhiteSpace(localDeltaConfigRequested))
-    {
-        throw new InvalidOperationException("LEGACY_LOCAL_DELTA_CONFIG is required when LEGACY_LOCAL_DELTA=true.");
-    }
-}
-
+AppHostStartupGuard.Validate(
+    gkeValidationModeRequested, localSnapshotModeRequested, localDeltaModeRequested,
+    localDeltaReviewModeRequested, localFixturesRequested, localSnapshotDirectoryRequested,
+    localSnapshotKeyFileRequested, localSnapshotIdRequested, localDeltaConfigRequested);
 LocalEnvironmentPolicy.SanitizeCurrentProcess();
 Console.WriteLine(
     "Legacy Web source identity: repository={0}; branch={1}; commit={2}; project={3}; port={4}",
@@ -1149,5 +1114,59 @@ static class LocalEndpointExtensions
             endpoint.Port = null;
             endpoint.TargetPort = null;
         });
+    }
+}
+
+internal static class AppHostStartupGuard
+{
+    internal static void Validate(
+        bool gkeValidationModeRequested,
+        bool localSnapshotModeRequested,
+        bool localDeltaModeRequested,
+        bool localDeltaReviewModeRequested,
+        bool localFixturesRequested,
+        string? localSnapshotDirectoryRequested,
+        string? localSnapshotKeyFileRequested,
+        string? localSnapshotIdRequested,
+        string? localDeltaConfigRequested)
+    {
+        if ((gkeValidationModeRequested ? 1 : 0) +
+            (localSnapshotModeRequested ? 1 : 0) +
+            (localDeltaModeRequested ? 1 : 0) +
+            (localDeltaReviewModeRequested ? 1 : 0) > 1)
+        {
+            throw new InvalidOperationException(
+                "LEGACY_GKE_VALIDATION, LEGACY_LOCAL_SNAPSHOT, LEGACY_LOCAL_DELTA, and LEGACY_LOCAL_DELTA_REVIEW are mutually exclusive.");
+        }
+
+        if (localSnapshotModeRequested && string.IsNullOrWhiteSpace(localSnapshotDirectoryRequested))
+        {
+            throw new InvalidOperationException("LEGACY_LOCAL_SNAPSHOT_DIR is required when LEGACY_LOCAL_SNAPSHOT=true.");
+        }
+
+        if (localSnapshotModeRequested && (string.IsNullOrWhiteSpace(localSnapshotKeyFileRequested) ||
+            !File.Exists(Path.GetFullPath(localSnapshotKeyFileRequested))))
+        {
+            throw new InvalidOperationException(
+                "LEGACY_MIGRATION_SNAPSHOT_ENCRYPTION_KEY_FILE must reference an existing key file when LEGACY_LOCAL_SNAPSHOT=true.");
+        }
+
+        if (localSnapshotModeRequested && string.IsNullOrWhiteSpace(localSnapshotIdRequested))
+        {
+            throw new InvalidOperationException("LEGACY_LOCAL_SNAPSHOT_ID is required when LEGACY_LOCAL_SNAPSHOT=true.");
+        }
+
+        if (localFixturesRequested && !localSnapshotModeRequested)
+        {
+            throw new InvalidOperationException("LEGACY_LOCAL_FIXTURES requires LEGACY_LOCAL_SNAPSHOT=true.");
+        }
+
+        if (localDeltaModeRequested)
+        {
+            if (string.IsNullOrWhiteSpace(localDeltaConfigRequested))
+            {
+                throw new InvalidOperationException("LEGACY_LOCAL_DELTA_CONFIG is required when LEGACY_LOCAL_DELTA=true.");
+            }
+        }
     }
 }

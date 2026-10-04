@@ -18,12 +18,10 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Legacy.Maliev.AppHost.Topology\Legacy.Maliev.AppHost.Topology.csproj" />
+    <ProjectReference Include="..\Legacy.Maliev.AppHost.MigrationRunner\Legacy.Maliev.AppHost.MigrationRunner.csproj" />
+    <ProjectReference Include="..\Legacy.Maliev.AppHost\Legacy.Maliev.AppHost.csproj" />
+    <ProjectReference Include="..\Legacy.Maliev.AppHost.LocalDeltaRunner\Legacy.Maliev.AppHost.LocalDeltaRunner.csproj" />
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.Intranet\Legacy.Maliev.Intranet.Server\Legacy.Maliev.Intranet.Server.csproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <Compile Include="..\Legacy.Maliev.AppHost.MigrationRunner\SchemaBaselineGate.cs" Link="SchemaBaselineGate.cs" />
-    <Compile Include="..\Legacy.Maliev.AppHost.MigrationRunner\PgRestoreProcessTermination.cs" Link="PgRestoreProcessTermination.cs" />
-    <Compile Include="..\Legacy.Maliev.AppHost.MigrationRunner\PgRestoreRunner.cs" Link="PgRestoreRunner.cs" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

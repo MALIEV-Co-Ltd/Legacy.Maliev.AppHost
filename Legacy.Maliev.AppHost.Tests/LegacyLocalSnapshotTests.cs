@@ -303,13 +303,12 @@ public sealed class LegacyLocalSnapshotTests : IDisposable
     [PostgreSql18SnapshotConsumerIntegrationFact]
     public async Task ProducerCustomArchive_RestoresSchemaAndRowsThroughProductionStreamingConsumer()
     {
+        string? archivePath = Environment.GetEnvironmentVariable("LEGACY_SNAPSHOT_INTEGRATION_CUSTOM_ARCHIVE");
+        string? administrativeConnection = Environment.GetEnvironmentVariable("LEGACY_SNAPSHOT_INTEGRATION_RESTORE_CONNECTION");
+        bool useExternalFixture = PostgreSql18FixtureSelection.UsesExternalFixture(archivePath, administrativeConnection);
         string pgRestore = Environment.GetEnvironmentVariable("PG_RESTORE_PATH") ?? "pg_restore";
         AssertPostgreSql18Tool(pgRestore);
         byte[] key = RandomNumberGenerator.GetBytes(32);
-        string? archivePath = Environment.GetEnvironmentVariable("LEGACY_SNAPSHOT_INTEGRATION_CUSTOM_ARCHIVE");
-        string? administrativeConnection = Environment.GetEnvironmentVariable("LEGACY_SNAPSHOT_INTEGRATION_RESTORE_CONNECTION");
-        bool useExternalFixture = !string.IsNullOrWhiteSpace(archivePath) &&
-            !string.IsNullOrWhiteSpace(administrativeConnection);
         await using PostgreSqlContainer? fixture = useExternalFixture
             ? null
             : new PostgreSqlBuilder("postgres:18-alpine")

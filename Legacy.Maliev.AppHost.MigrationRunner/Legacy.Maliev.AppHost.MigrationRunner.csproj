@@ -5,6 +5,9 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Legacy.Maliev.AppHost.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <!--
       The migration runner loads every legacy DbContext in one process. Keep
       its EF Core runtime at the highest version used by the pinned public

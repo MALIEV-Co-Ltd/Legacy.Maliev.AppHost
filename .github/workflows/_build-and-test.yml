@@ -15,6 +15,10 @@ jobs:
     name: validate
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      VSTestCollect: XPlat Code Coverage
+      VSTestLogger: trx
+      VSTestResultsDirectory: ${{ github.workspace }}/runner-results
     services:
       postgres18:
         image: postgres:18@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
@@ -173,7 +177,7 @@ jobs:
         working-directory: Legacy.Maliev.AppHost
         run: ./scripts/tests/test-generated-documentation-isolation.ps1
       - name: Validate .NET solution
-        uses: MALIEV-Co-Ltd/Legacy.Maliev.Workflows/actions/dotnet-validate@d7efac266bc66273bc45eab583618871292ecbd6
+        uses: MALIEV-Co-Ltd/Legacy.Maliev.Workflows/actions/dotnet-validate@e3a6093324a24968876782153286f52db8b29fd8
         with:
           working-directory: Legacy.Maliev.AppHost
           solution: Legacy.Maliev.AppHost.slnx
@@ -241,3 +245,19 @@ jobs:
         run: >-
           ./scripts/verify-accounting-identity-manifest.ps1
           -ManifestPath "${{ runner.temp }}/legacy-apphost-manifest.json"
+
+      - name: Gate raw production assembly coverage
+        if: always()
+        shell: pwsh
+        working-directory: Legacy.Maliev.AppHost
+        run: |
+          $reports = @(Get-ChildItem -LiteralPath "$env:GITHUB_WORKSPACE/runner-results" -Filter coverage.cobertura.xml -Recurse)
+          if ($reports.Count -ne 1) { throw 'Expected exactly one complete coverage report' }
+          ./scripts/coverage/verify-production-coverage.ps1 -CoberturaPath $reports[0].FullName -OutputPath "$env:GITHUB_WORKSPACE/runner-results/raw-production-coverage.json"
+      - name: Preserve synthetic validation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: apphost-synthetic-validation
+          path: runner-results/
+          retention-days: 7
