@@ -12,6 +12,13 @@ public static class LegacyRendererSourceProvenance
 
     /// <summary>Checks a reviewed DLL's linked portable PDB against the current renderer source.</summary>
     public static void Validate(string assemblyPath, string pdbPath, string rendererSourcePath, string expectedAssemblySha256)
+        => ValidateSource(assemblyPath, pdbPath, rendererSourcePath, expectedAssemblySha256, "LegacyEdgeReviewPackage.cs");
+
+    /// <summary>Checks the reviewed diagnostic artifact's linked PDB against its current source.</summary>
+    public static void ValidateCertificateDiagnostics(string assemblyPath, string pdbPath, string diagnosticSourcePath, string expectedAssemblySha256)
+        => ValidateSource(assemblyPath, pdbPath, diagnosticSourcePath, expectedAssemblySha256, "LegacyCertificateReviewDiagnostics.cs");
+
+    private static void ValidateSource(string assemblyPath, string pdbPath, string sourcePath, string expectedAssemblySha256, string documentName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(expectedAssemblySha256);
         if (expectedAssemblySha256.Length != 64 || !expectedAssemblySha256.All(Uri.IsHexDigit))
@@ -39,7 +46,7 @@ public static class LegacyRendererSourceProvenance
             throw new InvalidDataException("Portable PDB does not belong to the reviewed DLL.");
         }
         var documents = reader.Documents.Select(handle => reader.GetDocument(handle))
-            .Where(document => Path.GetFileName(reader.GetString(document.Name).Replace('\\', '/')) == "LegacyEdgeReviewPackage.cs")
+            .Where(document => Path.GetFileName(reader.GetString(document.Name).Replace('\\', '/')) == documentName)
             .ToArray();
         if (documents.Length != 1 || documents[0].HashAlgorithm.IsNil || documents[0].Hash.IsNil
             || reader.GetGuid(documents[0].HashAlgorithm) != Sha256DocumentAlgorithm)
@@ -47,7 +54,7 @@ public static class LegacyRendererSourceProvenance
             throw new InvalidDataException("A unique SHA256 renderer source document is required.");
         }
         var compiledChecksum = reader.GetBlobBytes(documents[0].Hash);
-        using var currentSource = File.OpenRead(rendererSourcePath);
+        using var currentSource = File.OpenRead(sourcePath);
         if (!CryptographicOperations.FixedTimeEquals(compiledChecksum, SHA256.HashData(currentSource)))
         {
             throw new InvalidDataException("Renderer source differs from the reviewed compiled document.");
