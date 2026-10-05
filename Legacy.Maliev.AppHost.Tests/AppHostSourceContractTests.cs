@@ -304,8 +304,11 @@ public sealed class AppHostSourceContractTests
         Assert.Contains("ReferenceExpression CreatePooledDatabaseConnectionString", source, StringComparison.Ordinal);
         Assert.Contains("pgbouncer.GetEndpoint(\"tcp\").Property(EndpointProperty.Host)", source, StringComparison.Ordinal);
         Assert.Contains("pgbouncer.GetEndpoint(\"tcp\").Property(EndpointProperty.Port)", source, StringComparison.Ordinal);
-        Assert.Contains("Maximum Pool Size=10", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("Maximum Pool Size=20", source, StringComparison.Ordinal);
+        var poolerSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Legacy.Maliev.AppHost", "LegacyPoolerConnectionString.cs"));
+        Assert.Contains("LegacyPoolerConnectionString.ForLocal(", source, StringComparison.Ordinal);
+        Assert.Contains("LegacyPoolerConnectionString.ForGke(databaseName, gkeUsername, gkePassword)", source, StringComparison.Ordinal);
+        Assert.Contains("Maximum Pool Size=10", poolerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("Maximum Pool Size=20", poolerSource, StringComparison.Ordinal);
 
         var directMigrationConnectionCount = System.Text.RegularExpressions.Regex.Matches(
             source,

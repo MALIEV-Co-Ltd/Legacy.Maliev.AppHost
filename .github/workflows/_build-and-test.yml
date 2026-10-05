@@ -259,7 +259,9 @@ jobs:
         working-directory: Legacy.Maliev.AppHost
         run: |
           $reports = @(Get-ChildItem -LiteralPath "$env:GITHUB_WORKSPACE/runner-results" -Filter coverage.cobertura.xml -Recurse)
-          if ($reports.Count -ne 1) { throw 'Expected exactly one complete coverage report' }
+          if ($reports.Count -eq 0) { throw 'Expected exactly one complete coverage report' }
+          $reportHashes = @($reports | Get-FileHash -Algorithm SHA256 | Group-Object Hash)
+          if ($reportHashes.Count -ne 1) { throw 'Expected exactly one complete coverage report; distinct reports are forbidden' }
           ./scripts/coverage/verify-production-coverage.ps1 -CoberturaPath $reports[0].FullName -OutputPath "$env:GITHUB_WORKSPACE/runner-results/raw-production-coverage.json"
       - name: Preserve synthetic validation evidence
         if: always()
