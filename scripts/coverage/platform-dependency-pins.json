@@ -5,7 +5,7 @@
   },
   {
     "repository": "Legacy.Maliev.CountryService",
-    "commit": "9c53137022bbd4e48d03084a090357ea98215559"
+    "commit": "01113637c751c7bea1354517be7f8b56a1637bb9"
   },
   {
     "repository": "Legacy.Maliev.DocumentService",
@@ -13,7 +13,7 @@
   },
   {
     "repository": "Legacy.Maliev.AuthService",
-    "commit": "d3311024e863f97ad067b608c70dac23edb8f2cb"
+    "commit": "b27fbef06a3aa58c1f4fc0e75d7c70b32be76266"
   },
   {
     "repository": "Legacy.Maliev.CustomerService",
@@ -33,7 +33,7 @@
   },
   {
     "repository": "Legacy.Maliev.ServiceDefaults",
-    "commit": "9c4ac9d44a08bcd0aa2088348790ab863814669c"
+    "commit": "7edcd961024868513fd5f373cab3dcb261197f77"
   },
   {
     "repository": "Legacy.Maliev.CompatibilityContracts",

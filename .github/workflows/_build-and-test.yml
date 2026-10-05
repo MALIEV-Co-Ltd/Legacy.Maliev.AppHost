@@ -51,7 +51,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.CountryService
-          ref: 9c53137022bbd4e48d03084a090357ea98215559
+          ref: 01113637c751c7bea1354517be7f8b56a1637bb9
           path: Legacy.Maliev.CountryService
           persist-credentials: false
       - name: Check out Document service
@@ -65,7 +65,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.AuthService
-          ref: d3311024e863f97ad067b608c70dac23edb8f2cb
+          ref: b27fbef06a3aa58c1f4fc0e75d7c70b32be76266
           path: Legacy.Maliev.AuthService
           persist-credentials: false
       - name: Check out Customer service
@@ -100,7 +100,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.ServiceDefaults
-          ref: 9c4ac9d44a08bcd0aa2088348790ab863814669c
+          ref: 7edcd961024868513fd5f373cab3dcb261197f77
           path: Legacy.Maliev.ServiceDefaults
           persist-credentials: false
       - name: Check out compatibility contracts
@@ -302,7 +302,7 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         repository: MALIEV-Co-Ltd/Legacy.Maliev.CountryService
-        ref: 9c53137022bbd4e48d03084a090357ea98215559
+        ref: 01113637c751c7bea1354517be7f8b56a1637bb9
         path: Legacy.Maliev.CountryService
         persist-credentials: false
     - name: Check out Document service
@@ -316,7 +316,7 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         repository: MALIEV-Co-Ltd/Legacy.Maliev.AuthService
-        ref: d3311024e863f97ad067b608c70dac23edb8f2cb
+        ref: b27fbef06a3aa58c1f4fc0e75d7c70b32be76266
         path: Legacy.Maliev.AuthService
         persist-credentials: false
     - name: Check out Customer service
@@ -351,7 +351,7 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         repository: MALIEV-Co-Ltd/Legacy.Maliev.ServiceDefaults
-        ref: 9c4ac9d44a08bcd0aa2088348790ab863814669c
+        ref: 7edcd961024868513fd5f373cab3dcb261197f77
         path: Legacy.Maliev.ServiceDefaults
         persist-credentials: false
     - name: Check out compatibility contracts
