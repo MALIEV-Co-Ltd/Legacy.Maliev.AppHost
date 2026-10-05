@@ -1,12 +1,13 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string]$EvidencePath,
-    [Parameter(Mandatory)] [datetimeoffset]$AsOfUtc,
+    [Parameter(Mandatory)] [ValidatePattern('\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,7})?(?:Z|\+00:00)\z')] [string]$AsOfUtc,
     [Parameter(Mandatory)] [string]$OutputPath,
     [Parameter(Mandatory)] [ValidatePattern('\A[A-Fa-f0-9]{64}\z')] [string]$ReviewedAssemblySha256
 )
 
 $ErrorActionPreference = 'Stop'
+$reviewInstant = [datetimeoffset]::Parse($AsOfUtc, [Globalization.CultureInfo]::InvariantCulture)
 $assemblyPath = Join-Path $PSScriptRoot '../Legacy.Maliev.AppHost.Topology/bin/Release/net10.0/Legacy.Maliev.AppHost.Topology.dll'
 $pdbPath = [IO.Path]::ChangeExtension($assemblyPath, '.pdb')
 $diagnosticSourcePath = Join-Path $PSScriptRoot '../Legacy.Maliev.AppHost.Topology/LegacyCertificateReviewDiagnostics.cs'
@@ -31,7 +32,7 @@ try {
     if ($length -gt 32768) { throw 'Certificate evidence exceeds its bound.' }
     $evidence = [Text.UTF8Encoding]::new($false, $true).GetString($buffer, 0, $length)
 } finally { $inputStream.Dispose() }
-$report = [Legacy.Maliev.AppHost.Topology.LegacyCertificateReviewDiagnostics]::Diagnose($evidence, $AsOfUtc)
+$report = [Legacy.Maliev.AppHost.Topology.LegacyCertificateReviewDiagnostics]::Diagnose($evidence, $reviewInstant)
 $output = [IO.FileStream]::new([IO.Path]::GetFullPath($OutputPath), [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
 try {
     $bytes = [Text.UTF8Encoding]::new($false).GetBytes($report)

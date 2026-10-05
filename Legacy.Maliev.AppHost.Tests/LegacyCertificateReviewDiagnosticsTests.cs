@@ -159,14 +159,37 @@ public sealed class LegacyCertificateReviewDiagnosticsTests
         }
     }
 
-    private static async Task<int> RunReviewScript(string evidencePath, string outputPath)
+    [Theory]
+    [InlineData("2026-10-05T00:00:00")]
+    [InlineData("2026-10-05T07:00:00+07:00")]
+    public async Task ReviewScript_RejectsReviewInstantWithoutExplicitUtc(string reviewInstant)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "apphost-certificate-cli-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var evidencePath = Path.Combine(directory, "evidence.json");
+        var outputPath = Path.Combine(directory, "review.json");
+        try
+        {
+            await File.WriteAllTextAsync(evidencePath, """{"condition":"Unknown"}""");
+            Assert.NotEqual(0, await RunReviewScript(evidencePath, outputPath, reviewInstant));
+            Assert.False(File.Exists(outputPath));
+        }
+        finally
+        {
+            File.Delete(evidencePath);
+            File.Delete(outputPath);
+            Directory.Delete(directory);
+        }
+    }
+
+    private static async Task<int> RunReviewScript(string evidencePath, string outputPath, string? reviewInstant = null)
     {
         var assembly = typeof(LegacyCertificateReviewDiagnostics).Assembly.Location;
         var hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(assembly)));
         // This test-owned artifact correspondence is not an independently accepted build receipt.
         var start = new ProcessStartInfo("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         foreach (var argument in new[] { "-NoProfile", "-File", Path.Combine(RepositoryRoot(), "scripts", "review-certificate-status.ps1"),
-            "-EvidencePath", evidencePath, "-AsOfUtc", AsOf.ToString("O"), "-OutputPath", outputPath, "-ReviewedAssemblySha256", hash })
+            "-EvidencePath", evidencePath, "-AsOfUtc", reviewInstant ?? AsOf.ToString("O"), "-OutputPath", outputPath, "-ReviewedAssemblySha256", hash })
         {
             start.ArgumentList.Add(argument);
         }
