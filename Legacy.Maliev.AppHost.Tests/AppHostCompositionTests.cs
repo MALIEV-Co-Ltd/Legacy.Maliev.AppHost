@@ -30,7 +30,7 @@ public sealed class AppHostCompositionTests
         using var application = builder.Build();
         Assert.Single(builder.Configuration.Sources);
         Assert.IsType<Microsoft.Extensions.Configuration.Memory.MemoryConfigurationSource>(builder.Configuration.Sources[0]);
-        Assert.Equal("owned-fixture-only", builder.Configuration["Parameters:legacy-postgres-password"]);
+        Assert.Equal(fixture.PostgresPassword, builder.Configuration["Parameters:legacy-postgres-password"]);
         Assert.Equal("owned-fixture-maps-embed", builder.Configuration["Parameters:legacy-web-google-maps-embed-api-key"]);
         Assert.Equal("owned-fixture-maps-browser", builder.Configuration["Parameters:legacy-intranet-google-maps-browser-api-key"]);
         Assert.Equal(5, builder.Resources.OfType<ParameterResource>().Count());
@@ -310,6 +310,7 @@ public sealed class AppHostCompositionTests
             .Cast<DictionaryEntry>().ToDictionary(entry => (string)entry.Key, entry => (string?)entry.Value);
         public string Root { get; } = Path.Combine(Path.GetTempPath(), "maliev-build-graph-" + Guid.NewGuid().ToString("N"));
         public string CertificateDirectory => Path.Combine(Root, "certificates");
+        public string PostgresPassword => SyntheticConfiguration["Parameters:legacy-postgres-password"]!;
 
         public GraphFixture()
         {
@@ -338,8 +339,8 @@ public sealed class AppHostCompositionTests
                 Set("LEGACY_WEB_COMMIT", "e806c2c6bf3352ffe387436a40bf5c391b2f6377");
                 Set("LEGACY_WEB_PORT", "59154");
                 Set("Parameters__legacy-postgres-username", "owned-fixture");
-                Set("Parameters__legacy-postgres-password", "owned-fixture-only");
-                Set("Parameters__legacy-redis-password", "owned-fixture-only");
+                Set("Parameters__legacy-postgres-password", PostgresPassword);
+                Set("Parameters__legacy-redis-password", SyntheticConfiguration["Parameters:legacy-redis-password"]);
                 Set("Parameters__legacy-web-google-maps-embed-api-key", "owned-fixture-maps-embed");
                 Set("Parameters__legacy-intranet-google-maps-browser-api-key", "owned-fixture-maps-browser");
             }
