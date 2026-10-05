@@ -421,7 +421,7 @@ public sealed class LegacyEdgeReviewPackageTests
     [Theory]
     [InlineData(-1)]
     [InlineData(0)]
-    [InlineData(3)]
+    [InlineData(4)]
     [InlineData(int.MaxValue)]
     public void Render_RejectsUnreviewedResourceSchemaVersions(int version) =>
         Assert.Throws<ArgumentOutOfRangeException>(() => LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", version));
@@ -454,8 +454,9 @@ public sealed class LegacyEdgeReviewPackageTests
 
     [Theory]
     [InlineData("0", false)]
-    [InlineData("3", false)]
+    [InlineData("4", false)]
     [InlineData("2", true)]
+    [InlineData("3", true)]
     public async Task WriteReviewScript_RejectsInvalidSchemaOrHashBeforeCreatingOutput(string version, bool wrongHash)
     {
         var path = Path.Combine(Path.GetTempPath(), "apphost-resource-rejected-" + Guid.NewGuid().ToString("N") + ".json");
@@ -486,6 +487,210 @@ public sealed class LegacyEdgeReviewPackageTests
     [InlineData("owner@maliev.test", "UPPERCASE")]
     public void Render_VersionTwoStillRejectsInvalidOwnerInputs(string email, string staticIp) =>
         Assert.Throws<ArgumentException>(() => LegacyEdgeReviewPackage.Render(email, staticIp, 2));
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void Render_InstallerVersionThreeKeepsPriorEnvelopePropertiesAndDefaultOne(int priorVersion)
+    {
+        var priorText = LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", priorVersion);
+        if (priorVersion == 1)
+        {
+            Assert.Equal(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip"), priorText);
+        }
+        using var prior = JsonDocument.Parse(priorText);
+        using var current = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", 3));
+        Assert.False(prior.RootElement.TryGetProperty("controllerInstallationReview", out _));
+        Assert.Equal(3, current.RootElement.GetProperty("schemaVersion").GetInt32());
+        foreach (var property in prior.RootElement.EnumerateObject().Where(property => property.Name != "schemaVersion"))
+        {
+            Assert.True(JsonElement.DeepEquals(property.Value, current.RootElement.GetProperty(property.Name)), property.Name);
+        }
+        Assert.Equal(8, current.RootElement.GetProperty("objects").GetArrayLength());
+        Assert.Equal(31, ApiPaths(current.RootElement).Length);
+        Assert.False(current.RootElement.GetProperty("productionDeploymentAllowed").GetBoolean());
+    }
+
+    [Fact]
+    public void Render_InstallerPlanRetainsExactSourceVersionAndTwoPathProvenance()
+    {
+        using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", 3));
+        var review = package.RootElement.GetProperty("controllerInstallationReview");
+        Assert.Equal("dc03cc8e425f43b67fc04b40af4e18e0aeebf3d1", review.GetProperty("sourceCommit").GetString());
+        Assert.Equal("a5b9ee39149c64d7649b708e894520f788cdfb61", review.GetProperty("sourceParent").GetString());
+        Assert.Equal("135e526d0dab85c415b3afdcefd7b70fe2c82e2f", review.GetProperty("sourceCheckpoint").GetString());
+        Assert.Equal("Maliev.CertManager/deploy-certmanager.ps1", review.GetProperty("sourceInstallerPath").GetString());
+        Assert.Equal("ed5f31758a1e37adc7a4b04263bfe051232890a7", review.GetProperty("sourceInstallerBeforeBlob").GetString());
+        Assert.Equal("e909854a49c63bcd8b4dcaebad5187b46cb50630", review.GetProperty("sourceInstallerBlob").GetString());
+        Assert.Equal("Maliev.CertManager/test-resources.yaml", review.GetProperty("sourceSmokePath").GetString());
+        Assert.Equal("72496d6803cc66854e9b99fd99b6c646f95048f7", review.GetProperty("sourceSmokeBlob").GetString());
+        Assert.Equal("v1.18.2", review.GetProperty("requestedSourceVersion").GetString());
+        Assert.Equal("https://github.com/cert-manager/cert-manager/releases/download/v1.18.2/cert-manager.yaml",
+            review.GetProperty("sourceInstallManifestUrl").GetString());
+        Assert.Equal("UnexecutedSourceInstallationPlan", review.GetProperty("semantics").GetString());
+        Assert.Equal("Unverified", review.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public void Render_InstallerPlanKeepsAllAcceptanceAndSourceFailurePropagationUnverified()
+    {
+        using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", 3));
+        var review = package.RootElement.GetProperty("controllerInstallationReview");
+        foreach (var property in new[] { "executionAllowed", "controllerInstalledVerified", "smokeTestVerified", "backupVerified",
+            "namespaceOwnershipVerified", "nativeExitPropagationVerified", "sourceChecksNativeExitCodes",
+            "sourceSetsStopErrorPreference", "commentedClusterAdminBindingIncluded" })
+        {
+            Assert.False(review.GetProperty(property).GetBoolean());
+        }
+        var preparation = review.GetProperty("sourceLocalPreparation");
+        Assert.Equal(".backup", preparation.GetProperty("backupDirectory").GetString());
+        Assert.Equal("Test-Path .backup is false", preparation.GetProperty("createDirectoryCondition").GetString());
+        Assert.Equal("certificates-backup-yyyyMMdd-HHmmss.yaml", preparation.GetProperty("certificateBackupPattern").GetString());
+        Assert.Equal("clusterissuers-backup-yyyyMMdd-HHmmss.yaml", preparation.GetProperty("clusterIssuerBackupPattern").GetString());
+        Assert.True(preparation.GetProperty("backupStandardErrorSuppressed").GetBoolean());
+        Assert.False(preparation.GetProperty("performed").GetBoolean());
+        Assert.Equal(5, preparation.GetProperty("conditionalCleanupDelaySeconds").GetInt32());
+        Assert.True(preparation.GetProperty("terminalPause").GetBoolean());
+        Assert.Contains(review.GetProperty("unresolvedGates").EnumerateArray(), gate => gate.GetString()!.Contains("destructive", StringComparison.Ordinal));
+        Assert.Contains(review.GetProperty("unresolvedGates").EnumerateArray(), gate => gate.GetString()!.Contains("quoting", StringComparison.Ordinal));
+        foreach (var operation in review.GetProperty("operations").EnumerateArray())
+        {
+            Assert.False(operation.GetProperty("executionAllowed").GetBoolean());
+            Assert.False(operation.GetProperty("sourceExitCodeChecked").GetBoolean());
+            Assert.DoesNotContain("clusterrolebinding", operation.GetProperty("sourceInvocation").GetString()!, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void Render_InstallerPlanRetainsAllSourceOperationsInOrderWithoutInventingUpgradeSafety()
+    {
+        using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", 3));
+        var operations = package.RootElement.GetProperty("controllerInstallationReview").GetProperty("operations").EnumerateArray().ToArray();
+        string[] expected =
+        [
+            "backup-certificates", "backup-clusterissuers", "create-namespace-client-dry-run-and-apply", "label-namespace",
+            "discover-existing-crds", "delete-controller-namespace",
+            "delete-crd-certificaterequests.cert-manager.io", "delete-crd-certificates.cert-manager.io",
+            "delete-crd-challenges.acme.cert-manager.io", "delete-crd-clusterissuers.cert-manager.io",
+            "delete-crd-issuers.cert-manager.io", "delete-crd-orders.acme.cert-manager.io",
+            "clear-finalizers-certificaterequests.cert-manager.io", "clear-finalizers-certificates.cert-manager.io",
+            "clear-finalizers-challenges.acme.cert-manager.io", "clear-finalizers-clusterissuers.cert-manager.io",
+            "clear-finalizers-issuers.cert-manager.io", "clear-finalizers-orders.acme.cert-manager.io",
+            "force-delete-crd-certificaterequests.cert-manager.io", "force-delete-crd-certificates.cert-manager.io",
+            "force-delete-crd-challenges.acme.cert-manager.io", "force-delete-crd-clusterissuers.cert-manager.io",
+            "force-delete-crd-issuers.cert-manager.io", "force-delete-crd-orders.acme.cert-manager.io",
+            "apply-controller-manifest", "feature-gate-client-dry-run", "wait-controller-pods", "list-controller-pods",
+            "apply-smoke-resources", "wait-smoke-certificate", "describe-smoke-certificate", "delete-smoke-resources"
+        ];
+        Assert.Equal(expected, operations.Select(operation => operation.GetProperty("id").GetString()));
+        Assert.Equal(Enumerable.Range(1, 32), operations.Select(operation => operation.GetProperty("sourceOrder").GetInt32()));
+        Assert.Equal(32, operations.Select(operation => operation.GetProperty("id").GetString()).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal("kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -",
+            operations[2].GetProperty("sourceInvocation").GetString());
+        Assert.False(operations[2].GetProperty("clientDryRunOnly").GetBoolean());
+        Assert.Equal("$existingCRDs = kubectl get crd | Select-String \"cert-manager.io\"", operations[4].GetProperty("sourceInvocation").GetString());
+        Assert.Contains("--dry-run=client", operations[25].GetProperty("sourceInvocation").GetString()!, StringComparison.Ordinal);
+        Assert.True(operations[25].GetProperty("clientDryRunOnly").GetBoolean());
+        Assert.Contains("app.kubernetes.io/instance=cert-manager", operations[26].GetProperty("sourceInvocation").GetString()!, StringComparison.Ordinal);
+        Assert.Equal("kubectl wait certificate/selfsigned-cert --namespace cert-manager-test --for=condition=Ready --timeout=120s",
+            operations[29].GetProperty("sourceInvocation").GetString());
+    }
+
+    [Theory]
+    [InlineData(1, "Always", false, null)]
+    [InlineData(3, "Always", false, null)]
+    [InlineData(5, "Always", false, null)]
+    [InlineData(6, "ExistingCrdQueryMatched", false, null)]
+    [InlineData(7, "ExistingCrdQueryMatched", false, 30)]
+    [InlineData(24, "ExistingCrdQueryMatched", false, null)]
+    [InlineData(26, "Always", true, null)]
+    [InlineData(27, "Always", false, 180)]
+    [InlineData(30, "Always", false, 120)]
+    public void Render_InstallerConditionsAndClientOnlyDryRunDoNotClaimAppliedState(int order, string condition, bool dryRunOnly, int? timeout)
+    {
+        using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", 3));
+        var operation = Assert.Single(package.RootElement.GetProperty("controllerInstallationReview").GetProperty("operations").EnumerateArray(),
+            item => item.GetProperty("sourceOrder").GetInt32() == order);
+        Assert.Equal(condition, operation.GetProperty("sourceCondition").GetString());
+        Assert.Equal(dryRunOnly, operation.GetProperty("clientDryRunOnly").GetBoolean());
+        Assert.Equal(timeout, NullableInt(operation.GetProperty("timeoutSeconds")));
+        Assert.False(operation.GetProperty("executionAllowed").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData("certificaterequests.cert-manager.io")]
+    [InlineData("certificates.cert-manager.io")]
+    [InlineData("challenges.acme.cert-manager.io")]
+    [InlineData("clusterissuers.cert-manager.io")]
+    [InlineData("issuers.cert-manager.io")]
+    [InlineData("orders.acme.cert-manager.io")]
+    public void Render_InstallerSixCrdCleanupTargetsRemainConditionalData(string crd)
+    {
+        using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", 3));
+        var operations = package.RootElement.GetProperty("controllerInstallationReview").GetProperty("operations").EnumerateArray().ToArray();
+        foreach (var prefix in new[] { "delete-crd-", "clear-finalizers-", "force-delete-crd-" })
+        {
+            var operation = Assert.Single(operations, item => item.GetProperty("id").GetString() == prefix + crd);
+            Assert.Equal("ExistingCrdQueryMatched", operation.GetProperty("sourceCondition").GetString());
+            Assert.Contains(crd, operation.GetProperty("sourceInvocation").GetString()!, StringComparison.Ordinal);
+            Assert.False(operation.GetProperty("executionAllowed").GetBoolean());
+        }
+        var finalizer = Assert.Single(operations, item => item.GetProperty("id").GetString() == "clear-finalizers-" + crd);
+        Assert.Contains("\\\"metadata\\\"", finalizer.GetProperty("sourceInvocation").GetString()!, StringComparison.Ordinal);
+        Assert.Contains("--type=merge 2>$null", finalizer.GetProperty("sourceInvocation").GetString()!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Render_InstallerSmokeResourcesKeepExactSourceWireWithoutProductionAdoption()
+    {
+        using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", 3));
+        using var expected = JsonDocument.Parse("""
+            [
+              {"apiVersion":"v1","kind":"Namespace","metadata":{"name":"cert-manager-test"}},
+              {"apiVersion":"cert-manager.io/v1","kind":"Issuer","metadata":{"name":"test-selfsigned","namespace":"cert-manager-test"},"spec":{"selfSigned":{}}},
+              {"apiVersion":"cert-manager.io/v1","kind":"Certificate","metadata":{"name":"selfsigned-cert","namespace":"cert-manager-test"},"spec":{"dnsNames":["maliev.com"],"secretName":"selfsigned-cert-tls","issuerRef":{"name":"test-selfsigned"}}}
+            ]
+            """);
+        Assert.True(JsonElement.DeepEquals(expected.RootElement, package.RootElement.GetProperty("controllerInstallationReview").GetProperty("sourceSmokeResources")));
+        Assert.Equal(8, package.RootElement.GetProperty("objects").GetArrayLength());
+        Assert.False(package.RootElement.TryGetProperty("kind", out _));
+        Assert.DoesNotContain(package.RootElement.GetProperty("objects").EnumerateArray(),
+            item => item.GetProperty("metadata").GetProperty("name").GetString() == "selfsigned-cert");
+    }
+
+    [Fact]
+    public async Task WriteReviewScript_VersionThreeEmitsOnlyUnexecutedPlanAndPreservesExclusiveOutput()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "apphost-installer-cli-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var first = await RunResourceReviewScript(path, "3");
+            Assert.True(first.ExitCode == 0, first.Error);
+            var bytes = await File.ReadAllBytesAsync(path);
+            using var package = JsonDocument.Parse(bytes);
+            Assert.Equal(3, package.RootElement.GetProperty("schemaVersion").GetInt32());
+            var installer = package.RootElement.GetProperty("controllerInstallationReview");
+            Assert.Equal(32, installer.GetProperty("operations").GetArrayLength());
+            Assert.Equal(3, installer.GetProperty("sourceSmokeResources").GetArrayLength());
+            Assert.False(installer.GetProperty("executionAllowed").GetBoolean());
+            Assert.False(installer.GetProperty("controllerInstalledVerified").GetBoolean());
+            Assert.False(installer.GetProperty("smokeTestVerified").GetBoolean());
+            Assert.False(installer.GetProperty("nativeExitPropagationVerified").GetBoolean());
+            Assert.Equal(8, package.RootElement.GetProperty("objects").GetArrayLength());
+            Assert.Equal(31, ApiPaths(package.RootElement).Length);
+            Assert.False(package.RootElement.GetProperty("productionDeploymentAllowed").GetBoolean());
+            var second = await RunResourceReviewScript(path, "3");
+            Assert.NotEqual(0, second.ExitCode);
+            Assert.Equal(bytes, await File.ReadAllBytesAsync(path));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Theory]
+    [InlineData("invalid", "existing-ip")]
+    [InlineData("owner@maliev.test", "UPPERCASE")]
+    public void Render_VersionThreeStillRejectsInvalidOwnerInputs(string email, string staticIp) =>
+        Assert.Throws<ArgumentException>(() => LegacyEdgeReviewPackage.Render(email, staticIp, 3));
 
     private static JsonElement ResourceRecord(JsonElement root, string workload) =>
         Assert.Single(root.GetProperty("workloadResourceReview").GetProperty("workloads").EnumerateArray(),

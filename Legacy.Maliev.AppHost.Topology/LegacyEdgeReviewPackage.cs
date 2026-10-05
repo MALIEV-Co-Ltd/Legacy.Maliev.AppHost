@@ -33,13 +33,20 @@ public static class LegacyEdgeReviewPackage
     /// <summary>Opts into a resource-intent review without executing the retained source helper.</summary>
     /// <param name="acmeEmail">The explicitly supplied ACME contact.</param>
     /// <param name="existingStaticIpName">The explicitly supplied existing static-IP name.</param>
-    /// <param name="schemaVersion">One preserves the original report; two adds conditional resource intent.</param>
+    /// <param name="schemaVersion">One preserves the original report; two adds resource intent; three adds an unexecuted installer plan.</param>
     /// <returns>An inert review envelope, never a deployment or patch.</returns>
     public static string Render(string acmeEmail, string existingStaticIpName, int schemaVersion)
     {
+        if (schemaVersion == 3)
+        {
+            var versionThree = System.Text.Json.Nodes.JsonNode.Parse(Render(acmeEmail, existingStaticIpName, 2))!.AsObject();
+            versionThree["schemaVersion"] = 3;
+            versionThree["controllerInstallationReview"] = JsonSerializer.SerializeToNode(InstallerReview());
+            return versionThree.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        }
         if (schemaVersion is not (1 or 2))
         {
-            throw new ArgumentOutOfRangeException(nameof(schemaVersion), "Only review schema versions one and two are supported.");
+            throw new ArgumentOutOfRangeException(nameof(schemaVersion), "Only review schema versions one, two and three are supported.");
         }
         var legacy = Render(acmeEmail, existingStaticIpName);
         if (schemaVersion == 1) { return legacy; }
@@ -85,6 +92,181 @@ public static class LegacyEdgeReviewPackage
         });
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }
+
+    private static object InstallerReview() => new
+    {
+        sourceCommit = "dc03cc8e425f43b67fc04b40af4e18e0aeebf3d1",
+        sourceParent = "a5b9ee39149c64d7649b708e894520f788cdfb61",
+        sourceCheckpoint = "135e526d0dab85c415b3afdcefd7b70fe2c82e2f",
+        sourceInstallerPath = "Maliev.CertManager/deploy-certmanager.ps1",
+        sourceInstallerBeforeBlob = "ed5f31758a1e37adc7a4b04263bfe051232890a7",
+        sourceInstallerBlob = "e909854a49c63bcd8b4dcaebad5187b46cb50630",
+        sourceSmokePath = "Maliev.CertManager/test-resources.yaml",
+        sourceSmokeBlob = "72496d6803cc66854e9b99fd99b6c646f95048f7",
+        requestedSourceVersion = "v1.18.2",
+        sourceInstallManifestUrl = "https://github.com/cert-manager/cert-manager/releases/download/v1.18.2/cert-manager.yaml",
+        semantics = "UnexecutedSourceInstallationPlan",
+        status = "Unverified",
+        executionAllowed = false,
+        controllerInstalledVerified = false,
+        smokeTestVerified = false,
+        backupVerified = false,
+        namespaceOwnershipVerified = false,
+        nativeExitPropagationVerified = false,
+        sourceChecksNativeExitCodes = false,
+        sourceSetsStopErrorPreference = false,
+        commentedClusterAdminBindingIncluded = false,
+        sourceLocalPreparation = new
+        {
+            backupDirectory = ".backup",
+            createDirectoryCondition = "Test-Path .backup is false",
+            certificateBackupPattern = "certificates-backup-yyyyMMdd-HHmmss.yaml",
+            clusterIssuerBackupPattern = "clusterissuers-backup-yyyyMMdd-HHmmss.yaml",
+            backupStandardErrorSuppressed = true,
+            existingCrdQueryCondition = "kubectl get crd output matches Select-String cert-manager.io",
+            conditionalCleanupDelaySeconds = 5,
+            terminalPause = true,
+            performed = false
+        },
+        unresolvedGates = new[]
+        {
+            "Source plan does not authorize destructive namespace, CRD or finalizer operations",
+            "Installed controller version, backup integrity and native exit propagation are unverified",
+            "Source quoting and native argument interpretation require independent acceptance",
+            "Namespace ownership, self-signed issuance and resource cleanup require independent acceptance"
+        },
+        operations = new[]
+        {
+                InstallerStep(1, "backup-certificates",
+                    "kubectl get certificates -A -o yaml > .backup/certificates-backup-$(Get-Date -Format 'yyyyMMdd-HHmmss').yaml 2>$null",
+                    "Always", false, null),
+                InstallerStep(2, "backup-clusterissuers",
+                    "kubectl get clusterissuers -o yaml > .backup/clusterissuers-backup-$(Get-Date -Format 'yyyyMMdd-HHmmss').yaml 2>$null",
+                    "Always", false, null),
+                InstallerStep(3, "create-namespace-client-dry-run-and-apply",
+                    "kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -",
+                    "Always", false, null),
+                InstallerStep(4, "label-namespace",
+                    "kubectl label namespace cert-manager cert-manager.io/disable-validation=true --overwrite",
+                    "Always", false, null),
+                InstallerStep(5, "discover-existing-crds",
+                    "$existingCRDs = kubectl get crd | Select-String \"cert-manager.io\"",
+                    "Always", false, null),
+                InstallerStep(6, "delete-controller-namespace",
+                    "kubectl delete namespace cert-manager --ignore-not-found=true",
+                    "ExistingCrdQueryMatched", false, null),
+                InstallerStep(7, "delete-crd-certificaterequests.cert-manager.io",
+                    "kubectl delete crd certificaterequests.cert-manager.io --ignore-not-found=true --timeout=30s",
+                    "ExistingCrdQueryMatched", false, 30),
+                InstallerStep(8, "delete-crd-certificates.cert-manager.io",
+                    "kubectl delete crd certificates.cert-manager.io --ignore-not-found=true --timeout=30s",
+                    "ExistingCrdQueryMatched", false, 30),
+                InstallerStep(9, "delete-crd-challenges.acme.cert-manager.io",
+                    "kubectl delete crd challenges.acme.cert-manager.io --ignore-not-found=true --timeout=30s",
+                    "ExistingCrdQueryMatched", false, 30),
+                InstallerStep(10, "delete-crd-clusterissuers.cert-manager.io",
+                    "kubectl delete crd clusterissuers.cert-manager.io --ignore-not-found=true --timeout=30s",
+                    "ExistingCrdQueryMatched", false, 30),
+                InstallerStep(11, "delete-crd-issuers.cert-manager.io",
+                    "kubectl delete crd issuers.cert-manager.io --ignore-not-found=true --timeout=30s",
+                    "ExistingCrdQueryMatched", false, 30),
+                InstallerStep(12, "delete-crd-orders.acme.cert-manager.io",
+                    "kubectl delete crd orders.acme.cert-manager.io --ignore-not-found=true --timeout=30s",
+                    "ExistingCrdQueryMatched", false, 30),
+                InstallerStep(13, "clear-finalizers-certificaterequests.cert-manager.io",
+                    "kubectl patch crd certificaterequests.cert-manager.io -p '{\\\"metadata\\\":{\\\"finalizers\\\":[]}}' --type=merge 2>$null",
+                    "ExistingCrdQueryMatched", false, null),
+                InstallerStep(14, "clear-finalizers-certificates.cert-manager.io",
+                    "kubectl patch crd certificates.cert-manager.io -p '{\\\"metadata\\\":{\\\"finalizers\\\":[]}}' --type=merge 2>$null",
+                    "ExistingCrdQueryMatched", false, null),
+                InstallerStep(15, "clear-finalizers-challenges.acme.cert-manager.io",
+                    "kubectl patch crd challenges.acme.cert-manager.io -p '{\\\"metadata\\\":{\\\"finalizers\\\":[]}}' --type=merge 2>$null",
+                    "ExistingCrdQueryMatched", false, null),
+                InstallerStep(16, "clear-finalizers-clusterissuers.cert-manager.io",
+                    "kubectl patch crd clusterissuers.cert-manager.io -p '{\\\"metadata\\\":{\\\"finalizers\\\":[]}}' --type=merge 2>$null",
+                    "ExistingCrdQueryMatched", false, null),
+                InstallerStep(17, "clear-finalizers-issuers.cert-manager.io",
+                    "kubectl patch crd issuers.cert-manager.io -p '{\\\"metadata\\\":{\\\"finalizers\\\":[]}}' --type=merge 2>$null",
+                    "ExistingCrdQueryMatched", false, null),
+                InstallerStep(18, "clear-finalizers-orders.acme.cert-manager.io",
+                    "kubectl patch crd orders.acme.cert-manager.io -p '{\\\"metadata\\\":{\\\"finalizers\\\":[]}}' --type=merge 2>$null",
+                    "ExistingCrdQueryMatched", false, null),
+                InstallerStep(19, "force-delete-crd-certificaterequests.cert-manager.io",
+                    "kubectl delete crd certificaterequests.cert-manager.io --force --grace-period=0 2>$null",
+                    "ExistingCrdQueryMatched", false, null),
+                InstallerStep(20, "force-delete-crd-certificates.cert-manager.io",
+                    "kubectl delete crd certificates.cert-manager.io --force --grace-period=0 2>$null",
+                    "ExistingCrdQueryMatched", false, null),
+                InstallerStep(21, "force-delete-crd-challenges.acme.cert-manager.io",
+                    "kubectl delete crd challenges.acme.cert-manager.io --force --grace-period=0 2>$null",
+                    "ExistingCrdQueryMatched", false, null),
+                InstallerStep(22, "force-delete-crd-clusterissuers.cert-manager.io",
+                    "kubectl delete crd clusterissuers.cert-manager.io --force --grace-period=0 2>$null",
+                    "ExistingCrdQueryMatched", false, null),
+                InstallerStep(23, "force-delete-crd-issuers.cert-manager.io",
+                    "kubectl delete crd issuers.cert-manager.io --force --grace-period=0 2>$null",
+                    "ExistingCrdQueryMatched", false, null),
+                InstallerStep(24, "force-delete-crd-orders.acme.cert-manager.io",
+                    "kubectl delete crd orders.acme.cert-manager.io --force --grace-period=0 2>$null",
+                    "ExistingCrdQueryMatched", false, null),
+                InstallerStep(25, "apply-controller-manifest",
+                    "kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/$certmanager_version/cert-manager.yaml",
+                    "Always", false, null),
+                InstallerStep(26, "feature-gate-client-dry-run",
+                    "kubectl patch deployment cert-manager -n cert-manager --type='json' -p='[{\"op\": \"add\", \"path\": \"/spec/template/spec/containers/0/args/-\", \"value\": \"--feature-gates=ACMEHTTP01IngressPathTypeExact=false\"}]' --dry-run=client",
+                    "Always", true, null),
+                InstallerStep(27, "wait-controller-pods",
+                    "kubectl wait --namespace cert-manager --for=condition=Ready pods --selector=app.kubernetes.io/instance=cert-manager --timeout=180s",
+                    "Always", false, 180),
+                InstallerStep(28, "list-controller-pods",
+                    "kubectl get pods --namespace cert-manager",
+                    "Always", false, null),
+                InstallerStep(29, "apply-smoke-resources",
+                    "kubectl apply -f .\\test-resources.yaml",
+                    "Always", false, null),
+                InstallerStep(30, "wait-smoke-certificate",
+                    "kubectl wait certificate/selfsigned-cert --namespace cert-manager-test --for=condition=Ready --timeout=120s",
+                    "Always", false, 120),
+                InstallerStep(31, "describe-smoke-certificate",
+                    "kubectl describe certificate selfsigned-cert -n cert-manager-test",
+                    "Always", false, null),
+                InstallerStep(32, "delete-smoke-resources",
+                    "kubectl delete -f .\\test-resources.yaml",
+                    "Always", false, null)
+        },
+        sourceSmokeResources = new object[]
+        {
+            new { apiVersion = "v1", kind = "Namespace", metadata = new { name = "cert-manager-test" } },
+            new
+            {
+                apiVersion = "cert-manager.io/v1", kind = "Issuer",
+                metadata = new { name = "test-selfsigned", @namespace = "cert-manager-test" },
+                spec = new { selfSigned = new { } }
+            },
+            new
+            {
+                apiVersion = "cert-manager.io/v1", kind = "Certificate",
+                metadata = new { name = "selfsigned-cert", @namespace = "cert-manager-test" },
+                spec = new
+                {
+                    dnsNames = new[] { "maliev.com" }, secretName = "selfsigned-cert-tls",
+                    issuerRef = new { name = "test-selfsigned" }
+                }
+            }
+        }
+    };
+
+    private static object InstallerStep(int sourceOrder, string id, string sourceInvocation, string sourceCondition, bool clientDryRunOnly, int? timeoutSeconds) => new
+    {
+        sourceOrder,
+        id,
+        sourceInvocation,
+        sourceCondition,
+        clientDryRunOnly,
+        timeoutSeconds,
+        executionAllowed = false,
+        sourceExitCodeChecked = false
+    };
 
     private static object ResourceIntent(string workload, string checkpointBlob, int? replicas, int? requestMi, int? limitMi) => new
     {
