@@ -218,12 +218,13 @@ ReferenceExpression CreatePooledDatabaseConnectionString(string databaseName)
                 $"LEGACY_GKE_VALIDATION is set but the loaded GKE secret bundle has no credentials for database '{databaseName}' (expected keys {credentialKeys.Username}/{credentialKeys.Password}).");
         }
 
-        return ReferenceExpression.Create(
-            $"Host=127.0.0.1;Port=15432;Database={databaseName};Username={gkeUsername};Password={gkePassword};SSL Mode=Disable;Maximum Pool Size=10;Connection Idle Lifetime=60;Timeout=15;Command Timeout=30");
+        return LegacyPoolerConnectionString.ForGke(databaseName, gkeUsername, gkePassword);
     }
 
-    return ReferenceExpression.Create(
-        $"Host={pgbouncer.GetEndpoint("tcp").Property(EndpointProperty.Host)};Port={pgbouncer.GetEndpoint("tcp").Property(EndpointProperty.Port)};Database={databaseName};Username={postgresUsername};Password={postgresPassword};SSL Mode=Disable;Maximum Pool Size=10;Connection Idle Lifetime=60;Timeout=15;Command Timeout=30");
+    return LegacyPoolerConnectionString.ForLocal(
+        ReferenceExpression.Create($"{pgbouncer.GetEndpoint("tcp").Property(EndpointProperty.Host)}"),
+        ReferenceExpression.Create($"{pgbouncer.GetEndpoint("tcp").Property(EndpointProperty.Port)}"),
+        databaseName, postgresUsername.Resource, postgresPassword.Resource);
 }
 
 var databases = new Dictionary<string, IResourceBuilder<PostgresDatabaseResource>>(StringComparer.Ordinal);

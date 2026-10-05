@@ -201,7 +201,14 @@ jobs:
           PG_RESTORE_PATH: ${{ runner.temp }}/pg_restore18
         run: |
           set -euo pipefail
-          export LEGACY_SNAPSHOT_INTEGRATION_RESTORE_CONNECTION="Host=127.0.0.1;Port=5432;Database=postgres;Username=legacy_snapshot_ci;Password=${PGPASSWORD};SSL Mode=Disable"
+          export LEGACY_SNAPSHOT_INTEGRATION_RESTORE_CONNECTION="$(python3 - <<'PY'
+          import os
+          fields = {'Host': '127.0.0.1', 'Port': '5432', 'Database': 'postgres',
+                    'Username': 'legacy_snapshot_ci', 'Password': os.environ['PGPASSWORD'],
+                    'SSL Mode': 'Disable'}
+          print(';'.join(key + '="' + value.replace('"', '""') + '"' for key, value in fields.items()))
+          PY
+          )"
           docker exec -e PGPASSWORD="${PGPASSWORD}" ${{ job.services.postgres18.id }} \
             psql --host=127.0.0.1 --username=legacy_snapshot_ci --dbname=postgres \
             --set=ON_ERROR_STOP=1 --command='CREATE TABLE snapshot_probe (id integer PRIMARY KEY, value text NOT NULL); INSERT INTO snapshot_probe VALUES (1, '\''pg18'\'');'
