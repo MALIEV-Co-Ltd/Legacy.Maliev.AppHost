@@ -10,6 +10,8 @@ public static class LegacyEdgeReviewPackage
 
     private const string IngressName = "legacy-maliev-edge";
     private const string IssuerName = "legacy-maliev-letsencrypt-prod";
+    private const string LineChatbotHost = "line-chatbot.maliev.com";
+    private const string SourceLineChatbotIngressName = "line-chatbot-ingress";
 
     private static readonly (string Path, string Service)[] ApiRoutes =
     [
@@ -60,15 +62,19 @@ public static class LegacyEdgeReviewPackage
                     {
                         email = acmeEmail, server = "https://acme-v02.api.letsencrypt.org/directory",
                         privateKeySecretRef = new { name = IssuerName },
-                        solvers = new[] { new { selector = new { dnsNames = hosts }, http01 = new { ingress = new { name = IngressName } } } }
+                        solvers = new[]
+                        {
+                            new { selector = new { dnsNames = new[] { LineChatbotHost } }, http01 = new { ingress = new { name = SourceLineChatbotIngressName } } },
+                            new { selector = new { dnsNames = hosts }, http01 = new { ingress = new { name = IngressName } } }
+                        }
                     }
                 }
             }
         };
 
-        foreach (var host in hosts)
+        foreach (var host in hosts.Append(LineChatbotHost))
         {
-            var secret = host.Replace('.', '-') + "-tls";
+            var secret = host == LineChatbotHost ? "line-chatbot-tls" : host.Replace('.', '-') + "-tls";
             objects.Add(new
             {
                 apiVersion = "cert-manager.io/v1",
@@ -127,6 +133,18 @@ public static class LegacyEdgeReviewPackage
             reviewOnly = true,
             productionDeploymentAllowed = false,
             cutoverPercent = 0,
+            externalIngressDependencies = new[]
+            {
+                new
+                {
+                    host = LineChatbotHost,
+                    sourceIngressName = SourceLineChatbotIngressName,
+                    sourceNamespace = "maliev",
+                    sourceCertificateSecretName = "line-chatbot-tls",
+                    ownershipVerified = false,
+                    runtimeRegistered = false
+                }
+            },
             unresolvedGates = new[]
             {
                 "AppHost #33 owner Aspire review and deployment approval",
@@ -134,7 +152,7 @@ public static class LegacyEdgeReviewPackage
                 "Cluster-scoped issuer ownership and private-key secret isolation",
                 "Retained backend Service port 8080 acceptance",
                 "Real retained API route/rewriting acceptance",
-                "Source line-chatbot certificate/solver ownership",
+                "Source line-chatbot ingress ownership and namespace mapping require independent acceptance",
                 "Installed cert-manager version and certificate issuance acceptance"
             },
             objects

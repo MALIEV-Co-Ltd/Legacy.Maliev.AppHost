@@ -16,7 +16,7 @@ public sealed class LegacyEdgeReviewPackageTests
         Assert.Equal(0, root.GetProperty("cutoverPercent").GetInt32());
         Assert.False(root.TryGetProperty("kind", out _));
         var objects = root.GetProperty("objects").EnumerateArray().ToArray();
-        Assert.Equal(7, objects.Length);
+        Assert.Equal(8, objects.Length);
         foreach (var item in objects.Where(item => item.GetProperty("kind").GetString() != "ClusterIssuer"))
         {
             Assert.Equal("maliev-legacy", item.GetProperty("metadata").GetProperty("namespace").GetString());
@@ -33,7 +33,8 @@ public sealed class LegacyEdgeReviewPackageTests
         Assert.Equal("owner@maliev.test", issuer.GetProperty("email").GetString());
         Assert.Equal("https://acme-v02.api.letsencrypt.org/directory", issuer.GetProperty("server").GetString());
         Assert.Equal(issuerName, issuer.GetProperty("privateKeySecretRef").GetProperty("name").GetString());
-        var solver = Assert.Single(issuer.GetProperty("solvers").EnumerateArray());
+        var solver = Assert.Single(issuer.GetProperty("solvers").EnumerateArray(),
+            item => item.GetProperty("http01").GetProperty("ingress").GetProperty("name").GetString() == "legacy-maliev-edge");
         Assert.Equal("legacy-maliev-edge", solver.GetProperty("http01").GetProperty("ingress").GetProperty("name").GetString());
         Assert.Equal(4, solver.GetProperty("selector").GetProperty("dnsNames").GetArrayLength());
 
@@ -46,7 +47,7 @@ public sealed class LegacyEdgeReviewPackageTests
             annotations.GetProperty("networking.gke.io/v1beta1.FrontendConfig").GetString());
         Assert.False(annotations.TryGetProperty("cert-manager.io/cluster-issuer", out _));
         var certificates = objects.Where(item => item.GetProperty("kind").GetString() == "Certificate").ToArray();
-        Assert.Equal(4, certificates.Length);
+        Assert.Equal(5, certificates.Length);
         foreach (var certificate in certificates)
         {
             var spec = certificate.GetProperty("spec");
@@ -56,11 +57,57 @@ public sealed class LegacyEdgeReviewPackageTests
             Assert.False(spec.TryGetProperty("privateKey", out _));
             var host = Assert.Single(spec.GetProperty("dnsNames").EnumerateArray()).GetString();
             Assert.Equal(spec.GetProperty("commonName").GetString(), host);
-            var tls = Assert.Single(ingress.GetProperty("spec").GetProperty("tls").EnumerateArray(),
-                item => item.GetProperty("hosts")[0].GetString() == host);
-            Assert.Equal(spec.GetProperty("secretName").GetString(), tls.GetProperty("secretName").GetString());
+            if (host != "line-chatbot.maliev.com")
+            {
+                var tls = Assert.Single(ingress.GetProperty("spec").GetProperty("tls").EnumerateArray(),
+                    item => item.GetProperty("hosts")[0].GetString() == host);
+                Assert.Equal(spec.GetProperty("secretName").GetString(), tls.GetProperty("secretName").GetString());
+            }
         }
         Assert.Contains(root.GetProperty("unresolvedGates").EnumerateArray(), gate => gate.GetString()!.Contains("line-chatbot", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Render_RetainsSeparateLineChatbotCertificateAndNamedSolverWithoutInventingRuntimeOwnership()
+    {
+        using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip"));
+        var root = package.RootElement;
+        var objects = root.GetProperty("objects").EnumerateArray().ToArray();
+        var issuer = Single(objects, "ClusterIssuer");
+        var solvers = issuer.GetProperty("spec").GetProperty("acme").GetProperty("solvers").EnumerateArray().ToArray();
+        Assert.Equal(2, solvers.Length);
+        Assert.Equal(new[] { "line-chatbot.maliev.com" },
+            solvers[0].GetProperty("selector").GetProperty("dnsNames").EnumerateArray().Select(item => item.GetString()));
+        Assert.Equal("line-chatbot-ingress", solvers[0].GetProperty("http01").GetProperty("ingress").GetProperty("name").GetString());
+        foreach (var solver in solvers)
+        {
+            Assert.False(solver.GetProperty("http01").GetProperty("ingress").TryGetProperty("class", out _));
+        }
+        Assert.DoesNotContain(solvers[1].GetProperty("selector").GetProperty("dnsNames").EnumerateArray(),
+            item => item.GetString() == "line-chatbot.maliev.com");
+
+        var certificate = Assert.Single(objects, item => item.GetProperty("kind").GetString() == "Certificate"
+            && item.GetProperty("spec").GetProperty("commonName").GetString() == "line-chatbot.maliev.com");
+        Assert.Equal("line-chatbot-tls", certificate.GetProperty("metadata").GetProperty("name").GetString());
+        Assert.Equal("line-chatbot-tls", certificate.GetProperty("spec").GetProperty("secretName").GetString());
+        Assert.Equal(issuer.GetProperty("metadata").GetProperty("name").GetString(),
+            certificate.GetProperty("spec").GetProperty("issuerRef").GetProperty("name").GetString());
+        var ingress = Single(objects, "Ingress");
+        Assert.DoesNotContain(ingress.GetProperty("spec").GetProperty("rules").EnumerateArray(),
+            rule => rule.GetProperty("host").GetString() == "line-chatbot.maliev.com");
+        Assert.DoesNotContain(ingress.GetProperty("spec").GetProperty("tls").EnumerateArray(),
+            tls => tls.GetProperty("hosts").EnumerateArray().Any(host => host.GetString() == "line-chatbot.maliev.com"));
+
+        var dependency = Assert.Single(root.GetProperty("externalIngressDependencies").EnumerateArray());
+        Assert.Equal("line-chatbot.maliev.com", dependency.GetProperty("host").GetString());
+        Assert.Equal("line-chatbot-ingress", dependency.GetProperty("sourceIngressName").GetString());
+        Assert.Equal("maliev", dependency.GetProperty("sourceNamespace").GetString());
+        Assert.Equal("line-chatbot-tls", dependency.GetProperty("sourceCertificateSecretName").GetString());
+        Assert.False(dependency.GetProperty("ownershipVerified").GetBoolean());
+        Assert.False(dependency.GetProperty("runtimeRegistered").GetBoolean());
+        Assert.True(root.GetProperty("reviewOnly").GetBoolean());
+        Assert.False(root.GetProperty("productionDeploymentAllowed").GetBoolean());
+        Assert.Equal(0, root.GetProperty("cutoverPercent").GetInt32());
     }
 
     [Fact]
