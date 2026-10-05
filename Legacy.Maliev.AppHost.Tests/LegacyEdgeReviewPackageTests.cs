@@ -199,7 +199,7 @@ public sealed class LegacyEdgeReviewPackageTests
     public void Render_DoesNotClaimUnrelatedOrRetiredPathSegments(string requestPath)
     {
         using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip"));
-        Assert.Empty(ApiPaths(package.RootElement).Where(path => MatchesKubernetesPrefix(path.GetProperty("path").GetString()!, requestPath)));
+        Assert.DoesNotContain(ApiPaths(package.RootElement), path => MatchesKubernetesPrefix(path.GetProperty("path").GetString()!, requestPath));
     }
 
     [Theory]
@@ -280,7 +280,7 @@ public sealed class LegacyEdgeReviewPackageTests
             {
                 AssertCanonicalRequest(root, entry.Item1, entry.Item2, entry.Item3, entry.Item3 == "employee" ? 80 : 8080);
             }
-            Assert.Empty(ApiPaths(root).Where(path => MatchesKubernetesPrefix(path.GetProperty("path").GetString()!, "/orders2/7")));
+            Assert.DoesNotContain(ApiPaths(root), path => MatchesKubernetesPrefix(path.GetProperty("path").GetString()!, "/orders2/7"));
             Assert.True(root.GetProperty("reviewOnly").GetBoolean());
             Assert.False(root.GetProperty("productionDeploymentAllowed").GetBoolean());
             Assert.Equal(0, root.GetProperty("cutoverPercent").GetInt32());
