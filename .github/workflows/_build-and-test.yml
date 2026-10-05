@@ -270,7 +270,10 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: apphost-synthetic-validation
-          path: runner-results/
+          path: |
+            runner-results/platform-ubuntu/
+            runner-results/**/*.trx
+          include-hidden-files: true
           retention-days: 7
 
   windows-acl:
@@ -442,7 +445,10 @@ jobs:
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
       with:
         name: apphost-windows-validation
-        path: runner-results/
+        path: |
+          runner-results/platform-windows/
+          runner-results/**/*.trx
+        include-hidden-files: true
         retention-days: 7
   validate:
     name: validate
@@ -471,7 +477,9 @@ jobs:
         path: platform-artifacts
     - name: Run synthetic fail-closed evidence controls
       working-directory: Legacy.Maliev.AppHost
-      run: python3 -B scripts/coverage/test_platform_union.py
+      run: |
+        python3 -B scripts/coverage/test_platform_union.py
+        pwsh -NoProfile -File scripts/tests/test-bounded-embedded-source.ps1
     - name: Gate complete raw hit union at 80 percent per production assembly
       working-directory: Legacy.Maliev.AppHost
       run: python3 -B scripts/coverage/verify-platform-union.py --ubuntu ../platform-artifacts/apphost-synthetic-validation/platform-ubuntu --windows ../platform-artifacts/apphost-windows-validation/platform-windows --output ../platform-artifacts/raw-production-union.json
@@ -480,5 +488,10 @@ jobs:
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
       with:
         name: apphost-production-union
-        path: platform-artifacts/
+        path: |
+          platform-artifacts/apphost-synthetic-validation/platform-ubuntu/
+          platform-artifacts/apphost-windows-validation/platform-windows/
+          platform-artifacts/raw-production-union.json
+          platform-artifacts/**/*.trx
+        include-hidden-files: true
         retention-days: 7
