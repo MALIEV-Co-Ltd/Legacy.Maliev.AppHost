@@ -692,13 +692,214 @@ public sealed class LegacyEdgeReviewPackageTests
     public void Render_VersionThreeStillRejectsInvalidOwnerInputs(string email, string staticIp) =>
         Assert.Throws<ArgumentException>(() => LegacyEdgeReviewPackage.Render(email, staticIp, 3));
 
+    [Theory]
+    [InlineData("[]", "Unknown", null, "Unknown")]
+    [InlineData("[{\"sourceService\":\"maliev.pdfservice.api\",\"deployScriptIsFile\":true,\"exitCode\":0}]", "Unknown", null, "Unknown")]
+    [InlineData("[{\"sourceService\":\"maliev.pdfservice.api\",\"deployScriptIsFile\":true,\"invocationFailed\":null,\"exitCode\":0}]", "Unknown", null, "Unknown")]
+    [InlineData("[{\"sourceService\":\"maliev.pdfservice.api\",\"deployScriptIsFile\":null,\"invocationFailed\":false,\"exitCode\":0}]", "Unknown", null, "Unknown")]
+    [InlineData("[{\"sourceService\":\"maliev.pdfservice.api\",\"deployScriptIsFile\":true,\"invocationFailed\":false,\"exitCode\":null}]", "Unknown", null, "Unknown")]
+    [InlineData("[{\"sourceService\":\"maliev.pdfservice.api\",\"deployScriptIsFile\":false}]", "ReportedFailure", 1, "MissingLeaf")]
+    [InlineData("[{\"sourceService\":\"maliev.pdfservice.api\",\"deployScriptIsFile\":true,\"invocationFailed\":true}]", "ReportedFailure", 1, "InvocationFailed")]
+    [InlineData("[{\"sourceService\":\"maliev.pdfservice.api\",\"deployScriptIsFile\":true,\"invocationFailed\":false,\"exitCode\":42}]", "ReportedFailure", 1, "ChildExitFailure")]
+    [InlineData("[{\"sourceService\":\"maliev.pdfservice.api\",\"deployScriptIsFile\":true,\"invocationFailed\":false,\"exitCode\":-5}]", "ReportedFailure", 1, "ChildExitFailure")]
+    [InlineData("[{\"sourceService\":\"maliev.pdfservice.api\",\"deployScriptIsFile\":true,\"invocationFailed\":false,\"exitCode\":0}]", "ReportedComplete", 0, "ReportedSuccess")]
+    public async Task WriteReviewScript_SelectorSuppliedOutcomesRequireAllSuccessEvidence(string children, string status, int? modeledExit, string stepOutcome)
+    {
+        var result = await RunSelectorReview(SelectorInput("pdf", children));
+        Assert.True(result.ExitCode == 0, result.Error);
+        using var document = JsonDocument.Parse(result.Output!);
+        var review = document.RootElement.GetProperty("releaseSelectorReview");
+        Assert.Equal(status, review.GetProperty("status").GetString());
+        Assert.Equal(modeledExit, NullableInt(review.GetProperty("modeledSourceExitCode")));
+        var step = Assert.Single(review.GetProperty("trace").EnumerateArray());
+        Assert.Equal(stepOutcome, step.GetProperty("outcome").GetString());
+        Assert.True(step.GetProperty("consumed").GetBoolean());
+        Assert.False(review.GetProperty("observationsVerified").GetBoolean());
+        Assert.False(review.GetProperty("sourceHelperExecutionVerified").GetBoolean());
+        Assert.False(review.GetProperty("callerDirectoryRestoredVerified").GetBoolean());
+        Assert.False(document.RootElement.GetProperty("productionDeploymentAllowed").GetBoolean());
+        Assert.Equal(0, document.RootElement.GetProperty("cutoverPercent").GetInt32());
+    }
+
+    [Theory]
+    [InlineData("all", 23, "deploy_all.ps1", "f74d2c83fecd5f3e9ff49712caa46a09f12677a4", true)]
+    [InlineData("api", 21, "deploy_api.ps1",
+        "c6604936515c87d9a9337c4b84a72ceb94e63c7e", true)]
+    [InlineData("web", 1, "deploy_web.ps1", "c0d90c21e655f66e30e35cb08b29fbf62428446b", false)]
+    [InlineData("intranet", 1, "deploy_intranet.ps1", "4fb465cb04f7c174ec8130ca8c4ecf1df424d6ba", false)]
+    [InlineData("pdf", 1, "deploy_pdf.ps1", "240e57135f446a56e1f507aa255f338057652ffc", false)]
+    public async Task WriteReviewScript_SelectorGroupsRetainExactSourceAndRetiredSuccessorDisposition(
+        string selector, int count, string path, string blob, bool predictionSelected)
+    {
+        var result = await RunSelectorReview(SelectorInput(selector, "[]"));
+        Assert.True(result.ExitCode == 0, result.Error);
+        using var document = JsonDocument.Parse(result.Output!);
+        var review = document.RootElement.GetProperty("releaseSelectorReview");
+        Assert.Equal(path, review.GetProperty("sourceSelectorPath").GetString());
+        Assert.Equal(blob, review.GetProperty("sourceSelectorBlob").GetString());
+        Assert.Equal("135e526d0dab85c415b3afdcefd7b70fe2c82e2f", review.GetProperty("sourceCheckpoint").GetString());
+        var members = review.GetProperty("selectedSourceServices").EnumerateArray().Select(item => item.GetString()).ToArray();
+        Assert.Equal(count, members.Length);
+        Assert.DoesNotContain("maliev.loggerservice.api", members);
+        Assert.Equal(predictionSelected, members.Contains("maliev.predictionservice.api", StringComparer.Ordinal));
+        var retired = review.GetProperty("retiredSuccessorDispositions").EnumerateArray().ToArray();
+        if (predictionSelected)
+        {
+            var disposition = Assert.Single(retired);
+            Assert.Equal("maliev.predictionservice.api", disposition.GetProperty("sourceService").GetString());
+            Assert.Equal("OwnerRetired", disposition.GetProperty("disposition").GetString());
+            Assert.False(disposition.GetProperty("runtimeRegistered").GetBoolean());
+            Assert.False(disposition.GetProperty("recreateRuntimeAllowed").GetBoolean());
+        }
+        else { Assert.Empty(retired); }
+        Assert.False(review.GetProperty("successorMappingVerified").GetBoolean());
+        Assert.True(review.GetProperty("sourceRequiresInnerPopLocation").GetBoolean());
+        Assert.True(review.GetProperty("sourceRequiresOuterCallerDirectoryRestore").GetBoolean());
+        Assert.False(review.GetProperty("callerDirectoryRestoredVerified").GetBoolean());
+        Assert.Equal(4, document.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(8, document.RootElement.GetProperty("objects").GetArrayLength());
+        Assert.Equal(31, ApiPaths(document.RootElement).Length);
+        Assert.Equal(32, document.RootElement.GetProperty("controllerInstallationReview").GetProperty("operations").GetArrayLength());
+        Assert.Equal(8, document.RootElement.GetProperty("workloadResourceReview").GetProperty("workloads").GetArrayLength());
+    }
+
+    [Theory]
+    [InlineData("true,false,23", "ReportedFailure", 1, "ChildExitFailure")]
+    [InlineData("true,null,0", "Unknown", null, "Unknown")]
+    public async Task WriteReviewScript_SelectorTraceStopsFirstFailureOrUnknownAndDoesNotConsumeLaterReports(
+        string firstValues, string status, int? modeledExit, string firstOutcome)
+    {
+        var values = firstValues.Split(',');
+        var children = "[{\"sourceService\":\"maliev.authservice.api\",\"deployScriptIsFile\":" + values[0]
+            + ",\"invocationFailed\":" + values[1] + ",\"exitCode\":" + values[2]
+            + "},{\"sourceService\":\"maliev.countryservice.api\",\"deployScriptIsFile\":true,\"invocationFailed\":false,\"exitCode\":14}]";
+        var result = await RunSelectorReview(SelectorInput("api", children));
+        Assert.True(result.ExitCode == 0, result.Error);
+        using var document = JsonDocument.Parse(result.Output!);
+        var review = document.RootElement.GetProperty("releaseSelectorReview");
+        Assert.Equal(status, review.GetProperty("status").GetString());
+        Assert.Equal(modeledExit, NullableInt(review.GetProperty("modeledSourceExitCode")));
+        var trace = review.GetProperty("trace").EnumerateArray().ToArray();
+        Assert.Equal(21, trace.Length);
+        Assert.Equal("maliev.authservice.api", trace[0].GetProperty("sourceService").GetString());
+        Assert.Equal(firstOutcome, trace[0].GetProperty("outcome").GetString());
+        Assert.True(trace[0].GetProperty("consumed").GetBoolean());
+        foreach (var step in trace.Skip(1))
+        {
+            Assert.False(step.GetProperty("consumed").GetBoolean());
+            Assert.Equal("NotReached", step.GetProperty("outcome").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task WriteReviewScript_SelectorReportedCompletionRetainsSourceOrderAndDoesNotAdmitRetiredRuntime()
+    {
+        string[] expected = ["maliev.authservice.api", "maliev.countryservice.api", "maliev.currencyservice.api",
+            "maliev.customerservice.api", "maliev.emailservice.api", "maliev.employeeservice.api", "maliev.intranet",
+            "maliev.invoiceservice.api", "maliev.jobservice.api", "maliev.materialservice.api", "maliev.messageservice.api",
+            "maliev.orderservice.api", "maliev.orderstatusservice.api", "maliev.paymentservice.api", "maliev.pdfservice.api",
+            "maliev.predictionservice.api", "maliev.purchaseorderservice.api", "maliev.quotationrequestservice.api",
+            "maliev.quotationservice.api", "maliev.receiptservice.api", "maliev.supplierservice.api", "maliev.uploadservice.api", "maliev.web"];
+        var children = JsonSerializer.Serialize(expected.Select(service => new
+        {
+            sourceService = service, deployScriptIsFile = true, invocationFailed = false, exitCode = 0
+        }));
+        var result = await RunSelectorReview(SelectorInput("all", children));
+        Assert.True(result.ExitCode == 0, result.Error);
+        using var document = JsonDocument.Parse(result.Output!);
+        var review = document.RootElement.GetProperty("releaseSelectorReview");
+        Assert.Equal(expected, review.GetProperty("selectedSourceServices").EnumerateArray().Select(item => item.GetString()));
+        Assert.Equal("ReportedComplete", review.GetProperty("status").GetString());
+        Assert.Equal(0, review.GetProperty("modeledSourceExitCode").GetInt32());
+        Assert.All(review.GetProperty("trace").EnumerateArray(), step =>
+        {
+            Assert.True(step.GetProperty("consumed").GetBoolean());
+            Assert.Equal("ReportedSuccess", step.GetProperty("outcome").GetString());
+        });
+        Assert.False(review.GetProperty("sourceHelperExecutionVerified").GetBoolean());
+        Assert.False(review.GetProperty("observationsVerified").GetBoolean());
+        Assert.False(document.RootElement.GetProperty("productionDeploymentAllowed").GetBoolean());
+        Assert.False(Assert.Single(review.GetProperty("retiredSuccessorDispositions").EnumerateArray()).GetProperty("runtimeRegistered").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData("{\"schemaVersion\":2,\"selector\":\"pdf\",\"children\":[]}")]
+    [InlineData("{\"schemaVersion\":1,\"selector\":\"unknown\",\"children\":[]}")]
+    [InlineData("{\"schemaVersion\":1,\"selector\":\"PDF\",\"children\":[]}")]
+    [InlineData("{\"schemaVersion\":1,\"selector\":\"pdf\",\"children\":[],\"extra\":true}")]
+    [InlineData("{\"schemaVersion\":1,\"selector\":\"pdf\",\"selector\":\"pdf\",\"children\":[]}")]
+    [InlineData("{\"schemaVersion\":1,\"selector\":\"pdf\",\"children\":null}")]
+    [InlineData("{\"schemaVersion\":1,\"selector\":\"pdf\"}")]
+    [InlineData("{\"schemaVersion\":1,\"selector\":\"pdf\",\"children\":[{\"sourceService\":\"unknown\"}]}")]
+    [InlineData("{\"schemaVersion\":1,\"selector\":\"pdf\",\"children\":[{\"sourceService\":\"maliev.pdfservice.api\",\"extra\":false}]}")]
+    [InlineData("{\"schemaVersion\":1,\"selector\":\"pdf\",\"children\":[{\"sourceService\":\"maliev.pdfservice.api\",\"deployScriptIsFile\":1}]}")]
+    [InlineData("{\"schemaVersion\":1,\"selector\":\"pdf\",\"children\":[{\"sourceService\":\"maliev.pdfservice.api\",\"invocationFailed\":\"false\"}]}")]
+    [InlineData("{\"schemaVersion\":1,\"selector\":\"pdf\",\"children\":[{\"sourceService\":\"maliev.pdfservice.api\",\"exitCode\":1.5}]}")]
+    [InlineData("{\"schemaVersion\":1,\"selector\":\"pdf\",\"children\":[{\"sourceService\":\"maliev.pdfservice.api\",\"exitCode\":2147483648}]}")]
+    [InlineData("{\"schemaVersion\":1,\"selector\":\"pdf\",\"children\":[{\"sourceService\":\"maliev.pdfservice.api\",\"deployScriptIsFile\":false,\"invocationFailed\":false}]}")]
+    [InlineData("{\"schemaVersion\":1,\"selector\":\"pdf\",\"children\":[{\"sourceService\":\"maliev.pdfservice.api\",\"deployScriptIsFile\":false,\"exitCode\":0}]}")]
+    [InlineData("{\"schemaVersion\":1,\"selector\":\"pdf\",\"children\":[{\"sourceService\":\"maliev.pdfservice.api\",\"invocationFailed\":true,\"exitCode\":0}]}")]
+    [InlineData("{\"schemaVersion\":1,\"selector\":\"pdf\",\"children\":[{\"sourceService\":\"maliev.pdfservice.api\"},{\"sourceService\":\"maliev.pdfservice.api\"}]}")]
+    [InlineData("{\"schemaVersion\":1,\"selector\":\"api\",\"children\":[{\"sourceService\":\"maliev.authservice.api\",\"deployScriptIsFile\":false},{\"sourceService\":\"maliev.countryservice.api\",\"exitCode\":\"bad\"}]}")]
+    public async Task WriteReviewScript_SelectorRejectsWholeMalformedOrIncoherentInputBeforeOutput(string input)
+    {
+        var result = await RunSelectorReview(input);
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Null(result.Output);
+    }
+
+    [Fact]
+    public async Task WriteReviewScript_SelectorEnforcesExactByteBoundUtf8AndExclusiveOutput()
+    {
+        var valid = SelectorInput("pdf", "[{\"sourceService\":\"maliev.pdfservice.api\",\"deployScriptIsFile\":true,\"invocationFailed\":false,\"exitCode\":0}]");
+        var padded = valid + new string(' ', 32 * 1024 - System.Text.Encoding.UTF8.GetByteCount(valid));
+        var atLimit = await RunSelectorReview(padded, verifyExclusive: true);
+        Assert.True(atLimit.ExitCode == 0, atLimit.Error);
+        Assert.NotNull(atLimit.Output);
+        var oversized = await RunSelectorReview(padded + " ");
+        Assert.NotEqual(0, oversized.ExitCode);
+        Assert.Null(oversized.Output);
+        var invalidUtf8 = await RunSelectorReview(valid, invalidUtf8: true);
+        Assert.NotEqual(0, invalidUtf8.ExitCode);
+        Assert.Null(invalidUtf8.Output);
+    }
+
+    private static string SelectorInput(string selector, string children) =>
+        "{\"schemaVersion\":1,\"selector\":\"" + selector + "\",\"children\":" + children + "}";
+
+    private static async Task<(int ExitCode, string Error, string? Output)> RunSelectorReview(string input, bool invalidUtf8 = false, bool verifyExclusive = false)
+    {
+        var prefix = Path.Combine(Path.GetTempPath(), "apphost-selector-" + Guid.NewGuid().ToString("N"));
+        var inputPath = prefix + "-input.json";
+        var outputPath = prefix + "-output.json";
+        try
+        {
+            if (invalidUtf8) { await File.WriteAllBytesAsync(inputPath, [0xff, 0xfe, 0xff]); }
+            else { await File.WriteAllTextAsync(inputPath, input, new System.Text.UTF8Encoding(false)); }
+            var result = await RunResourceReviewScript(outputPath, "4", observationPath: inputPath);
+            var output = File.Exists(outputPath) ? await File.ReadAllTextAsync(outputPath) : null;
+            if (verifyExclusive && result.ExitCode == 0)
+            {
+                var second = await RunResourceReviewScript(outputPath, "4", observationPath: inputPath);
+                Assert.NotEqual(0, second.ExitCode);
+                Assert.Equal(output, await File.ReadAllTextAsync(outputPath));
+            }
+            return (result.ExitCode, result.Error, output);
+        }
+        finally
+        {
+            File.Delete(inputPath);
+            File.Delete(outputPath);
+        }
+    }
+
     private static JsonElement ResourceRecord(JsonElement root, string workload) =>
         Assert.Single(root.GetProperty("workloadResourceReview").GetProperty("workloads").EnumerateArray(),
             record => record.GetProperty("sourceWorkload").GetString() == workload);
 
     private static int? NullableInt(JsonElement value) => value.ValueKind == JsonValueKind.Null ? null : value.GetInt32();
 
-    private static async Task<(int ExitCode, string Error)> RunResourceReviewScript(string path, string version, bool wrongHash = false)
+    private static async Task<(int ExitCode, string Error)> RunResourceReviewScript(string path, string version, bool wrongHash = false, string? observationPath = null)
     {
         var hash = wrongHash ? new string('0', 64)
             : Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(typeof(LegacyEdgeReviewPackage).Assembly.Location)));
@@ -708,6 +909,11 @@ public sealed class LegacyEdgeReviewPackageTests
             "-ReviewedAssemblySha256", hash, "-SchemaVersion", version })
         {
             start.ArgumentList.Add(argument);
+        }
+        if (observationPath is not null)
+        {
+            start.ArgumentList.Add("-ReleaseObservationPath");
+            start.ArgumentList.Add(observationPath);
         }
         using var process = Process.Start(start) ?? throw new InvalidOperationException("The resource review process did not start.");
         var output = process.StandardOutput.ReadToEndAsync();
