@@ -51,6 +51,7 @@ internal static class AppHostComposition
             ? DistributedApplication.CreateBuilder(args)
             : DistributedApplication.CreateBuilder(applicationOptions);
         configureBuilder?.Invoke(builder);
+        var countryWorkload = CountryWorkloadConfiguration.Read(builder.Configuration, builder.Environment.EnvironmentName);
 
         // === BEGIN LEGACY_GKE_VALIDATION (opt-in owner manual QA against real GKE-migrated data,
         // see maliev-web#15; entirely dormant unless LEGACY_GKE_VALIDATION=true is set explicitly).
@@ -471,6 +472,22 @@ internal static class AppHostComposition
         authMigrations.WithParentRelationship(auth.Resource);
         customerIdentityMigrations.WithParentRelationship(auth.Resource);
         employeeIdentityMigrations.WithParentRelationship(auth.Resource);
+
+        if (countryWorkload is not null)
+        {
+            country.WithEnvironment("ASPNETCORE_ENVIRONMENT", countryWorkload.EnvironmentName)
+                .WithEnvironment("ServiceAuthentication__ClientId", countryWorkload.ClientId)
+                .WithEnvironment("ServiceAuthentication__ClientSecret", countryWorkload.ClientSecret)
+                .WithEnvironment("Services__Auth__BaseUrl", auth.GetEndpoint("http"))
+                .WithEnvironment("Services__IAMService__BaseUrl", countryWorkload.IamOrigin)
+                .WaitFor(auth);
+            auth.WithEnvironment($"ServiceClients__Clients__{countryWorkload.ClientId}__SecretSha256", countryWorkload.SecretSha256);
+            for (var permissionIndex = 0; permissionIndex < countryWorkload.Permissions.Count; permissionIndex++)
+            {
+                auth.WithEnvironment($"ServiceClients__Clients__{countryWorkload.ClientId}__Permissions__{permissionIndex}",
+                    countryWorkload.Permissions[permissionIndex]);
+            }
+        }
 
 
         var customerDatabase = databases["Customer"];

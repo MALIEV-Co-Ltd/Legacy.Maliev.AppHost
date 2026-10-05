@@ -112,6 +112,191 @@ public sealed class AppHostCompositionTests
         Assert.Equal("{legacy-postgres-main.connectionString};Database=Auth", authExpression);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("false")]
+    public async Task CountryWorkloadDefaultDoesNotRegisterCallerOrInventIamResource(string? enabled)
+    {
+        using var fixture = new GraphFixture();
+        var builder = fixture.Compose(new Dictionary<string, string?> { ["CountryWorkload:Enabled"] = enabled });
+        using var application = builder.Build();
+        var country = await EnvironmentFor(builder, "legacy-maliev-country-service");
+        var auth = await EnvironmentFor(builder, "legacy-maliev-auth-service");
+        Assert.DoesNotContain(country.Keys, key => key.StartsWith("ServiceAuthentication__", StringComparison.Ordinal)
+            || key.StartsWith("Services__Auth", StringComparison.Ordinal) || key.StartsWith("Services__IAM", StringComparison.Ordinal));
+        Assert.DoesNotContain(auth.Keys, key => key.StartsWith("ServiceClients__Clients__owned-country__", StringComparison.Ordinal));
+        Assert.DoesNotContain(builder.Resources, resource => resource.Name.Contains("iam", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData("https://owned-iam.invalid", "Development")]
+    [InlineData("https+http://IAMService", "Development")]
+    [InlineData("http://127.0.0.1:14001", "Development")]
+    [InlineData("http://127.0.0.1:14001", "Testing")]
+    public async Task CountryWorkloadOptInProjectsExactOptionsHashEndpointAndDeclaredGrants(string origin, string environmentName)
+    {
+        using var fixture = new GraphFixture();
+        var configuration = CountryWorkloadFixtureConfiguration();
+        configuration["CountryWorkload:IamOrigin"] = origin;
+        var builder = fixture.Compose(configuration, environmentName);
+        using var application = builder.Build();
+        var country = await EnvironmentFor(builder, "legacy-maliev-country-service");
+        var auth = await EnvironmentFor(builder, "legacy-maliev-auth-service");
+        var authResource = Assert.Single(builder.Resources, resource => resource.Name == "legacy-maliev-auth-service");
+        Assert.Equal(environmentName, builder.Environment.EnvironmentName);
+        Assert.Equal(environmentName, country["ASPNETCORE_ENVIRONMENT"]);
+        Assert.Equal("owned-country", country["ServiceAuthentication__ClientId"]);
+        var secret = Assert.IsType<string>(country["ServiceAuthentication__ClientSecret"]);
+        Assert.Equal(configuration["CountryWorkload:ClientSecret"], secret);
+        Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(secret))),
+            auth["ServiceClients__Clients__owned-country__SecretSha256"]);
+        var endpoint = Assert.IsType<EndpointReference>(country["Services__Auth__BaseUrl"]);
+        Assert.Same(authResource, endpoint.Resource);
+        Assert.Equal("http", endpoint.EndpointName);
+        Assert.Equal(origin, country["Services__IAMService__BaseUrl"]);
+        Assert.Equal(new[] { "ServiceClients__Clients__owned-country__Permissions__0", "ServiceClients__Clients__owned-country__Permissions__1" },
+            auth.Keys.Where(key => key.StartsWith("ServiceClients__Clients__owned-country__Permissions__", StringComparison.Ordinal)).Order(StringComparer.Ordinal));
+        Assert.Equal("legacy-country.countries.read", auth["ServiceClients__Clients__owned-country__Permissions__0"]);
+        Assert.Equal("legacy-country.countries.update", auth["ServiceClients__Clients__owned-country__Permissions__1"]);
+        var resource = Assert.Single(builder.Resources, item => item.Name == "legacy-maliev-country-service");
+        Assert.Contains(resource.Annotations.OfType<WaitAnnotation>(), wait => ReferenceEquals(wait.Resource, authResource));
+        Assert.DoesNotContain(builder.Resources, item => item.Name.Contains("iam", StringComparison.OrdinalIgnoreCase));
+        // Real graph construction only: no application Start/Run or IAM enrollment/authorization claim.
+    }
+
+    [Theory]
+    [InlineData("Enabled", "maybe")]
+    [InlineData("ClientId", null)]
+    [InlineData("ClientId", "legacy-web")]
+    [InlineData("ClientId", "owned:country")]
+    [InlineData("ClientSecret", null)]
+    [InlineData("ClientSecret", "too-short")]
+    [InlineData("SecretSha256", null)]
+    [InlineData("SecretSha256", "not-a-hash")]
+    [InlineData("SecretSha256", "0000000000000000000000000000000000000000000000000000000000000000")]
+    [InlineData("IamOrigin", null)]
+    [InlineData("IamOrigin", "http://remote.invalid")]
+    [InlineData("IamOrigin", "https://owned-iam.invalid/iam")]
+    [InlineData("IamOrigin", "https://user:password@owned-iam.invalid")]
+    [InlineData("IamOrigin", "https://owned-iam.invalid?secret=value")]
+    [InlineData("IamOrigin", "https+http://unregistered-iam")]
+    [InlineData("Permissions:0", "*")]
+    [InlineData("Permissions:0", "legacy-catalog.countries.read")]
+    [InlineData("Permissions:0", "legacy-country.countries.update")]
+    [InlineData("Permissions:0", null)]
+    public void CountryWorkloadInvalidOptInFailsBeforeCertificateCreationWithoutDisclosingConfiguration(string key, string? value)
+    {
+        using var fixture = new GraphFixture();
+        var configuration = CountryWorkloadFixtureConfiguration();
+        configuration[$"CountryWorkload:{key}"] = value;
+        var error = Assert.Throws<InvalidOperationException>(() => fixture.Compose(configuration, "Development"));
+        Assert.Equal("CountryWorkload opt-in requires an explicit valid identity, matching credential hash, IAM origin and exact Country permissions.", error.Message);
+        Assert.DoesNotContain(configuration["CountryWorkload:ClientSecret"] ?? "not-present", error.Message, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(fixture.CertificateDirectory));
+    }
+
+    [Theory]
+    [InlineData(16)]
+    [InlineData(1024)]
+    public async Task CountryWorkloadPreservesExactSecretBytesAtBothAuthBounds(int length)
+    {
+        using var fixture = new GraphFixture();
+        var configuration = CountryWorkloadFixtureConfiguration();
+        var secret = " " + new string('x', length - 2) + " ";
+        configuration["CountryWorkload:ClientSecret"] = secret;
+        configuration["CountryWorkload:SecretSha256"] = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(secret))).ToUpperInvariant();
+        var builder = fixture.Compose(configuration, "Development");
+        using var application = builder.Build();
+        Assert.Equal(secret, (await EnvironmentFor(builder, "legacy-maliev-country-service"))["ServiceAuthentication__ClientSecret"]);
+        Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(secret))),
+            (await EnvironmentFor(builder, "legacy-maliev-auth-service"))["ServiceClients__Clients__owned-country__SecretSha256"]);
+    }
+
+    private static Dictionary<string, string?> CountryWorkloadFixtureConfiguration()
+    {
+        var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        return new()
+        {
+            ["CountryWorkload:Enabled"] = "true",
+            ["CountryWorkload:ClientId"] = "owned-country",
+            ["CountryWorkload:ClientSecret"] = secret,
+            ["CountryWorkload:SecretSha256"] = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(secret))),
+            ["CountryWorkload:IamOrigin"] = "https://owned-iam.invalid",
+            ["CountryWorkload:Permissions:0"] = "legacy-country.countries.read",
+            ["CountryWorkload:Permissions:1"] = "legacy-country.countries.update"
+        };
+    }
+
+    [Theory]
+    [InlineData(15)]
+    [InlineData(1025)]
+    public void CountryWorkloadRejectsSecretOutsideSharedAuthBounds(int length)
+    {
+        using var fixture = new GraphFixture();
+        var configuration = CountryWorkloadFixtureConfiguration();
+        var secret = new string('x', length);
+        configuration["CountryWorkload:ClientSecret"] = secret;
+        configuration["CountryWorkload:SecretSha256"] = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(secret)));
+        Assert.Throws<InvalidOperationException>(() => fixture.Compose(configuration, "Development"));
+        Assert.False(Directory.Exists(fixture.CertificateDirectory));
+    }
+
+    [Fact]
+    public async Task CountryWorkloadCanProjectOnlyTheFourExplicitProducerPermissions()
+    {
+        using var fixture = new GraphFixture();
+        var configuration = CountryWorkloadFixtureConfiguration();
+        string[] permissions = ["legacy-country.countries.read", "legacy-country.countries.create", "legacy-country.countries.update", "legacy-country.countries.delete"];
+        for (var index = 0; index < permissions.Length; index++) configuration[$"CountryWorkload:Permissions:{index}"] = permissions[index];
+        var builder = fixture.Compose(configuration, "Development");
+        using var application = builder.Build();
+        var auth = await EnvironmentFor(builder, "legacy-maliev-auth-service");
+        for (var index = 0; index < permissions.Length; index++) Assert.Equal(permissions[index], auth[$"ServiceClients__Clients__owned-country__Permissions__{index}"]);
+        Assert.DoesNotContain("ServiceClients__Clients__owned-country__Permissions__4", auth.Keys);
+    }
+
+    [Fact]
+    public void CountryWorkloadRejectsNonContiguousGrantIndexes()
+    {
+        using var fixture = new GraphFixture();
+        var configuration = CountryWorkloadFixtureConfiguration();
+        configuration.Remove("CountryWorkload:Permissions:1");
+        configuration["CountryWorkload:Permissions:2"] = "legacy-country.countries.update";
+        Assert.Throws<InvalidOperationException>(() => fixture.Compose(configuration, "Development"));
+        Assert.False(Directory.Exists(fixture.CertificateDirectory));
+    }
+
+    [Theory]
+    [InlineData("http://127.0.0.1:14001")]
+    [InlineData("https://owned-iam.invalid")]
+    public void CountryWorkloadRejectsProductionOptInBeforeCreatingSecrets(string origin)
+    {
+        using var fixture = new GraphFixture();
+        var configuration = CountryWorkloadFixtureConfiguration();
+        configuration["CountryWorkload:IamOrigin"] = origin;
+        Assert.Throws<InvalidOperationException>(() => fixture.Compose(configuration, "Production"));
+        Assert.False(Directory.Exists(fixture.CertificateDirectory));
+    }
+
+    [Theory]
+    [InlineData("owned-country")]
+    [InlineData("OWNED-COUNTRY")]
+    public void CountryWorkloadCannotOverwriteAnExistingConfiguredAuthCaller(string registeredClientId)
+    {
+        using var fixture = new GraphFixture();
+        var configuration = CountryWorkloadFixtureConfiguration();
+        var hashKey = $"ServiceClients:Clients:{registeredClientId}:SecretSha256";
+        var permissionKey = $"ServiceClients:Clients:{registeredClientId}:Permissions:0";
+        var existingHash = Convert.ToHexStringLower(SHA256.HashData(RandomNumberGenerator.GetBytes(32)));
+        configuration[hashKey] = existingHash;
+        configuration[permissionKey] = "existing.custom.permission";
+        var error = Assert.Throws<InvalidOperationException>(() => fixture.Compose(configuration, "Development"));
+        Assert.DoesNotContain(configuration["CountryWorkload:ClientSecret"]!, error.Message, StringComparison.Ordinal);
+        Assert.Equal(existingHash, configuration[hashKey]);
+        Assert.Equal("existing.custom.permission", configuration[permissionKey]);
+        Assert.False(Directory.Exists(fixture.CertificateDirectory));
+    }
+
     [Fact]
     public async Task AuthProjectsGeneratedClientHashAndPermissionsForRealWebAndBffSecrets()
     {
@@ -336,7 +521,7 @@ public sealed class AppHostCompositionTests
                 Set("LEGACY_WEB_PROJECT", new Projects.Legacy_Maliev_Web().ProjectPath);
                 Set("LEGACY_WEB_REPOSITORY", "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web");
                 Set("LEGACY_WEB_BRANCH", "owned-build-only-fixture");
-                Set("LEGACY_WEB_COMMIT", "e806c2c6bf3352ffe387436a40bf5c391b2f6377");
+                Set("LEGACY_WEB_COMMIT", "007c082b4abd3da36d335f55a98702f507661651");
                 Set("LEGACY_WEB_PORT", "59154");
                 Set("Parameters__legacy-postgres-username", "owned-fixture");
                 Set("Parameters__legacy-postgres-password", PostgresPassword);
@@ -353,20 +538,28 @@ public sealed class AppHostCompositionTests
 
         public void Set(string name, string? value) => Environment.SetEnvironmentVariable(name, value, EnvironmentVariableTarget.Process);
 
-        public IDistributedApplicationBuilder Compose() => AppHostComposition.CreateBuilder([], CertificateDirectory,
-            new DistributedApplicationOptions
+        public IDistributedApplicationBuilder Compose(IReadOnlyDictionary<string, string?>? additionalConfiguration = null, string? environmentName = null)
+        {
+            if (environmentName is not null)
             {
-                AssemblyName = typeof(AppHostComposition).Assembly.GetName().Name!,
-                ProjectDirectory = Root,
-                DisableDashboard = true,
-                TrustDeveloperCertificate = false
-            }, builder =>
-            {
-                // Empty owned project directory and Production prevent default operator JSON/user-secret loading.
-                // Replace providers before any graph parameter or identity is read.
-                builder.Configuration.Sources.Clear();
-                builder.Configuration.AddInMemoryCollection(SyntheticConfiguration);
-            });
+                Set("DOTNET_ENVIRONMENT", environmentName);
+                Set("ASPNETCORE_ENVIRONMENT", environmentName);
+            }
+            return AppHostComposition.CreateBuilder([], CertificateDirectory,
+                new DistributedApplicationOptions
+                {
+                    AssemblyName = typeof(AppHostComposition).Assembly.GetName().Name!,
+                    ProjectDirectory = Root,
+                    DisableDashboard = true,
+                    TrustDeveloperCertificate = false
+                }, builder =>
+                {
+                    // Owned empty directories and provider replacement prevent loading operator configuration.
+                    builder.Configuration.Sources.Clear();
+                    builder.Configuration.AddInMemoryCollection(SyntheticConfiguration);
+                    if (additionalConfiguration is not null) builder.Configuration.AddInMemoryCollection(additionalConfiguration);
+                });
+        }
 
         public void Dispose()
         {
