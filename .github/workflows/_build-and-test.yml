@@ -11,8 +11,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  validate:
-    name: validate
+  ubuntu-validation:
+    name: Ubuntu validation
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -182,6 +182,7 @@ jobs:
         with:
           working-directory: Legacy.Maliev.AppHost
           solution: Legacy.Maliev.AppHost.slnx
+          dotnet-version: 10.0.401
           use-local-maliev-dependencies: 'true'
       - name: Prepare PostgreSQL 18 restore wrapper
         shell: bash
@@ -255,16 +256,15 @@ jobs:
           ./scripts/verify-accounting-identity-manifest.ps1
           -ManifestPath "${{ runner.temp }}/legacy-apphost-manifest.json"
 
-      - name: Gate raw production assembly coverage
+      - name: Export complete Ubuntu symbol and raw evidence
         if: always()
         shell: pwsh
         working-directory: Legacy.Maliev.AppHost
         run: |
           $reports = @(Get-ChildItem -LiteralPath "$env:GITHUB_WORKSPACE/runner-results" -Filter '*.cobertura.xml' -Recurse)
-          if ($reports.Count -eq 0) { throw 'Expected exactly one complete coverage report' }
-          $reportHashes = @($reports | Get-FileHash -Algorithm SHA256 | Group-Object Hash)
-          if ($reportHashes.Count -ne 1) { throw 'Expected exactly one complete coverage report; distinct reports are forbidden' }
-          ./scripts/coverage/verify-production-coverage.ps1 -CoberturaPath $reports[0].FullName -OutputPath "$env:GITHUB_WORKSPACE/runner-results/raw-production-coverage.json"
+          if ($reports.Count -eq 0) { throw 'Missing complete raw report' }
+          if (@($reports | Get-FileHash -Algorithm SHA256 | Group-Object Hash).Count -ne 1) { throw 'Distinct raw reports are forbidden within a platform' }
+          ./scripts/coverage/export-platform-evidence.ps1 -Platform ubuntu -CoberturaPath $reports[0].FullName -OutputDirectory "$env:GITHUB_WORKSPACE/runner-results/platform-ubuntu"
       - name: Preserve synthetic validation evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -272,3 +272,213 @@ jobs:
           name: apphost-synthetic-validation
           path: runner-results/
           retention-days: 7
+
+  windows-acl:
+    name: Windows ACL companion
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      VSTestCollect: Code Coverage
+      VSTestSetting: ${{ github.workspace }}/Legacy.Maliev.AppHost/scripts/coverage/generated-inclusive.runsettings
+      VSTestLogger: trx
+      VSTestResultsDirectory: ${{ github.workspace }}/runner-results
+    steps:
+    - name: Check out AppHost
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        path: Legacy.Maliev.AppHost
+        persist-credentials: false
+    - name: Check out data migration
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: MALIEV-Co-Ltd/Legacy.Maliev.DataMigration
+        ref: 77c8f3c62ee74bee40c08654fdf457d639ba423f
+        path: Legacy.Maliev.DataMigration
+        persist-credentials: false
+    - name: Check out Country service
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: MALIEV-Co-Ltd/Legacy.Maliev.CountryService
+        ref: 9c53137022bbd4e48d03084a090357ea98215559
+        path: Legacy.Maliev.CountryService
+        persist-credentials: false
+    - name: Check out Document service
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: MALIEV-Co-Ltd/Legacy.Maliev.DocumentService
+        ref: 36bb52747cec7854db2349f8a63d771c9479b2af
+        path: Legacy.Maliev.DocumentService
+        persist-credentials: false
+    - name: Check out Auth service
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: MALIEV-Co-Ltd/Legacy.Maliev.AuthService
+        ref: d3311024e863f97ad067b608c70dac23edb8f2cb
+        path: Legacy.Maliev.AuthService
+        persist-credentials: false
+    - name: Check out Customer service
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: MALIEV-Co-Ltd/Legacy.Maliev.CustomerService
+        ref: 1270d63295a53f79aee265e57949e793ccb6516d
+        path: Legacy.Maliev.CustomerService
+        persist-credentials: false
+    - name: Check out Notification service
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: MALIEV-Co-Ltd/Legacy.Maliev.NotificationService
+        ref: bc2fee84421edaaf544a8f6040ae57ea81eeb14e
+        path: Legacy.Maliev.NotificationService
+        persist-credentials: false
+    - name: Check out Order service
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: MALIEV-Co-Ltd/Legacy.Maliev.OrderService
+        ref: c371e2f2e81e46e28787c4472ce25a4bd08052ef
+        path: Legacy.Maliev.OrderService
+        persist-credentials: false
+    - name: Check out Quotation service
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: MALIEV-Co-Ltd/Legacy.Maliev.QuotationService
+        ref: 7d4d0061cdb595c86bfa67074fec7c61b9f3812f
+        path: Legacy.Maliev.QuotationService
+        persist-credentials: false
+    - name: Check out legacy service defaults
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: MALIEV-Co-Ltd/Legacy.Maliev.ServiceDefaults
+        ref: 9c4ac9d44a08bcd0aa2088348790ab863814669c
+        path: Legacy.Maliev.ServiceDefaults
+        persist-credentials: false
+    - name: Check out compatibility contracts
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: MALIEV-Co-Ltd/Legacy.Maliev.CompatibilityContracts
+        ref: 13eefdb44cad42b46216bb0378af8c76e3672c2c
+        path: Legacy.Maliev.CompatibilityContracts
+        persist-credentials: false
+    - name: Check out Web BFF
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: MALIEV-Co-Ltd/Legacy.Maliev.Web
+        ref: e806c2c6bf3352ffe387436a40bf5c391b2f6377
+        path: Legacy.Maliev.Web
+        persist-credentials: false
+    - name: Check out Employee service
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: MALIEV-Co-Ltd/Legacy.Maliev.EmployeeService
+        ref: 101e0dc8009174b24c3013011b5393aa1ca66bee
+        path: Legacy.Maliev.EmployeeService
+        persist-credentials: false
+    - name: Check out Catalog service
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: MALIEV-Co-Ltd/Legacy.Maliev.CatalogService
+        ref: de4b3364e924cca1aeebb3280817f0c9bd7ea6bc
+        path: Legacy.Maliev.CatalogService
+        persist-credentials: false
+    - name: Check out Procurement service
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: MALIEV-Co-Ltd/Legacy.Maliev.ProcurementService
+        ref: 931feb5c6ec8f71ce95bbf093478429d299af130
+        path: Legacy.Maliev.ProcurementService
+        persist-credentials: false
+    - name: Check out File service
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: MALIEV-Co-Ltd/Legacy.Maliev.FileService
+        ref: 992135d8d49adc6747ce5495a4386e88ace9de1d
+        path: Legacy.Maliev.FileService
+        persist-credentials: false
+    - name: Check out Intranet
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: MALIEV-Co-Ltd/Legacy.Maliev.Intranet
+        ref: cb52b0fe06151f161766bca683f23710cb6b1ac2
+        path: Legacy.Maliev.Intranet
+        persist-credentials: false
+    - name: Check out Career service
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: MALIEV-Co-Ltd/Legacy.Maliev.CareerService
+        ref: a1802d4e2a3bf5bdbaeaf2320be00e5e19157375
+        path: Legacy.Maliev.CareerService
+        persist-credentials: false
+    - name: Check out Contact service
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: MALIEV-Co-Ltd/Legacy.Maliev.ContactService
+        ref: 831816a3ce95ab5d2a5b029d3f933c09fec9452f
+        path: Legacy.Maliev.ContactService
+        persist-credentials: false
+    - name: Check out Accounting service
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: MALIEV-Co-Ltd/Legacy.Maliev.AccountingService
+        ref: 4cc64bd9b419b3a73307af6265d2e59a37eb0e20
+        path: Legacy.Maliev.AccountingService
+        persist-credentials: false
+    - name: Validate genuine Windows ACL project
+      uses: MALIEV-Co-Ltd/Legacy.Maliev.Workflows/actions/dotnet-validate@e3a6093324a24968876782153286f52db8b29fd8
+      with:
+        working-directory: Legacy.Maliev.AppHost
+        solution: Legacy.Maliev.AppHost.Windows.Tests/Legacy.Maliev.AppHost.Windows.Tests.csproj
+        dotnet-version: 10.0.401
+        use-local-maliev-dependencies: 'true'
+    - name: Export complete Windows symbol and raw evidence
+      if: always()
+      shell: pwsh
+      working-directory: Legacy.Maliev.AppHost
+      run: |
+        $reports = @(Get-ChildItem -LiteralPath "$env:GITHUB_WORKSPACE/runner-results" -Filter '*.cobertura.xml' -Recurse)
+        if ($reports.Count -eq 0) { throw 'Missing complete raw report' }
+        if (@($reports | Get-FileHash -Algorithm SHA256 | Group-Object Hash).Count -ne 1) { throw 'Distinct raw reports are forbidden within a platform' }
+        ./scripts/coverage/export-platform-evidence.ps1 -Platform windows -CoberturaPath $reports[0].FullName -OutputDirectory "$env:GITHUB_WORKSPACE/runner-results/platform-windows"
+    - name: Preserve Windows raw evidence
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: apphost-windows-validation
+        path: runner-results/
+        retention-days: 7
+  validate:
+    name: validate
+    needs:
+    - ubuntu-validation
+    - windows-acl
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Check out AppHost
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        path: Legacy.Maliev.AppHost
+        persist-credentials: false
+    - name: Require all independent platform validations
+      shell: pwsh
+      env:
+        UBUNTU_RESULT: ${{ needs['ubuntu-validation'].result }}
+        WINDOWS_RESULT: ${{ needs.windows-acl.result }}
+      run: if ($env:UBUNTU_RESULT -ne 'success' -or $env:WINDOWS_RESULT -ne 'success') { throw 'Both platform validations must pass before union acceptance' }
+    - name: Download original raw platform artifacts
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        pattern: apphost-*-validation
+        path: platform-artifacts
+    - name: Run synthetic fail-closed evidence controls
+      working-directory: Legacy.Maliev.AppHost
+      run: python3 -B scripts/coverage/test_platform_union.py
+    - name: Gate complete raw hit union at 80 percent per production assembly
+      working-directory: Legacy.Maliev.AppHost
+      run: python3 -B scripts/coverage/verify-platform-union.py --ubuntu ../platform-artifacts/apphost-synthetic-validation/platform-ubuntu --windows ../platform-artifacts/apphost-windows-validation/platform-windows --output ../platform-artifacts/raw-production-union.json
+    - name: Preserve union decision and untouched platform evidence
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: apphost-production-union
+        path: platform-artifacts/
+        retention-days: 7
