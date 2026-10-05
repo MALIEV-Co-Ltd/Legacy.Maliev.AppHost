@@ -237,7 +237,10 @@ public sealed class LegacyCertificateReviewDiagnosticsTests
         {
             await File.WriteAllTextAsync(evidencePath, JsonSerializer.Serialize(new
             {
-                condition = "Ready", notAfterUtc = expiry, issuerReady = true, challengeFailed = false
+                condition = "Ready",
+                notAfterUtc = expiry,
+                issuerReady = true,
+                challengeFailed = false
             }));
             Assert.Equal(0, await RunReviewScript(evidencePath, outputPath));
             using var report = JsonDocument.Parse(await File.ReadAllTextAsync(outputPath));
