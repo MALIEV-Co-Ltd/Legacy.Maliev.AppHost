@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory)] [string]$AcmeEmail,
     [Parameter(Mandatory)] [string]$ExistingStaticIpName,
     [Parameter(Mandatory)] [string]$OutputPath,
-    [ValidateSet(1, 2)] [int]$SchemaVersion = 1,
+    [ValidateSet(1, 2, 3)] [int]$SchemaVersion = 1,
     [Parameter(Mandatory)] [ValidatePattern('\A[A-Fa-f0-9]{64}\z')] [string]$ReviewedAssemblySha256
 )
 
@@ -44,7 +44,7 @@ try {
         $root.GetProperty('unresolvedGates').GetArrayLength() -eq 0) {
         throw 'Compiled renderer did not return an inert review package; rebuild the reviewed source.'
     }
-    if ($SchemaVersion -eq 2) {
+    if ($SchemaVersion -ge 2) {
         $resourceReview = $root.GetProperty('workloadResourceReview')
         if ($resourceReview.GetProperty('semantics').GetString() -ne 'ConditionalTextReplacementIntent' -or
             $resourceReview.GetProperty('operationExecutionVerified').GetBoolean() -or
@@ -52,6 +52,21 @@ try {
             $resourceReview.GetProperty('capacityAccepted').GetBoolean() -or
             $resourceReview.GetProperty('workloads').GetArrayLength() -ne 8) {
             throw 'Compiled renderer did not return conditional, unaccepted resource intent.'
+        }
+    }
+    if ($SchemaVersion -eq 3) {
+        $installer = $root.GetProperty('controllerInstallationReview')
+        if ($installer.GetProperty('semantics').GetString() -ne 'UnexecutedSourceInstallationPlan' -or
+            $installer.GetProperty('status').GetString() -ne 'Unverified' -or
+            $installer.GetProperty('executionAllowed').GetBoolean() -or
+            $installer.GetProperty('controllerInstalledVerified').GetBoolean() -or
+            $installer.GetProperty('smokeTestVerified').GetBoolean() -or
+            $installer.GetProperty('backupVerified').GetBoolean() -or
+            $installer.GetProperty('namespaceOwnershipVerified').GetBoolean() -or
+            $installer.GetProperty('nativeExitPropagationVerified').GetBoolean() -or
+            $installer.GetProperty('operations').GetArrayLength() -ne 32 -or
+            $installer.GetProperty('sourceSmokeResources').GetArrayLength() -ne 3) {
+            throw 'Compiled renderer did not return an unexecuted, unverified installer plan.'
         }
     }
 } finally {
