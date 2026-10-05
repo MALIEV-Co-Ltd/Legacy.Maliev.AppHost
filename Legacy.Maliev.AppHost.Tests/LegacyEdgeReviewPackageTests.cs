@@ -312,6 +312,222 @@ public sealed class LegacyEdgeReviewPackageTests
             .GetProperty("metadata").GetProperty("annotations").GetProperty("kubernetes.io/ingress.global-static-ip-name").GetString());
     }
 
+    [Fact]
+    public void Render_VersionTwoAddsOnlyConditionalIntentWhileExplicitOneIsByteIdentical()
+    {
+        var legacy = LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip");
+        Assert.Equal(legacy, LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", 1));
+        using var original = JsonDocument.Parse(legacy);
+        using var versionTwo = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", 2));
+        Assert.False(original.RootElement.TryGetProperty("workloadResourceReview", out _));
+        Assert.Equal(2, versionTwo.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(original.RootElement.EnumerateObject().Count() + 1, versionTwo.RootElement.EnumerateObject().Count());
+        foreach (var property in original.RootElement.EnumerateObject().Where(property => property.Name != "schemaVersion"))
+        {
+            Assert.True(JsonElement.DeepEquals(property.Value, versionTwo.RootElement.GetProperty(property.Name)), property.Name);
+        }
+        Assert.Equal(8, versionTwo.RootElement.GetProperty("objects").GetArrayLength());
+        Assert.Equal(31, ApiPaths(versionTwo.RootElement).Length);
+    }
+
+    [Theory]
+    [InlineData("Maliev.AuthService.Api", 2, null, null, "e5bfb452fc469c2bf3046b15c7d36674cf0dc2ad")]
+    [InlineData("Maliev.CustomerService.Api", 2, null, 256, "6f9446866c889f28c4126af6067cfa8f15089efe")]
+    [InlineData("Maliev.OrderService.Api", 2, null, 256, "d6b5940a5b729ecf6b646f6d34dd0001c8897578")]
+    [InlineData("Maliev.InvoiceService.Api", 2, null, null, "314df3239fa4afe5867e3dec58bf99e58673ca61")]
+    [InlineData("Maliev.QuotationService.Api", 2, null, 256, "335838886cfc312644f22f1261aedd15386acc3e")]
+    [InlineData("Maliev.PaymentService.Api", 2, null, null, "314f85f644899fc34376a2ff6e2543e3cc329b5b")]
+    [InlineData("Maliev.Intranet", 2, 256, 384, "aeff3f7eca1bac004f59159398f3192ec2bfd915")]
+    [InlineData("Maliev.MaterialService.Api", null, null, 256, "04f86f9f94af3acf09fd5331a0c7458036ec9d0d")]
+    public void Render_ResourceIntentRetainsExactSourceWorkloadChangesAndUntouchedNulls(
+        string workload, int? replicas, int? requestMi, int? limitMi, string blob)
+    {
+        using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", 2));
+        var record = ResourceRecord(package.RootElement, workload);
+        Assert.Equal(workload + "/deployment.yaml", record.GetProperty("sourceManifestPath").GetString());
+        Assert.Equal(blob, record.GetProperty("sourceCheckpointManifestBlob").GetString());
+        Assert.Equal(replicas, NullableInt(record.GetProperty("replicas")));
+        Assert.Equal(requestMi, NullableInt(record.GetProperty("memoryRequestMi")));
+        Assert.Equal(limitMi, NullableInt(record.GetProperty("memoryLimitMi")));
+        var preconditions = record.GetProperty("preconditions");
+        Assert.Equal("Test-Path", preconditions.GetProperty("fileExistsCheck").GetString());
+        Assert.Equal("Skip", preconditions.GetProperty("missingFileBehavior").GetString());
+        Assert.False(preconditions.GetProperty("contentMatchVerified").GetBoolean());
+        Assert.Equal(replicas.HasValue, preconditions.GetProperty("replicas").ValueKind != JsonValueKind.Null);
+        Assert.Equal(requestMi.HasValue, preconditions.GetProperty("memoryRequest").ValueKind != JsonValueKind.Null);
+        Assert.Equal(limitMi.HasValue, preconditions.GetProperty("memoryLimit").ValueKind != JsonValueKind.Null);
+        Assert.False(record.TryGetProperty("successorWorkload", out _));
+    }
+
+    [Fact]
+    public void Render_ResourceIntentRetainsSourceProvenanceAndUnacceptedConsolidationGates()
+    {
+        using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", 2));
+        var root = package.RootElement;
+        var review = root.GetProperty("workloadResourceReview");
+        Assert.Equal("c2b26cd90bf0cd7838c8fe3044c66c2ad3d6a511", review.GetProperty("sourceCommit").GetString());
+        Assert.Equal("da5bf11d23285569cb8020eec7ac9ba6acf4a67d", review.GetProperty("sourceParent").GetString());
+        Assert.Equal("135e526d0dab85c415b3afdcefd7b70fe2c82e2f", review.GetProperty("sourceCheckpoint").GetString());
+        Assert.Equal("update-replicas-and-memory.ps1", review.GetProperty("sourceScript").GetString());
+        Assert.Equal("b8aae2274eb5b8cbfd676b22e036123015b0f334", review.GetProperty("sourceScriptBlob").GetString());
+        Assert.Equal("ConditionalTextReplacementIntent", review.GetProperty("semantics").GetString());
+        foreach (var gate in new[] { "operationExecutionVerified", "manifestAdoptionVerified", "capacityAccepted" })
+        {
+            Assert.False(review.GetProperty(gate).GetBoolean());
+        }
+        var records = review.GetProperty("workloads").EnumerateArray().ToArray();
+        Assert.Equal(8, records.Length);
+        Assert.Equal(8, records.Select(record => record.GetProperty("sourceWorkload").GetString()).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(7, records.Count(record => NullableInt(record.GetProperty("replicas")) == 2));
+        Assert.Equal(4, records.Count(record => NullableInt(record.GetProperty("memoryLimitMi")) == 256));
+        Assert.Single(records, record => record.GetProperty("memoryRequestMi").ValueKind != JsonValueKind.Null);
+        Assert.Contains(review.GetProperty("unresolvedGates").EnumerateArray(), gate => gate.GetString()!.Contains("Accounting", StringComparison.Ordinal));
+        Assert.Contains(review.GetProperty("unresolvedGates").EnumerateArray(), gate => gate.GetString()!.Contains("BFF", StringComparison.Ordinal));
+        Assert.DoesNotContain(root.GetProperty("objects").EnumerateArray(), item => item.GetProperty("kind").GetString() is "Deployment" or "Patch");
+        Assert.True(root.GetProperty("reviewOnly").GetBoolean());
+        Assert.False(root.GetProperty("productionDeploymentAllowed").GetBoolean());
+        Assert.Equal(0, root.GetProperty("cutoverPercent").GetInt32());
+    }
+
+    [Theory]
+    [InlineData("Maliev.AuthService.Api", "replicas", "replicas: 1", "replicas: 2")]
+    [InlineData("Maliev.AuthService.Api", "replicas", "replicas: 2", "replicas: 2")]
+    [InlineData("Maliev.AuthService.Api", "replicas", "replicas: 10", "replicas: 20")]
+    [InlineData("Maliev.AuthService.Api", "replicas", "replicas:  1", "replicas:  1")]
+    [InlineData("Maliev.CustomerService.Api", "memoryLimit", "limits:\n cpu: 100m\n memory: 192Mi", "limits:\n cpu: 100m\n memory: 256Mi")]
+    [InlineData("Maliev.CustomerService.Api", "memoryLimit", "limits:\n cpu: 100m\n memory: 256Mi", "limits:\n cpu: 100m\n memory: 256Mi")]
+    [InlineData("Maliev.CustomerService.Api", "memoryLimit", "limits:\n cpu: 1\n memory: 192Mi", "limits:\n cpu: 1\n memory: 192Mi")]
+    [InlineData("Maliev.CustomerService.Api", "memoryLimit", "requests:\n cpu: 100m\n memory: 192Mi", "requests:\n cpu: 100m\n memory: 192Mi")]
+    [InlineData("Maliev.Intranet", "memoryRequest", "requests:\n cpu: 15m\n memory: 128Mi", "requests:\n cpu: 15m\n memory: 256Mi")]
+    [InlineData("Maliev.Intranet", "memoryRequest", "requests:\n cpu: 15m\n memory: 384Mi", "requests:\n cpu: 15m\n memory: 256Mi")]
+    [InlineData("Maliev.Intranet", "memoryLimit", "limits:\n cpu: 75m\n memory: 192Mi", "limits:\n cpu: 75m\n memory: 384Mi")]
+    [InlineData("Maliev.Intranet", "memoryLimit", "limits:\n cpu: 75m\n memory: 512Mi", "limits:\n cpu: 75m\n memory: 384Mi")]
+    [InlineData("Maliev.Intranet", "memoryLimit", "limits:\n memory: 512Mi", "limits:\n memory: 512Mi")]
+    public void Render_ResourcePreconditionsDescribeConditionalTextMatchesRatherThanUnconditionalSizing(
+        string workload, string operation, string input, string expected)
+    {
+        using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", 2));
+        var replacement = ResourceRecord(package.RootElement, workload).GetProperty("preconditions").GetProperty(operation);
+        Assert.Equal("PowerShell -replace", replacement.GetProperty("operator").GetString());
+        Assert.True(replacement.GetProperty("caseInsensitive").GetBoolean());
+        Assert.True(replacement.GetProperty("allMatches").GetBoolean());
+        Assert.Equal("Unchanged", replacement.GetProperty("noMatchBehavior").GetString());
+        // Independently apply the emitted regex to bounded text, never to a file or workload.
+        Assert.Equal(expected, System.Text.RegularExpressions.Regex.Replace(input,
+            replacement.GetProperty("pattern").GetString()!, replacement.GetProperty("replacement").GetString()!,
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(3)]
+    [InlineData(int.MaxValue)]
+    public void Render_RejectsUnreviewedResourceSchemaVersions(int version) =>
+        Assert.Throws<ArgumentOutOfRangeException>(() => LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", version));
+
+    [Fact]
+    public async Task WriteReviewScript_VersionTwoConsumesConditionalIntentAndPreservesExclusiveOutput()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "apphost-resource-cli-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var first = await RunResourceReviewScript(path, "2");
+            Assert.True(first.ExitCode == 0, first.Error);
+            var bytes = await File.ReadAllBytesAsync(path);
+            using var package = JsonDocument.Parse(bytes);
+            Assert.Equal(2, package.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal(8, package.RootElement.GetProperty("workloadResourceReview").GetProperty("workloads").GetArrayLength());
+            Assert.Equal(384, ResourceRecord(package.RootElement, "Maliev.Intranet").GetProperty("memoryLimitMi").GetInt32());
+            Assert.Equal(JsonValueKind.Null, ResourceRecord(package.RootElement, "Maliev.MaterialService.Api").GetProperty("replicas").ValueKind);
+            Assert.Equal("replicas: 1", ResourceRecord(package.RootElement, "Maliev.AuthService.Api")
+                .GetProperty("preconditions").GetProperty("replicas").GetProperty("pattern").GetString());
+            Assert.False(package.RootElement.GetProperty("productionDeploymentAllowed").GetBoolean());
+            Assert.Equal(8, package.RootElement.GetProperty("objects").GetArrayLength());
+            Assert.Equal(31, ApiPaths(package.RootElement).Length);
+            var second = await RunResourceReviewScript(path, "2");
+            Assert.NotEqual(0, second.ExitCode);
+            Assert.Equal(bytes, await File.ReadAllBytesAsync(path));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Theory]
+    [InlineData("0", false)]
+    [InlineData("3", false)]
+    [InlineData("2", true)]
+    public async Task WriteReviewScript_RejectsInvalidSchemaOrHashBeforeCreatingOutput(string version, bool wrongHash)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "apphost-resource-rejected-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var result = await RunResourceReviewScript(path, version, wrongHash);
+            Assert.NotEqual(0, result.ExitCode);
+            Assert.False(File.Exists(path));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task WriteReviewScript_ExplicitVersionOnePreservesOriginalBytes()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "apphost-resource-v1-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var result = await RunResourceReviewScript(path, "1");
+            Assert.True(result.ExitCode == 0, result.Error);
+            Assert.Equal(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip"), await File.ReadAllTextAsync(path));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Theory]
+    [InlineData("invalid", "existing-ip")]
+    [InlineData("owner@maliev.test", "UPPERCASE")]
+    public void Render_VersionTwoStillRejectsInvalidOwnerInputs(string email, string staticIp) =>
+        Assert.Throws<ArgumentException>(() => LegacyEdgeReviewPackage.Render(email, staticIp, 2));
+
+    private static JsonElement ResourceRecord(JsonElement root, string workload) =>
+        Assert.Single(root.GetProperty("workloadResourceReview").GetProperty("workloads").EnumerateArray(),
+            record => record.GetProperty("sourceWorkload").GetString() == workload);
+
+    private static int? NullableInt(JsonElement value) => value.ValueKind == JsonValueKind.Null ? null : value.GetInt32();
+
+    private static async Task<(int ExitCode, string Error)> RunResourceReviewScript(string path, string version, bool wrongHash = false)
+    {
+        var hash = wrongHash ? new string('0', 64)
+            : Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(typeof(LegacyEdgeReviewPackage).Assembly.Location)));
+        var start = new ProcessStartInfo("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        foreach (var argument in new[] { "-NoProfile", "-File", Path.Combine(RepositoryRoot(), "scripts", "write-edge-review-package.ps1"),
+            "-AcmeEmail", "owner@maliev.test", "-ExistingStaticIpName", "existing-ip", "-OutputPath", path,
+            "-ReviewedAssemblySha256", hash, "-SchemaVersion", version })
+        {
+            start.ArgumentList.Add(argument);
+        }
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("The resource review process did not start.");
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        try { await process.WaitForExitAsync(timeout.Token); }
+        catch (OperationCanceledException cancellation)
+        {
+            try
+            {
+                if (!process.HasExited) { process.Kill(entireProcessTree: true); }
+                using var cleanupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await process.WaitForExitAsync(cleanupTimeout.Token);
+                await Task.WhenAll(output, error).WaitAsync(cleanupTimeout.Token);
+            }
+            catch (Exception cleanupFailure)
+            {
+                cancellation.Data["ProcessCleanupFailure"] = cleanupFailure;
+            }
+            throw;
+        }
+        await Task.WhenAll(output, error);
+        return (process.ExitCode, await error);
+    }
+
     private static void AssertBackendPort(JsonElement root, string host, string path, string service, int port)
     {
         var ingress = Single(root.GetProperty("objects").EnumerateArray().ToArray(), "Ingress");
