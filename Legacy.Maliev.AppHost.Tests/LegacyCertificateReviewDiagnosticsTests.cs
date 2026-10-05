@@ -99,7 +99,7 @@ public sealed class LegacyCertificateReviewDiagnosticsTests
     [Fact]
     public void Diagnose_RejectsMalformedJson()
     {
-        Assert.Throws<JsonException>(() => LegacyCertificateReviewDiagnostics.Diagnose("{", AsOf));
+        Assert.ThrowsAny<JsonException>(() => LegacyCertificateReviewDiagnostics.Diagnose("{", AsOf));
     }
 
     [Fact]
