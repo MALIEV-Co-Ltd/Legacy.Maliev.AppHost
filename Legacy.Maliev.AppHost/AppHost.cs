@@ -2,1141 +2,1131 @@ using System.Text.Json;
 using Google.Cloud.SecretManager.V1;
 using Legacy.Maliev.AppHost.Topology;
 
-var legacyWebIdentity = LegacyWebLaunchIdentity.Capture();
-var googleIdentityClientIdFromProcess = Environment.GetEnvironmentVariable("MALIEV_GOOGLE_IDENTITY_CLIENT_ID") ?? string.Empty;
-var googleIdentityHostedDomainFromProcess = Environment.GetEnvironmentVariable("MALIEV_GOOGLE_IDENTITY_HOSTED_DOMAIN") ?? "maliev.com";
-var recaptchaSiteKeyFromProcess = Environment.GetEnvironmentVariable("MALIEV_RECAPTCHA_SITE_KEY") ?? string.Empty;
-var recaptchaProjectIdFromProcess = Environment.GetEnvironmentVariable("MALIEV_RECAPTCHA_PROJECT_ID") ?? "maliev-website";
-// Captured before sanitization strips it (LocalEnvironmentPolicy.SanitizeCurrentProcess only
-// preserves a small allowlist — LEGACY_GKE_VALIDATION isn't in it, same reason
-// LegacyWebLaunchIdentity.Capture() above must also run first).
-var gkeValidationModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_GKE_VALIDATION"), "true", StringComparison.OrdinalIgnoreCase);
-var localSnapshotModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_SNAPSHOT"), "true", StringComparison.OrdinalIgnoreCase);
-var localDeltaModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_DELTA"), "true", StringComparison.OrdinalIgnoreCase);
-var localDeltaReviewModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_DELTA_REVIEW"), "true", StringComparison.OrdinalIgnoreCase);
-var localDeltaConfigRequested = Environment.GetEnvironmentVariable("LEGACY_LOCAL_DELTA_CONFIG")?.Trim();
-var localSnapshotDirectoryRequested = Environment.GetEnvironmentVariable("LEGACY_LOCAL_SNAPSHOT_DIR")?.Trim();
-var localSnapshotKeyFileRequested = Environment.GetEnvironmentVariable("LEGACY_MIGRATION_SNAPSHOT_ENCRYPTION_KEY_FILE")?.Trim();
-var localSnapshotIdRequested = Environment.GetEnvironmentVariable("LEGACY_LOCAL_SNAPSHOT_ID")?.Trim();
-var localFixturesRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_FIXTURES"), "true", StringComparison.OrdinalIgnoreCase);
-if ((gkeValidationModeRequested ? 1 : 0) +
-    (localSnapshotModeRequested ? 1 : 0) +
-    (localDeltaModeRequested ? 1 : 0) +
-    (localDeltaReviewModeRequested ? 1 : 0) > 1)
-{
-    throw new InvalidOperationException(
-        "LEGACY_GKE_VALIDATION, LEGACY_LOCAL_SNAPSHOT, LEGACY_LOCAL_DELTA, and LEGACY_LOCAL_DELTA_REVIEW are mutually exclusive.");
-}
-
-if (localSnapshotModeRequested && string.IsNullOrWhiteSpace(localSnapshotDirectoryRequested))
-{
-    throw new InvalidOperationException("LEGACY_LOCAL_SNAPSHOT_DIR is required when LEGACY_LOCAL_SNAPSHOT=true.");
-}
-
-if (localSnapshotModeRequested && (string.IsNullOrWhiteSpace(localSnapshotKeyFileRequested) ||
-    !File.Exists(Path.GetFullPath(localSnapshotKeyFileRequested))))
-{
-    throw new InvalidOperationException(
-        "LEGACY_MIGRATION_SNAPSHOT_ENCRYPTION_KEY_FILE must reference an existing key file when LEGACY_LOCAL_SNAPSHOT=true.");
-}
-
-if (localSnapshotModeRequested && string.IsNullOrWhiteSpace(localSnapshotIdRequested))
-{
-    throw new InvalidOperationException("LEGACY_LOCAL_SNAPSHOT_ID is required when LEGACY_LOCAL_SNAPSHOT=true.");
-}
-
-if (localFixturesRequested && !localSnapshotModeRequested)
-{
-    throw new InvalidOperationException("LEGACY_LOCAL_FIXTURES requires LEGACY_LOCAL_SNAPSHOT=true.");
-}
-
-if (localDeltaModeRequested)
-{
-    if (string.IsNullOrWhiteSpace(localDeltaConfigRequested))
-    {
-        throw new InvalidOperationException("LEGACY_LOCAL_DELTA_CONFIG is required when LEGACY_LOCAL_DELTA=true.");
-    }
-}
-
-LocalEnvironmentPolicy.SanitizeCurrentProcess();
-Console.WriteLine(
-    "Legacy Web source identity: repository={0}; branch={1}; commit={2}; project={3}; port={4}",
-    legacyWebIdentity.Repository,
-    legacyWebIdentity.Branch,
-    legacyWebIdentity.Commit,
-    legacyWebIdentity.ProjectPath,
-    legacyWebIdentity.Port);
-
-var builder = DistributedApplication.CreateBuilder(args);
-
-// === BEGIN LEGACY_GKE_VALIDATION (opt-in owner manual QA against real GKE-migrated data,
-// see maliev-web#15; entirely dormant unless LEGACY_GKE_VALIDATION=true is set explicitly).
-// Local containers still start (unused in this mode) to keep this a single additive toggle
-// rather than a second resource graph; only connection strings and migration runners are
-// redirected. Cloud tooling (kubectl) and the production secret name are confined to this
-// region — AppHostSourceContractTests asserts that.
-var gkeValidationMode = gkeValidationModeRequested;
-var gkeSecrets = gkeValidationMode ? LoadGkeValidationSecrets() : null;
-var localSnapshotMode = localSnapshotModeRequested;
-var localFixtures = localSnapshotMode && localFixturesRequested;
-var localPersistentDataMode = localDeltaModeRequested || localDeltaReviewModeRequested;
-var allowExactSnapshotServiceClaims = localSnapshotMode || localPersistentDataMode ? "true" : "false";
-if (gkeValidationMode)
-{
-    // Auto-starts with the app host; no other resource WaitFor()s it so the local
-    // resource graph is unchanged. Npgsql/Polly connection retries in ServiceDefaults
-    // absorb the few seconds before the tunnel is up.
-    builder.AddExecutable(
-        "legacy-gke-postgres-port-forward",
-        "kubectl",
-        Directory.GetCurrentDirectory(),
-        "port-forward", "-n", "maliev-legacy", "svc/legacy-postgres-pooler-rw", "15432:5432");
-}
-
-static Dictionary<string, string> LoadGkeValidationSecrets()
-{
-    var client = SecretManagerServiceClient.Create();
-    var name = SecretVersionName.FromProjectSecretSecretVersion("maliev-website", "maliev-legacy-secrets", "latest");
-    var response = client.AccessSecretVersion(name);
-    var json = response.Payload.Data.ToStringUtf8();
-    return JsonSerializer.Deserialize<Dictionary<string, string>>(json)
-        ?? throw new InvalidOperationException("maliev-legacy-secrets payload did not parse as a flat JSON object.");
-}
-// === END LEGACY_GKE_VALIDATION ===
-
-static string RequireGkeSecret(IReadOnlyDictionary<string, string> secrets, string property)
-{
-    if (!secrets.TryGetValue(property, out var value) || string.IsNullOrWhiteSpace(value))
-    {
-        throw new InvalidOperationException($"LEGACY_GKE_VALIDATION requires the approved secret property '{property}'.");
-    }
-
-    return value.Trim();
-}
-
-static void SetGkeAspireParameter(IReadOnlyDictionary<string, string> secrets, string parameterName, string property)
-{
-    Environment.SetEnvironmentVariable(
-        $"Parameters__{parameterName}",
-        RequireGkeSecret(secrets, property));
-}
-
-var postgresUsername = builder.AddParameter("legacy-postgres-username");
-var postgresPassword = builder.AddParameter("legacy-postgres-password", secret: true);
-var redisPassword = builder.AddParameter("legacy-redis-password", secret: true);
-
-if (gkeValidationMode)
-{
-    SetGkeAspireParameter(gkeSecrets!, "legacy-web-google-maps-embed-api-key", "legacy-web-google-maps-embed-api-key");
-    SetGkeAspireParameter(gkeSecrets!, "legacy-intranet-google-maps-browser-api-key", "legacy-intranet-google-maps-browser-api-key");
-}
-
-var webGoogleMapsEmbedApiKey = builder.AddParameter("legacy-web-google-maps-embed-api-key", secret: true);
-var intranetGoogleMapsBrowserApiKey = builder.AddParameter("legacy-intranet-google-maps-browser-api-key", secret: true);
-var webRecaptchaSiteKey = gkeValidationMode
-    ? RequireGkeSecret(gkeSecrets!, "legacy-web-recaptcha-site-key")
-    : recaptchaSiteKeyFromProcess;
-var webRecaptchaProjectId = gkeValidationMode
-    ? RequireGkeSecret(gkeSecrets!, "legacy-web-recaptcha-project-id")
-    : recaptchaProjectIdFromProcess;
-var googleIdentityClientId = gkeValidationMode
-    ? RequireGkeSecret(gkeSecrets!, "legacy-google-identity-client-id")
-    : builder.Configuration["Authentication:Google:ClientId"] ?? googleIdentityClientIdFromProcess;
-var googleIdentityHostedDomain = gkeValidationMode
-    ? RequireGkeSecret(gkeSecrets!, "legacy-google-identity-employee-hosted-domain")
-    : builder.Configuration["GoogleIdentity:Employee:HostedDomain"] ?? googleIdentityHostedDomainFromProcess;
-var googleIdentityAudience = gkeValidationMode
-    ? RequireGkeSecret(gkeSecrets!, "legacy-google-identity-employee-audience-intranet")
-    : builder.Configuration["GoogleIdentity:Employee:Audiences:intranet"] ?? googleIdentityClientId;
-var jwtIssuer = gkeValidationMode
-    ? RequireGkeSecret(gkeSecrets!, "legacy-jwt-issuer")
-    : LegacyTopology.JwtIssuer;
-var jwtAudience = gkeValidationMode
-    ? RequireGkeSecret(gkeSecrets!, "legacy-jwt-audience")
-    : LegacyTopology.JwtAudience;
-var jwtKeyId = gkeValidationMode
-    ? RequireGkeSecret(gkeSecrets!, "legacy-jwt-key-id")
-    : LegacyTopology.JwtKeyId;
-var jwt = LocalJwtKeyMaterial.Create();
-var webCredential = LocalServiceCredential.Create();
-var intranetCredential = LocalServiceCredential.Create();
-var quotationCredential = LocalServiceCredential.Create();
-var accountingCredential = LocalServiceCredential.Create();
-var dataProtectionCertificate = LocalDataProtectionCertificate.CreateOrLoad("Web");
-var intranetDataProtectionCertificate = LocalDataProtectionCertificate.CreateOrLoad("Intranet");
-
-if (gkeValidationMode)
-{
-    jwt = LocalJwtKeyMaterial.FromSecrets(
-        RequireGkeSecret(gkeSecrets!, "legacy-jwt-private-key"),
-        RequireGkeSecret(gkeSecrets!, "legacy-jwt-public-key"));
-    webCredential = LocalServiceCredential.FromSecretPair(
-        RequireGkeSecret(gkeSecrets!, "legacy-web-service-client-secret"),
-        RequireGkeSecret(gkeSecrets!, "legacy-service-client-legacy-web-secret-sha256"),
-        "legacy-web");
-    intranetCredential = LocalServiceCredential.FromSecretPair(
-        RequireGkeSecret(gkeSecrets!, "legacy-intranet-service-client-secret"),
-        RequireGkeSecret(gkeSecrets!, "legacy-service-client-legacy-intranet-secret-sha256"),
-        "legacy-intranet");
-    quotationCredential = LocalServiceCredential.FromSecretPair(
-        RequireGkeSecret(gkeSecrets!, "legacy-quotation-service-client-secret"),
-        RequireGkeSecret(gkeSecrets!, "legacy-service-client-legacy-quotation-secret-sha256"),
-        "legacy-quotation");
-    accountingCredential = LocalServiceCredential.FromSecretPair(
-        RequireGkeSecret(gkeSecrets!, "legacy-accounting-service-client-secret"),
-        RequireGkeSecret(gkeSecrets!, "legacy-service-client-legacy-accounting-secret-sha256"),
-        "legacy-accounting");
-    dataProtectionCertificate = LocalDataProtectionCertificate.FromSecrets(
-        RequireGkeSecret(gkeSecrets!, "legacy-web-data-protection-certificate-pfx-base64"),
-        RequireGkeSecret(gkeSecrets!, "legacy-web-data-protection-certificate-password"));
-    intranetDataProtectionCertificate = LocalDataProtectionCertificate.FromSecrets(
-        RequireGkeSecret(gkeSecrets!, "legacy-intranet-data-protection-certificate-pfx-base64"),
-        RequireGkeSecret(gkeSecrets!, "legacy-intranet-data-protection-certificate-password"));
-}
-
-var postgres = builder.AddPostgres("legacy-postgres-main", postgresUsername, postgresPassword)
-    .WithImageTag("18-alpine")
-    .WithArgs(
-        "-c", "max_connections=100",
-        "-c", "shared_buffers=256MB",
-        "-c", "effective_cache_size=768MB",
-        "-c", "work_mem=2MB",
-        "-c", "maintenance_work_mem=64MB",
-        "-c", "wal_compression=on")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WithContainerRuntimeArgs("--cpus", "0.75", "--memory", "1024m");
-
-if (localPersistentDataMode)
-{
-    // Adopt the independently reconciled exact-23 Docker volume. Aspire's
-    // lifecycle-managed data volume creates a different physical volume.
-    postgres.WithVolume(
-        PersistentLocalDeltaReviewContract.PostgresVolumeName,
-        PersistentLocalDeltaReviewContract.PostgresVolumeTarget);
-}
-
-IResourceBuilder<ProjectResource>? localDeltaApply = null;
-if (localDeltaModeRequested)
-{
-    localDeltaApply = builder.AddProject<Projects.Legacy_Maliev_AppHost_LocalDeltaRunner>("legacy-local-delta-apply")
-        .WithEnvironment("LEGACY_LOCAL_DELTA_CONFIG", localDeltaConfigRequested)
-        .WithReference(postgres)
-        .WaitFor(postgres);
-    localDeltaApply.WithParentRelationship(postgres.Resource);
-}
-
-var pgbouncer = builder.AddContainer("legacy-postgres-pooler-rw", "edoburu/pgbouncer", "v1.25.2-p0")
-    .WithEndpoint(targetPort: 5432, name: "tcp")
-    .WithEnvironment("DB_HOST", postgres.GetEndpoint("tcp").Property(EndpointProperty.Host))
-    .WithEnvironment("DB_PORT", postgres.GetEndpoint("tcp").Property(EndpointProperty.Port))
-    .WithEnvironment("DB_USER", postgresUsername)
-    .WithEnvironment("DB_PASSWORD", postgresPassword)
-    .WithEnvironment("AUTH_TYPE", "scram-sha-256")
-    .WithEnvironment("POOL_MODE", "transaction")
-    .WithEnvironment("DEFAULT_POOL_SIZE", "3")
-    .WithEnvironment("MAX_CLIENT_CONN", "200")
-    .WithEnvironment("MIN_POOL_SIZE", "0")
-    .WithEnvironment("RESERVE_POOL_SIZE", "1")
-    .WithEnvironment("SERVER_IDLE_TIMEOUT", "60")
-    .WithContainerRuntimeArgs("--cpus", "0.10", "--memory", "96m")
-    .WaitFor(postgres);
-
-ReferenceExpression CreatePooledDatabaseConnectionString(string databaseName)
-{
-    if (gkeValidationMode)
-    {
-        var credentialKeys = LegacyGkeDatabaseCredentialKeys.For(databaseName);
-        if (!gkeSecrets!.TryGetValue(credentialKeys.Username, out var gkeUsername)
-            || !gkeSecrets.TryGetValue(credentialKeys.Password, out var gkePassword))
-        {
-            throw new InvalidOperationException(
-                $"LEGACY_GKE_VALIDATION is set but the loaded GKE secret bundle has no credentials for database '{databaseName}' (expected keys {credentialKeys.Username}/{credentialKeys.Password}).");
-        }
-
-        return ReferenceExpression.Create(
-            $"Host=127.0.0.1;Port=15432;Database={databaseName};Username={gkeUsername};Password={gkePassword};SSL Mode=Disable;Maximum Pool Size=10;Connection Idle Lifetime=60;Timeout=15;Command Timeout=30");
-    }
-
-    return ReferenceExpression.Create(
-        $"Host={pgbouncer.GetEndpoint("tcp").Property(EndpointProperty.Host)};Port={pgbouncer.GetEndpoint("tcp").Property(EndpointProperty.Port)};Database={databaseName};Username={postgresUsername};Password={postgresPassword};SSL Mode=Disable;Maximum Pool Size=10;Connection Idle Lifetime=60;Timeout=15;Command Timeout=30");
-}
-
-var databases = new Dictionary<string, IResourceBuilder<PostgresDatabaseResource>>(StringComparer.Ordinal);
-foreach (var databaseName in LegacyTopology.DatabaseNames)
-{
-    var resourceName = $"legacy-{ToKebabCase(databaseName)}-db";
-    databases.Add(databaseName, postgres.AddDatabase(resourceName, databaseName));
-}
-
-var authDatabase = postgres.AddDatabase("legacy-auth-db", "Auth");
-var customerIdentityDatabase = databases["CustomerIdentity"];
-var employeeIdentityDatabase = databases["EmployeeIdentity"];
-
-var redis = builder.AddRedis("legacy-redis", port: null, password: redisPassword)
-    .WithImageTag("8.4-alpine")
-    .WithContainerRuntimeArgs("--cpus", "0.10", "--memory", "96m");
-var redisResp3ConnectionString = ReferenceExpression.Create($"{redis.Resource.ConnectionStringExpression},protocol=resp3");
-
-// FileService intentionally fails closed when malware scanning is unavailable.
-// Keep a resource-bounded ClamAV daemon in the local Aspire graph so owner review
-// can exercise the complete quarantine -> scan -> promotion path without adding
-// any GKE workload or node-pool capacity.
-var clamav = builder.AddContainer("legacy-clamav", "clamav/clamav", "1.4.5")
-    .WithEndpoint(targetPort: 3310, name: "tcp")
-    .WithContainerRuntimeArgs(
-        "--cpus", "0.25",
-        "--memory", "2g",
-        "--health-cmd", "clamdscan --ping=1 --wait /etc/hostname >/dev/null 2>&1",
-        "--health-interval", "30s",
-        "--health-timeout", "10s",
-        "--health-retries", "3",
-        "--health-start-period", "120s");
-
-var countryDatabase = databases["Country"];
-var countryMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-country-migrations")
-    .WithArgs("country")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
-    .WithEnvironment("ConnectionStrings__CountryDbContext", countryDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WaitFor(countryDatabase);
-
-var country = builder.AddProject<Projects.Legacy_Maliev_CountryService_Api>("legacy-maliev-country-service")
-    .WithEnvironment("ConnectionStrings__CountryDbContext", CreatePooledDatabaseConnectionString("Country"))
-    .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
-    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", jwtIssuer)
-    .WithEnvironment("Jwt__Audience", jwtAudience)
-    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
-    .WithEnvironment("DOTNET_GCConserveMemory", "3")
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WithHttpHealthCheck("/countries/liveness", endpointName: "http")
-    .WithHttpHealthCheck("/countries/readiness", endpointName: "http")
-    .WithUrlForEndpoint("http", url =>
-    {
-        url.Url = "/countries/scalar";
-        url.DisplayText = "Country Scalar";
-    })
-    .WaitForCompletion(countryMigrations)
-    .WaitFor(pgbouncer)
-    .WaitFor(redis);
-
-countryMigrations.WithParentRelationship(country.Resource);
-
-var document = builder.AddProject<Projects.Legacy_Maliev_DocumentService_Api>("legacy-maliev-document-service")
-    .WithHttpEndpoint(name: "http")
-    .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
-    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", jwtIssuer)
-    .WithEnvironment("Jwt__Audience", jwtAudience)
-    .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
-    .WithEnvironment("DOTNET_GCConserveMemory", "3")
-    .WithHttpHealthCheck("/documents/liveness", endpointName: "http")
-    .WithHttpHealthCheck("/documents/readiness", endpointName: "http")
-    .WithUrlForEndpoint("http", url =>
-    {
-        url.Url = "/documents/scalar";
-        url.DisplayText = "Document Scalar";
-    });
-
-// Auth is local in normal and snapshot modes, but explicit GKE validation must exercise the
-// GitOps-managed Auth/RefreshSessions database without running migrations or writes against it.
-var authConnectionString = gkeValidationMode
-    ? CreatePooledDatabaseConnectionString("Auth")
-    : authDatabase.Resource.ConnectionStringExpression;
-var authMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-auth-migrations")
-    .WithArgs("auth")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", gkeValidationMode ? "false" : "true")
-    .WithEnvironment("ConnectionStrings__RefreshSessions", authConnectionString)
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WaitFor(authDatabase);
-
-var customerIdentityMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
-        "legacy-customer-identity-migrations")
-    .WithArgs("customer-identity")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_FIXTURES", localFixtures ? "true" : "false")
-    .WithEnvironment("ConnectionStrings__CustomerIdentity", customerIdentityDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WaitFor(customerIdentityDatabase);
-
-var employeeIdentityMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
-        "legacy-employee-identity-migrations")
-    .WithArgs("employee-identity")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_FIXTURES", localFixtures ? "true" : "false")
-    .WithEnvironment("ConnectionStrings__EmployeeIdentity", employeeIdentityDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WaitFor(employeeIdentityDatabase);
-
-// These preserved stores do not have an extracted service-owned EF migration
-// runner. In local exact-data mode they still need to be restored so the snapshot
-// represents the complete retained migrated production inventory rather than only
-// databases with active APIs. Log is excluded from the current inventory.
-if (localSnapshotMode)
-{
-    _ = AddSnapshotMigration("legacy-contact-request-snapshot", "ContactRequest");
-    _ = AddSnapshotMigration("legacy-currency-snapshot", "Currency");
-    _ = AddSnapshotMigration("legacy-data-protection-keys-snapshot", "DataProtectionKeys");
-    _ = AddSnapshotMigration(
-        "legacy-data-protection-keys-employee-snapshot",
-        "DataProtectionKeysEmployee");
-    _ = AddSnapshotMigration("legacy-location-data-snapshot", "LocationData");
-}
-
-IResourceBuilder<ProjectResource> AddSnapshotMigration(string resourceName, string databaseName)
-{
-    var database = databases[databaseName];
-    return builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(resourceName)
-        .WithArgs("snapshot", databaseName)
-        .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
-        .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", "false")
-        .WithEnvironment("LEGACY_SNAPSHOT_DIRECTORY", localSnapshotDirectoryRequested)
-        .WithEnvironment("LEGACY_SNAPSHOT_ENCRYPTION_KEY_FILE", localSnapshotKeyFileRequested)
-        .WithEnvironment("LEGACY_SNAPSHOT_ID", localSnapshotIdRequested)
-        .WithEnvironment("ConnectionStrings__SnapshotDb", database.Resource.ConnectionStringExpression)
-        .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-        .WithEnvironment("PGGSSENCMODE", "disable")
-        .WaitFor(database);
-}
-
-var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>("legacy-maliev-auth-service")
-    .WithHttpEndpoint(name: "http")
-    .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
-    .WithEnvironment("ConnectionStrings__CustomerIdentity", CreatePooledDatabaseConnectionString("CustomerIdentity"))
-    .WithEnvironment("ConnectionStrings__EmployeeIdentity", CreatePooledDatabaseConnectionString("EmployeeIdentity"))
-    .WithEnvironment("ConnectionStrings__RefreshSessions", authConnectionString)
-    .WithEnvironment("Jwt__Issuer", jwtIssuer)
-    .WithEnvironment("Jwt__Audience", jwtAudience)
-    .WithEnvironment("Jwt__PrivateKeyPem", jwt.PrivateKeyPem)
-    .WithEnvironment("Jwt__KeyId", jwtKeyId)
-    .WithEnvironment("GoogleIdentity__Employee__HostedDomain", googleIdentityHostedDomain)
-    .WithEnvironment("GoogleIdentity__Employee__Audiences__intranet", googleIdentityAudience)
-    .WithEnvironment("ServiceClients__Clients__legacy-web__SecretSha256", webCredential.SecretSha256)
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__0", "legacy-auth.customer-self-service")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__1", "legacy-customer.customers.create")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__2", "legacy-customer.customers.delete")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__3", "legacy.notifications.send")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__4", "legacy-customer.customers.read")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__5", "legacy-customer.customers.update")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__6", "legacy-customer.addresses.create")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__7", "legacy-customer.addresses.update")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__8", "legacy-customer.companies.create")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__9", "legacy-customer.companies.update")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__10", "legacy-customer.companies.delete")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__11", "legacy.customer-orders.read")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__12", "legacy.customer-orders.cancel")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__13", "legacy.customer-quotations.read")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__14", "legacy-contact.messages.create")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__15", "legacy.quotation-requests.create")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__16", "legacy.quotation-files.write")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__17", "legacy-file.uploads.create")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__18", "legacy-file.uploads.delete")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__19", "legacy-catalog.countries.read")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__20", "legacy-catalog.currencies.read")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__21", "legacy-catalog.materials.read")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__22", "legacy-catalog.material-groups.read")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__23", "legacy.orders.create")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__24", "legacy.order-catalog.read")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__25", "legacy.order-files.write")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__26", "legacy.order-status.write")
-    .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__27", "legacy.orders.delete")
-    .WithEnvironment("ServiceClients__Clients__legacy-intranet__SecretSha256", intranetCredential.SecretSha256)
-    .WithEnvironment("ServiceClients__Clients__legacy-quotation__SecretSha256", quotationCredential.SecretSha256)
-    .WithEnvironment("ServiceClients__Clients__legacy-quotation__Permissions__0", "legacy.order-status.write")
-    .WithEnvironment("ServiceClients__Clients__legacy-accounting__SecretSha256", accountingCredential.SecretSha256)
-    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
-    .WithEnvironment("DOTNET_GCConserveMemory", "3")
-    .WithHttpHealthCheck("/auth/liveness", endpointName: "http")
-    .WithHttpHealthCheck("/auth/readiness", endpointName: "http")
-    .WithUrlForEndpoint("http", url =>
-    {
-        url.Url = "/auth/scalar";
-        url.DisplayText = "Auth Scalar";
-    })
-    .WaitForCompletion(authMigrations)
-    .WaitForCompletion(customerIdentityMigrations)
-    .WaitForCompletion(employeeIdentityMigrations)
-    .WaitFor(pgbouncer);
-
-for (var permissionIndex = 0; permissionIndex < LegacyTopology.IntranetPermissions.Count; permissionIndex++)
-{
-    auth.WithEnvironment(
-        $"ServiceClients__Clients__legacy-intranet__Permissions__{permissionIndex}",
-        LegacyTopology.IntranetPermissions[permissionIndex]);
-}
-
-for (var permissionIndex = 0; permissionIndex < LegacyTopology.AccountingPermissions.Count; permissionIndex++)
-{
-    auth.WithEnvironment(
-        $"ServiceClients__Clients__legacy-accounting__Permissions__{permissionIndex}",
-        LegacyTopology.AccountingPermissions[permissionIndex]);
-}
-authMigrations.WithParentRelationship(auth.Resource);
-customerIdentityMigrations.WithParentRelationship(auth.Resource);
-employeeIdentityMigrations.WithParentRelationship(auth.Resource);
-
-
-var customerDatabase = databases["Customer"];
-var customerMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-customer-migrations")
-    .WithArgs("customer")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_FIXTURES", localFixtures ? "true" : "false")
-    .WithEnvironment("ConnectionStrings__CustomerDbContext", customerDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WaitFor(customerDatabase);
-
-var customer = builder.AddProject<Projects.Legacy_Maliev_CustomerService_Api>(
-        "legacy-maliev-customer-service",
-        launchProfileName: "http")
-    .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__CustomerDbContext", CreatePooledDatabaseConnectionString("Customer"))
-    .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
-    .WithEnvironment("AuthService__LegacyCustomerIdentityBaseUrl", ReferenceExpression.Create($"{auth.GetEndpoint("http")}/auth/v1/legacy/customers/"))
-    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", jwtIssuer)
-    .WithEnvironment("Jwt__Audience", jwtAudience)
-    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
-    .WithEnvironment("DOTNET_GCConserveMemory", "3")
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WithHttpHealthCheck("/customer/liveness", endpointName: "http")
-    .WithHttpHealthCheck("/customer/readiness", endpointName: "http")
-    .WithUrlForEndpoint("http", url =>
-    {
-        url.Url = "/customer/scalar";
-        url.DisplayText = "Customer Scalar";
-    })
-    .WaitForCompletion(customerMigrations)
-    .WaitFor(pgbouncer)
-    .WaitFor(redis)
-    .WaitFor(auth);
-
-customerMigrations.WithParentRelationship(customer.Resource);
-
-var employeeDatabase = databases["Employee"];
-var employeeMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-employee-migrations")
-    .WithArgs("employee")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
-    .WithEnvironment("ConnectionStrings__EmployeeDbContext", employeeDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WaitFor(employeeDatabase);
-
-var employee = builder.AddProject<Projects.Legacy_Maliev_EmployeeService_Api>(
-        "legacy-maliev-employee-service",
-        launchProfileName: "http")
-    .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__EmployeeDbContext", CreatePooledDatabaseConnectionString("Employee"))
-    .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
-    .WithEnvironment("AuthService__LegacyEmployeeIdentityBaseUrl", ReferenceExpression.Create($"{auth.GetEndpoint("http")}/auth/v1/legacy/employees/"))
-    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", jwtIssuer)
-    .WithEnvironment("Jwt__Audience", jwtAudience)
-    .WithEnvironment("Features__AllowExactServiceClaimsForLiveCheck", allowExactSnapshotServiceClaims)
-    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
-    .WithEnvironment("DOTNET_GCConserveMemory", "3")
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WithHttpHealthCheck("/employee/liveness", endpointName: "http")
-    .WithHttpHealthCheck("/employee/readiness", endpointName: "http")
-    .WithUrlForEndpoint("http", url =>
-    {
-        url.Url = "/employee/scalar";
-        url.DisplayText = "Employee Scalar";
-    })
-    .WaitForCompletion(employeeMigrations)
-    .WaitFor(pgbouncer)
-    .WaitFor(redis)
-    .WaitFor(auth);
-
-employeeMigrations.WithParentRelationship(employee.Resource);
-
-var catalogDatabase = databases["Material"];
-var catalogMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-catalog-migrations")
-    .WithArgs("catalog")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
-    .WithEnvironment("ConnectionStrings__CatalogDbContext", catalogDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WaitFor(catalogDatabase);
-
-var catalog = builder.AddProject<Projects.Legacy_Maliev_CatalogService_Api>(
-        "legacy-maliev-catalog-service",
-        launchProfileName: "http")
-    .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__CatalogDbContext", CreatePooledDatabaseConnectionString("Material"))
-    .WithEnvironment("ConnectionStrings__CountryDbContext", CreatePooledDatabaseConnectionString("Country"))
-    .WithEnvironment("ConnectionStrings__CurrencyDbContext", CreatePooledDatabaseConnectionString("Currency"))
-    .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
-    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", jwtIssuer)
-    .WithEnvironment("Jwt__Audience", jwtAudience)
-    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
-    .WithEnvironment("DOTNET_GCConserveMemory", "3")
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WithHttpHealthCheck("/catalog/liveness", endpointName: "http")
-    .WithHttpHealthCheck("/catalog/readiness", endpointName: "http")
-    .WithUrlForEndpoint("http", url =>
-    {
-        url.Url = "/catalog/scalar";
-        url.DisplayText = "Catalog Scalar";
-    })
-    .WaitForCompletion(catalogMigrations)
-    .WaitFor(pgbouncer)
-    .WaitFor(redis)
-    .WaitFor(auth);
-
-catalogMigrations.WithParentRelationship(catalog.Resource);
-
-var supplierDatabase = databases["Supplier"];
-var purchaseOrderDatabase = databases["PurchaseOrder"];
-var supplierMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-supplier-migrations")
-    .WithArgs("supplier")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
-    .WithEnvironment("ConnectionStrings__SupplierDbContext", supplierDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WaitFor(supplierDatabase);
-var purchaseOrderMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-purchase-order-migrations")
-    .WithArgs("purchase-order")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
-    .WithEnvironment("ConnectionStrings__PurchaseOrderDbContext", purchaseOrderDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WaitFor(purchaseOrderDatabase);
-
-var procurement = builder.AddProject<Projects.Legacy_Maliev_ProcurementService_Api>(
-        "legacy-maliev-procurement-service",
-        launchProfileName: "http")
-    .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__SupplierDbContext", CreatePooledDatabaseConnectionString("Supplier"))
-    .WithEnvironment("ConnectionStrings__PurchaseOrderDbContext", CreatePooledDatabaseConnectionString("PurchaseOrder"))
-    .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
-    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", jwtIssuer)
-    .WithEnvironment("Jwt__Audience", jwtAudience)
-    .WithEnvironment("Features__AllowExactServiceClaimsForLiveCheck", allowExactSnapshotServiceClaims)
-    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
-    .WithEnvironment("DOTNET_GCConserveMemory", "3")
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WithHttpHealthCheck("/procurement/liveness", endpointName: "http")
-    .WithHttpHealthCheck("/procurement/readiness", endpointName: "http")
-    .WithUrlForEndpoint("http", url =>
-    {
-        url.Url = "/procurement/scalar";
-        url.DisplayText = "Procurement Scalar";
-    })
-    .WaitForCompletion(supplierMigrations)
-    .WaitForCompletion(purchaseOrderMigrations)
-    .WaitFor(pgbouncer)
-    .WaitFor(redis)
-    .WaitFor(auth);
-
-supplierMigrations.WithParentRelationship(procurement.Resource);
-purchaseOrderMigrations.WithParentRelationship(procurement.Resource);
-
-var fileDatabase = databases["Upload"];
-var fileMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-file-migrations")
-    .WithArgs("file")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
-    .WithEnvironment("ConnectionStrings__FileDbContext", fileDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WaitFor(fileDatabase);
-
-var file = builder.AddProject<Projects.Legacy_Maliev_FileService_Api>(
-        "legacy-maliev-file-service",
-        launchProfileName: "http")
-    .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__FileDbContext", CreatePooledDatabaseConnectionString("Upload"))
-    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", jwtIssuer)
-    .WithEnvironment("Jwt__Audience", jwtAudience)
-    .WithEnvironment("MalwareScanner__Host", clamav.GetEndpoint("tcp").Property(EndpointProperty.Host))
-    .WithEnvironment("MalwareScanner__Port", clamav.GetEndpoint("tcp").Property(EndpointProperty.Port))
-    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
-    .WithEnvironment("DOTNET_GCConserveMemory", "3")
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WithHttpHealthCheck("/file/liveness", endpointName: "http")
-    .WithHttpHealthCheck("/file/readiness", endpointName: "http")
-    .WithUrlForEndpoint("http", url =>
-    {
-        url.Url = "/file/scalar";
-        url.DisplayText = "File Scalar";
-    })
-    .WaitForCompletion(fileMigrations)
-    .WaitFor(pgbouncer)
-    .WaitFor(clamav)
-    .WaitFor(auth);
-
-fileMigrations.WithParentRelationship(file.Resource);
-
-var notification = builder.AddProject<Projects.Legacy_Maliev_NotificationService_Api>(
-        "legacy-maliev-notification-service",
-        launchProfileName: "http")
-    .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
-    .WithEnvironment("Notifications__UseDevelopmentRecordingProvider", "true")
-    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", jwtIssuer)
-    .WithEnvironment("Jwt__Audience", jwtAudience)
-    .WithEnvironment("DOTNET_GCHeapHardLimit", "100663296")
-    .WithEnvironment("DOTNET_GCConserveMemory", "3")
-    .WithHttpHealthCheck("/emails/liveness", endpointName: "http")
-    .WithHttpHealthCheck("/emails/readiness", endpointName: "http")
-    .WithUrlForEndpoint("http", url =>
-    {
-        url.Url = "/emails/scalar";
-        url.DisplayText = "Notification Scalar";
-    });
-
-var orderDatabase = databases["Order"];
-var orderStatusDatabase = databases["OrderStatus"];
-var orderMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-order-migrations")
-    .WithArgs("order")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
-    .WithEnvironment("ConnectionStrings__OrderDbContext", orderDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WaitFor(orderDatabase);
-var orderStatusMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
-        "legacy-order-status-migrations")
-    .WithArgs("order-status")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
-    .WithEnvironment("ConnectionStrings__OrderStatusDbContext", orderStatusDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WaitFor(orderStatusDatabase);
-
-var order = builder.AddProject<Projects.Legacy_Maliev_OrderService_Api>(
-        "legacy-maliev-order-service",
-        launchProfileName: "http")
-    .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__OrderDbContext", CreatePooledDatabaseConnectionString("Order"))
-    .WithEnvironment("ConnectionStrings__OrderStatusDbContext", CreatePooledDatabaseConnectionString("OrderStatus"))
-    .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
-    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", jwtIssuer)
-    .WithEnvironment("Jwt__Audience", jwtAudience)
-    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
-    .WithEnvironment("DOTNET_GCConserveMemory", "3")
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WithHttpHealthCheck("/order/liveness", endpointName: "http")
-    .WithHttpHealthCheck("/order/readiness", endpointName: "http")
-    .WithUrlForEndpoint("http", url =>
-    {
-        url.Url = "/order/scalar";
-        url.DisplayText = "Order Scalar";
-    })
-    .WaitForCompletion(orderMigrations)
-    .WaitForCompletion(orderStatusMigrations)
-    .WaitFor(pgbouncer)
-    .WaitFor(redis)
-    .WaitFor(auth);
-
-orderMigrations.WithParentRelationship(order.Resource);
-orderStatusMigrations.WithParentRelationship(order.Resource);
-
-var quotationDatabase = databases["Quotation"];
-var quotationRequestDatabase = databases["QuotationRequest"];
-var quotationMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
-        "legacy-quotation-migrations")
-    .WithArgs("quotation")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
-    .WithEnvironment("ConnectionStrings__QuotationDbContext", quotationDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WaitFor(quotationDatabase);
-var quotationRequestMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
-        "legacy-quotation-request-migrations")
-    .WithArgs("quotation-request")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
-    .WithEnvironment("ConnectionStrings__QuotationRequestDbContext", quotationRequestDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WaitFor(quotationRequestDatabase);
-
-var quotation = builder.AddProject<Projects.Legacy_Maliev_QuotationService_Api>(
-        "legacy-maliev-quotation-service",
-        launchProfileName: "http")
-    .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__QuotationDbContext", CreatePooledDatabaseConnectionString("Quotation"))
-    .WithEnvironment("ConnectionStrings__QuotationRequestDbContext", CreatePooledDatabaseConnectionString("QuotationRequest"))
-    .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
-    .WithEnvironment("ServiceAuthentication__ClientId", "legacy-quotation")
-    .WithEnvironment("ServiceAuthentication__ClientSecret", quotationCredential.Secret)
-    .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
-    .WithEnvironment("Services__Order", order.GetEndpoint("http"))
-    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", jwtIssuer)
-    .WithEnvironment("Jwt__Audience", jwtAudience)
-    .WithEnvironment("Features__AllowExactServiceClaimsForLiveCheck", allowExactSnapshotServiceClaims)
-    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
-    .WithEnvironment("DOTNET_GCConserveMemory", "3")
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WithHttpHealthCheck("/quotation/liveness", endpointName: "http")
-    .WithHttpHealthCheck("/quotation/readiness", endpointName: "http")
-    .WithUrlForEndpoint("http", url =>
-    {
-        url.Url = "/quotation/scalar";
-        url.DisplayText = "Quotation Scalar";
-    })
-    .WaitForCompletion(quotationMigrations)
-    .WaitForCompletion(quotationRequestMigrations)
-    .WithReference(auth)
-    .WithReference(order)
-    .WaitFor(pgbouncer)
-    .WaitFor(redis)
-    .WaitFor(auth)
-    .WaitFor(order);
-
-quotationMigrations.WithParentRelationship(quotation.Resource);
-quotationRequestMigrations.WithParentRelationship(quotation.Resource);
-
-var careerDatabase = databases["JobOffers"];
-var careerMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-career-migrations")
-    .WithArgs("career")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
-    .WithEnvironment("ConnectionStrings__CareerDbContext", careerDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WaitFor(careerDatabase);
-var career = builder.AddProject<Projects.Legacy_Maliev_CareerService_Api>(
-        "legacy-maliev-career-service",
-        launchProfileName: "http")
-    .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__CareerDbContext", CreatePooledDatabaseConnectionString("JobOffers"))
-    .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
-    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", jwtIssuer)
-    .WithEnvironment("Jwt__Audience", jwtAudience)
-    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
-    .WithEnvironment("DOTNET_GCConserveMemory", "3")
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WithHttpHealthCheck("/Jobs/liveness", endpointName: "http")
-    .WithHttpHealthCheck("/Jobs/readiness", endpointName: "http")
-    .WithUrlForEndpoint("http", url =>
-    {
-        url.Url = "/Jobs/scalar";
-        url.DisplayText = "Career Scalar";
-    })
-    .WaitForCompletion(careerMigrations)
-    .WaitFor(pgbouncer)
-    .WaitFor(redis);
-
-careerMigrations.WithParentRelationship(career.Resource);
-
-var contactDatabase = databases["Message"];
-var contactMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-contact-migrations")
-    .WithArgs("contact")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
-    .WithEnvironment("ConnectionStrings__ContactRequestDbContext", contactDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WaitFor(contactDatabase);
-var contact = builder.AddProject<Projects.Legacy_Maliev_ContactService_Api>(
-        "legacy-maliev-contact-service",
-        launchProfileName: "http")
-    .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__ContactRequestDbContext", CreatePooledDatabaseConnectionString("Message"))
-    .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
-    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", jwtIssuer)
-    .WithEnvironment("Jwt__Audience", jwtAudience)
-    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
-    .WithEnvironment("DOTNET_GCConserveMemory", "3")
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WithHttpHealthCheck("/messages/liveness", endpointName: "http")
-    .WithHttpHealthCheck("/messages/readiness", endpointName: "http")
-    .WithUrlForEndpoint("http", url =>
-    {
-        url.Url = "/messages/scalar";
-        url.DisplayText = "Contact Scalar";
-    })
-    .WaitForCompletion(contactMigrations)
-    .WaitFor(pgbouncer)
-    .WaitFor(redis);
-
-contactMigrations.WithParentRelationship(contact.Resource);
-
-var paymentDatabase = databases["Payment"];
-var invoiceDatabase = databases["Invoice"];
-var receiptDatabase = databases["Receipt"];
-var paymentMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-payment-migrations")
-    .WithArgs("payment")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
-    .WithEnvironment("ConnectionStrings__PaymentDbContext", paymentDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WaitFor(paymentDatabase);
-var invoiceMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-invoice-migrations")
-    .WithArgs("invoice")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
-    .WithEnvironment("ConnectionStrings__InvoiceDbContext", invoiceDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WaitFor(invoiceDatabase);
-var receiptMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-receipt-migrations")
-    .WithArgs("receipt")
-    .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
-    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
-    .WithEnvironment("ConnectionStrings__ReceiptDbContext", receiptDatabase.Resource.ConnectionStringExpression)
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WaitFor(receiptDatabase);
-var accounting = builder.AddProject<Projects.Legacy_Maliev_AccountingService_Api>(
-        "legacy-maliev-accounting-service",
-        launchProfileName: "http")
-    .ConfigureDynamicHttpEndpoint()
-    .WithEnvironment("ConnectionStrings__PaymentDbContext", CreatePooledDatabaseConnectionString("Payment"))
-    .WithEnvironment("ConnectionStrings__InvoiceDbContext", CreatePooledDatabaseConnectionString("Invoice"))
-    .WithEnvironment("ConnectionStrings__ReceiptDbContext", CreatePooledDatabaseConnectionString("Receipt"))
-    .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
-    .WithEnvironment("ServiceAuthentication__ClientId", "legacy-accounting")
-    .WithEnvironment("ServiceAuthentication__ClientSecret", accountingCredential.Secret)
-    .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
-    .WithEnvironment("Services__Document", document.GetEndpoint("http"))
-    .WithEnvironment("Services__File", file.GetEndpoint("http"))
-    .WithEnvironment("Services__Notification", notification.GetEndpoint("http"))
-    .WithEnvironment("Services__Customer", customer.GetEndpoint("http"))
-    .WithEnvironment("Services__Employee", employee.GetEndpoint("http"))
-    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", jwtIssuer)
-    .WithEnvironment("Jwt__Audience", jwtAudience)
-    .WithEnvironment("Features__AllowExactServiceClaimsForLiveCheck", allowExactSnapshotServiceClaims)
-    .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
-    .WithEnvironment("DOTNET_GCConserveMemory", "3")
-    .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
-    .WithEnvironment("PGGSSENCMODE", "disable")
-    .WithHttpHealthCheck("/accounting/liveness", endpointName: "http")
-    .WithHttpHealthCheck("/accounting/readiness", endpointName: "http")
-    .WithUrlForEndpoint("http", url =>
-    {
-        url.Url = "/accounting/scalar";
-        url.DisplayText = "Accounting Scalar";
-    })
-    .WaitForCompletion(paymentMigrations)
-    .WaitForCompletion(invoiceMigrations)
-    .WaitForCompletion(receiptMigrations)
-    .WaitFor(pgbouncer)
-    .WaitFor(redis)
-    .WithReference(auth)
-    .WithReference(document)
-    .WithReference(file)
-    .WithReference(notification)
-    .WithReference(customer)
-    .WithReference(employee)
-    .WaitFor(auth)
-    .WaitFor(document)
-    .WaitFor(file)
-    .WaitFor(notification)
-    .WaitFor(customer)
-    .WaitFor(employee);
-
-paymentMigrations.WithParentRelationship(accounting.Resource);
-invoiceMigrations.WithParentRelationship(accounting.Resource);
-receiptMigrations.WithParentRelationship(accounting.Resource);
-
-var web = builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
-    .WithHttpEndpoint(port: legacyWebIdentity.Port, name: "http")
-    .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
-    .WithEnvironment("DOTNET_ENVIRONMENT", "Development")
-    .WithEnvironment("BuildIdentity__Repository", legacyWebIdentity.Repository)
-    .WithEnvironment("BuildIdentity__Branch", legacyWebIdentity.Branch)
-    .WithEnvironment("BuildIdentity__Commit", legacyWebIdentity.Commit)
-    .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
-    .WithEnvironment("DataProtection__CertificatePfxBase64", dataProtectionCertificate.PfxBase64)
-    .WithEnvironment("DataProtection__CertificatePassword", dataProtectionCertificate.Password)
-    .WithEnvironment("ServiceAuthentication__ClientId", "legacy-web")
-    .WithEnvironment("ServiceAuthentication__ClientSecret", webCredential.Secret)
-    .WithEnvironment("Recaptcha__SiteKey", webRecaptchaSiteKey)
-    .WithEnvironment("Recaptcha__ProjectId", webRecaptchaProjectId)
-    .WithEnvironment("GoogleMaps__EmbedApiKey", webGoogleMapsEmbedApiKey)
-    .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
-    .WithEnvironment("Services__Customer", customer.GetEndpoint("http"))
-    .WithEnvironment("Services__Notification", notification.GetEndpoint("http"))
-    .WithEnvironment("Services__Country", country.GetEndpoint("http"))
-    .WithEnvironment("Services__Document", document.GetEndpoint("http"))
-    .WithEnvironment("Services__Catalog", catalog.GetEndpoint("http"))
-    .WithEnvironment("Services__File", file.GetEndpoint("http"))
-    .WithEnvironment("Services__Accounting", accounting.GetEndpoint("http"))
-    .WithEnvironment("Services__Order", order.GetEndpoint("http"))
-    .WithEnvironment("Services__Quotation", quotation.GetEndpoint("http"))
-    .WithEnvironment("Services__Career", career.GetEndpoint("http"))
-    .WithEnvironment("Services__Contact", contact.GetEndpoint("http"))
-    .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
-    .WithEnvironment("DOTNET_GCConserveMemory", "3")
-    .WithHttpHealthCheck("/web/liveness", endpointName: "http")
-    .WithHttpHealthCheck("/web/readiness", endpointName: "http")
-    .WithUrlForEndpoint("http", url =>
-    {
-        url.Url = "/Account/Login";
-        url.DisplayText = "Legacy Web";
-    })
-    .WaitFor(redis)
-    .WaitFor(auth)
-    .WaitFor(customer)
-    .WaitFor(order)
-    .WaitFor(quotation)
-    .WaitFor(notification)
-    .WaitFor(career)
-    .WaitFor(contact);
-
-// NOTE: The Legacy.Maliev.Intranet Razor Pages compatibility host is intentionally not launched
-// here. Every original route (Customers, Employees, Materials, Suppliers, Orders, Purchase Orders,
-// Quotations, Quotation Requests, Invoices, Finances, Dashboard, Server/ErrorReport) already has a
-// Legacy.Maliev.Intranet.Client (Blazor WASM) + Legacy.Maliev.Intranet.Bff equivalent, so local
-// Aspire now surfaces a single employee login instead of two. The Razor Pages project itself still
-// exists in the solution (Legacy.Maliev.Intranet.slnx) for the formal GKE parity/cutover process —
-// only its local AppHost registration was removed. Re-add the block below if you need to run it
-// standalone again for a specific route comparison:
-//
-// var intranetCompatibility = builder.AddProject<Projects.Legacy_Maliev_Intranet>("legacy-maliev-intranet")
-//     .WithHttpsEndpoint(name: "https")
-//     ...(see git history for the full resource definition)...
-
-var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legacy-maliev-intranet-bff")
-    .WithHttpsEndpoint(name: "https")
-    .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
-    .WithEnvironment("Workspace__AllowLocalTestDomain", "true")
-    .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
-    .WithEnvironment("DataProtection__CertificatePfxBase64", intranetDataProtectionCertificate.PfxBase64)
-    .WithEnvironment("DataProtection__CertificatePassword", intranetDataProtectionCertificate.Password)
-    .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
-    .WithEnvironment("Jwt__Issuer", jwtIssuer)
-    .WithEnvironment("Jwt__Audience", jwtAudience)
-    .WithEnvironment("Jwt__KeyId", jwtKeyId)
-    .WithEnvironment("ServiceAuthentication__ClientId", "legacy-intranet")
-    .WithEnvironment("ServiceAuthentication__ClientSecret", intranetCredential.Secret)
-    .WithEnvironment("Authentication__Google__ClientId", googleIdentityClientId)
-    .WithEnvironment("GoogleMaps__BrowserApiKey", intranetGoogleMapsBrowserApiKey)
-    .WithEnvironment("CustomerOnboarding__PublicWebBaseUrl", web.GetEndpoint("http"))
-    .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
-    .WithEnvironment("Services__Catalog", catalog.GetEndpoint("http"))
-    .WithEnvironment("Services__Order", order.GetEndpoint("http"))
-    .WithEnvironment("Services__Employee", employee.GetEndpoint("http"))
-    .WithEnvironment("Services__Quotation", quotation.GetEndpoint("http"))
-    .WithEnvironment("Services__Customer", customer.GetEndpoint("http"))
-    .WithEnvironment("Services__Procurement", procurement.GetEndpoint("http"))
-    .WithEnvironment("Services__Document", document.GetEndpoint("http"))
-    .WithEnvironment("Services__File", file.GetEndpoint("http"))
-    .WithEnvironment("Services__Notification", notification.GetEndpoint("http"))
-    .WithEnvironment("Services__Accounting", accounting.GetEndpoint("http"))
-    .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
-    .WithEnvironment("DOTNET_GCConserveMemory", "3")
-    .WithHttpHealthCheck("/intranet-bff/liveness", endpointName: "https")
-    .WithHttpHealthCheck("/intranet-bff/readiness", endpointName: "https")
-    .WithUrlForEndpoint("https", url =>
-    {
-        url.Url = "/Login";
-        url.DisplayText = "Legacy Intranet BFF";
-    })
-    .WithReference(redis)
-    .WithReference(auth)
-    .WithReference(catalog)
-    .WithReference(order)
-    .WithReference(employee)
-    .WithReference(quotation)
-    .WithReference(customer)
-    .WithReference(procurement)
-    .WithReference(document)
-    .WithReference(file)
-    .WithReference(notification)
-    .WithReference(accounting)
-    .WaitFor(redis)
-    .WaitFor(auth)
-    .WaitFor(catalog)
-    .WaitFor(order)
-    .WaitFor(employee)
-    .WaitFor(quotation);
-
-// Confirmation links must return to the browser-facing HTTPS endpoint, not a
-// service-discovery URL or an untrusted request Host header. Resolve the local
-// Aspire port from this resource's own endpoint after it has been declared.
-intranetBff.WithEnvironment("EmployeeConfirmation__PublicOrigin", intranetBff.GetEndpoint("https"));
-// Customer/Procurement/Document/File/Notification/Accounting are intentionally not
-// WaitFor'd: login only needs Auth. Hard-waiting the Bff on every downstream page's
-// service would reintroduce "login doesn't work locally" whenever any one of those six
-// is slow to start, which is the exact class of bug this AppHost is meant to avoid.
-// WithReference above still gives the Bff their URLs; slow/late services just mean
-// Customers/Suppliers/Purchase Orders/Finances/Invoices load late, not that login blocks.
-
-// Do not rely on parent-process environment inheritance for authenticated snapshot identity.
-// Every workload capable of consuming a snapshot receives the run identity explicitly.
-foreach (IResourceBuilder<ProjectResource> snapshotRunner in new[]
-{
-    countryMigrations, authMigrations, customerIdentityMigrations, employeeIdentityMigrations,
-    customerMigrations, employeeMigrations, catalogMigrations, supplierMigrations, purchaseOrderMigrations,
-    fileMigrations, orderMigrations, orderStatusMigrations, quotationMigrations, quotationRequestMigrations,
-    careerMigrations, contactMigrations, paymentMigrations, invoiceMigrations, receiptMigrations
-})
-{
-    snapshotRunner.WithEnvironment("LEGACY_SNAPSHOT_DIRECTORY", localSnapshotDirectoryRequested);
-    snapshotRunner.WithEnvironment("LEGACY_SNAPSHOT_ENCRYPTION_KEY_FILE", localSnapshotKeyFileRequested);
-    snapshotRunner.WithEnvironment("LEGACY_SNAPSHOT_ID", localSnapshotIdRequested);
-    // Auth is runtime-only state and is deliberately outside the exact-23 production-data
-    // inventory. It still needs its own PostgreSQL schema when the persistent data volume is
-    // adopted; only the source-derived database migrations must remain disabled here.
-    if (localPersistentDataMode && !ReferenceEquals(snapshotRunner, authMigrations))
-    {
-        snapshotRunner
-            .WithEnvironment("LEGACY_SKIP_MIGRATE", "true")
-            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", "false");
-        if (localDeltaApply is not null)
-        {
-            snapshotRunner.WaitForCompletion(localDeltaApply);
-        }
-    }
-}
-
+var builder = AppHostComposition.CreateBuilder(args);
 builder.Build().Run();
 
-static string ToKebabCase(string value)
+internal static class AppHostComposition
 {
-    var result = new System.Text.StringBuilder(value.Length + 8);
-    for (var index = 0; index < value.Length; index++)
+    internal static IDistributedApplicationBuilder CreateBuilder(
+        string[] args,
+        string? certificateStorageDirectory = null,
+        DistributedApplicationOptions? applicationOptions = null,
+        Action<IDistributedApplicationBuilder>? configureBuilder = null)
     {
-        var character = value[index];
-        if (index > 0 && char.IsUpper(character))
+        var legacyWebIdentity = LegacyWebLaunchIdentity.Capture();
+        var googleIdentityClientIdFromProcess = Environment.GetEnvironmentVariable("MALIEV_GOOGLE_IDENTITY_CLIENT_ID") ?? string.Empty;
+        var googleIdentityHostedDomainFromProcess = Environment.GetEnvironmentVariable("MALIEV_GOOGLE_IDENTITY_HOSTED_DOMAIN") ?? "maliev.com";
+        var recaptchaSiteKeyFromProcess = Environment.GetEnvironmentVariable("MALIEV_RECAPTCHA_SITE_KEY") ?? string.Empty;
+        var recaptchaProjectIdFromProcess = Environment.GetEnvironmentVariable("MALIEV_RECAPTCHA_PROJECT_ID") ?? "maliev-website";
+        // Captured before sanitization strips it (LocalEnvironmentPolicy.SanitizeCurrentProcess only
+        // preserves a small allowlist — LEGACY_GKE_VALIDATION isn't in it, same reason
+        // LegacyWebLaunchIdentity.Capture() above must also run first).
+        var gkeValidationModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_GKE_VALIDATION"), "true", StringComparison.OrdinalIgnoreCase);
+        var localSnapshotModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_SNAPSHOT"), "true", StringComparison.OrdinalIgnoreCase);
+        var localDeltaModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_DELTA"), "true", StringComparison.OrdinalIgnoreCase);
+        var localDeltaReviewModeRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_DELTA_REVIEW"), "true", StringComparison.OrdinalIgnoreCase);
+        var localDeltaConfigRequested = Environment.GetEnvironmentVariable("LEGACY_LOCAL_DELTA_CONFIG")?.Trim();
+        var localSnapshotDirectoryRequested = Environment.GetEnvironmentVariable("LEGACY_LOCAL_SNAPSHOT_DIR")?.Trim();
+        var localSnapshotKeyFileRequested = Environment.GetEnvironmentVariable("LEGACY_MIGRATION_SNAPSHOT_ENCRYPTION_KEY_FILE")?.Trim();
+        var localSnapshotIdRequested = Environment.GetEnvironmentVariable("LEGACY_LOCAL_SNAPSHOT_ID")?.Trim();
+        var localFixturesRequested = string.Equals(Environment.GetEnvironmentVariable("LEGACY_LOCAL_FIXTURES"), "true", StringComparison.OrdinalIgnoreCase);
+        AppHostStartupGuard.Validate(
+            gkeValidationModeRequested, localSnapshotModeRequested, localDeltaModeRequested,
+            localDeltaReviewModeRequested, localFixturesRequested, localSnapshotDirectoryRequested,
+            localSnapshotKeyFileRequested, localSnapshotIdRequested, localDeltaConfigRequested);
+        LocalEnvironmentPolicy.SanitizeCurrentProcess();
+        Console.WriteLine(
+            "Legacy Web source identity: repository={0}; branch={1}; commit={2}; project={3}; port={4}",
+            legacyWebIdentity.Repository,
+            legacyWebIdentity.Branch,
+            legacyWebIdentity.Commit,
+            legacyWebIdentity.ProjectPath,
+            legacyWebIdentity.Port);
+
+        if (applicationOptions is not null)
         {
-            result.Append('-');
+            applicationOptions.Args = args;
+        }
+        var builder = applicationOptions is null
+            ? DistributedApplication.CreateBuilder(args)
+            : DistributedApplication.CreateBuilder(applicationOptions);
+        configureBuilder?.Invoke(builder);
+
+        // === BEGIN LEGACY_GKE_VALIDATION (opt-in owner manual QA against real GKE-migrated data,
+        // see maliev-web#15; entirely dormant unless LEGACY_GKE_VALIDATION=true is set explicitly).
+        // Local containers still start (unused in this mode) to keep this a single additive toggle
+        // rather than a second resource graph; only connection strings and migration runners are
+        // redirected. Cloud tooling (kubectl) and the production secret name are confined to this
+        // region — AppHostSourceContractTests asserts that.
+        var gkeValidationMode = gkeValidationModeRequested;
+        var gkeSecrets = gkeValidationMode ? LoadGkeValidationSecrets() : null;
+        var localSnapshotMode = localSnapshotModeRequested;
+        var localFixtures = localSnapshotMode && localFixturesRequested;
+        var localPersistentDataMode = localDeltaModeRequested || localDeltaReviewModeRequested;
+        var allowExactSnapshotServiceClaims = localSnapshotMode || localPersistentDataMode ? "true" : "false";
+        if (gkeValidationMode)
+        {
+            // Auto-starts with the app host; no other resource WaitFor()s it so the local
+            // resource graph is unchanged. Npgsql/Polly connection retries in ServiceDefaults
+            // absorb the few seconds before the tunnel is up.
+            builder.AddExecutable(
+                "legacy-gke-postgres-port-forward",
+                "kubectl",
+                Directory.GetCurrentDirectory(),
+                "port-forward", "-n", "maliev-legacy", "svc/legacy-postgres-pooler-rw", "15432:5432");
         }
 
-        result.Append(char.ToLowerInvariant(character));
+        static Dictionary<string, string> LoadGkeValidationSecrets()
+        {
+            var client = SecretManagerServiceClient.Create();
+            var name = SecretVersionName.FromProjectSecretSecretVersion("maliev-website", "maliev-legacy-secrets", "latest");
+            var response = client.AccessSecretVersion(name);
+            var json = response.Payload.Data.ToStringUtf8();
+            return JsonSerializer.Deserialize<Dictionary<string, string>>(json)
+                ?? throw new InvalidOperationException("maliev-legacy-secrets payload did not parse as a flat JSON object.");
+        }
+        // === END LEGACY_GKE_VALIDATION ===
+
+        static string RequireGkeSecret(IReadOnlyDictionary<string, string> secrets, string property)
+        {
+            if (!secrets.TryGetValue(property, out var value) || string.IsNullOrWhiteSpace(value))
+            {
+                throw new InvalidOperationException($"LEGACY_GKE_VALIDATION requires the approved secret property '{property}'.");
+            }
+
+            return value.Trim();
+        }
+
+        static void SetGkeAspireParameter(IReadOnlyDictionary<string, string> secrets, string parameterName, string property)
+        {
+            Environment.SetEnvironmentVariable(
+                $"Parameters__{parameterName}",
+                RequireGkeSecret(secrets, property));
+        }
+
+        var postgresUsername = builder.AddParameter("legacy-postgres-username");
+        var postgresPassword = builder.AddParameter("legacy-postgres-password", secret: true);
+        var redisPassword = builder.AddParameter("legacy-redis-password", secret: true);
+
+        if (gkeValidationMode)
+        {
+            SetGkeAspireParameter(gkeSecrets!, "legacy-web-google-maps-embed-api-key", "legacy-web-google-maps-embed-api-key");
+            SetGkeAspireParameter(gkeSecrets!, "legacy-intranet-google-maps-browser-api-key", "legacy-intranet-google-maps-browser-api-key");
+        }
+
+        var webGoogleMapsEmbedApiKey = builder.AddParameter("legacy-web-google-maps-embed-api-key", secret: true);
+        var intranetGoogleMapsBrowserApiKey = builder.AddParameter("legacy-intranet-google-maps-browser-api-key", secret: true);
+        var webRecaptchaSiteKey = gkeValidationMode
+            ? RequireGkeSecret(gkeSecrets!, "legacy-web-recaptcha-site-key")
+            : recaptchaSiteKeyFromProcess;
+        var webRecaptchaProjectId = gkeValidationMode
+            ? RequireGkeSecret(gkeSecrets!, "legacy-web-recaptcha-project-id")
+            : recaptchaProjectIdFromProcess;
+        var googleIdentityClientId = gkeValidationMode
+            ? RequireGkeSecret(gkeSecrets!, "legacy-google-identity-client-id")
+            : builder.Configuration["Authentication:Google:ClientId"] ?? googleIdentityClientIdFromProcess;
+        var googleIdentityHostedDomain = gkeValidationMode
+            ? RequireGkeSecret(gkeSecrets!, "legacy-google-identity-employee-hosted-domain")
+            : builder.Configuration["GoogleIdentity:Employee:HostedDomain"] ?? googleIdentityHostedDomainFromProcess;
+        var googleIdentityAudience = gkeValidationMode
+            ? RequireGkeSecret(gkeSecrets!, "legacy-google-identity-employee-audience-intranet")
+            : builder.Configuration["GoogleIdentity:Employee:Audiences:intranet"] ?? googleIdentityClientId;
+        var jwtIssuer = gkeValidationMode
+            ? RequireGkeSecret(gkeSecrets!, "legacy-jwt-issuer")
+            : LegacyTopology.JwtIssuer;
+        var jwtAudience = gkeValidationMode
+            ? RequireGkeSecret(gkeSecrets!, "legacy-jwt-audience")
+            : LegacyTopology.JwtAudience;
+        var jwtKeyId = gkeValidationMode
+            ? RequireGkeSecret(gkeSecrets!, "legacy-jwt-key-id")
+            : LegacyTopology.JwtKeyId;
+        var jwt = LocalJwtKeyMaterial.Create();
+        var webCredential = LocalServiceCredential.Create();
+        var intranetCredential = LocalServiceCredential.Create();
+        var quotationCredential = LocalServiceCredential.Create();
+        var accountingCredential = LocalServiceCredential.Create();
+        var dataProtectionCertificate = certificateStorageDirectory is null
+            ? LocalDataProtectionCertificate.CreateOrLoad("Web")
+            : LocalDataProtectionCertificate.CreateOrLoad("Web", certificateStorageDirectory);
+        var intranetDataProtectionCertificate = certificateStorageDirectory is null
+            ? LocalDataProtectionCertificate.CreateOrLoad("Intranet")
+            : LocalDataProtectionCertificate.CreateOrLoad("Intranet", certificateStorageDirectory);
+
+        if (gkeValidationMode)
+        {
+            jwt = LocalJwtKeyMaterial.FromSecrets(
+                RequireGkeSecret(gkeSecrets!, "legacy-jwt-private-key"),
+                RequireGkeSecret(gkeSecrets!, "legacy-jwt-public-key"));
+            webCredential = LocalServiceCredential.FromSecretPair(
+                RequireGkeSecret(gkeSecrets!, "legacy-web-service-client-secret"),
+                RequireGkeSecret(gkeSecrets!, "legacy-service-client-legacy-web-secret-sha256"),
+                "legacy-web");
+            intranetCredential = LocalServiceCredential.FromSecretPair(
+                RequireGkeSecret(gkeSecrets!, "legacy-intranet-service-client-secret"),
+                RequireGkeSecret(gkeSecrets!, "legacy-service-client-legacy-intranet-secret-sha256"),
+                "legacy-intranet");
+            quotationCredential = LocalServiceCredential.FromSecretPair(
+                RequireGkeSecret(gkeSecrets!, "legacy-quotation-service-client-secret"),
+                RequireGkeSecret(gkeSecrets!, "legacy-service-client-legacy-quotation-secret-sha256"),
+                "legacy-quotation");
+            accountingCredential = LocalServiceCredential.FromSecretPair(
+                RequireGkeSecret(gkeSecrets!, "legacy-accounting-service-client-secret"),
+                RequireGkeSecret(gkeSecrets!, "legacy-service-client-legacy-accounting-secret-sha256"),
+                "legacy-accounting");
+            dataProtectionCertificate = LocalDataProtectionCertificate.FromSecrets(
+                RequireGkeSecret(gkeSecrets!, "legacy-web-data-protection-certificate-pfx-base64"),
+                RequireGkeSecret(gkeSecrets!, "legacy-web-data-protection-certificate-password"));
+            intranetDataProtectionCertificate = LocalDataProtectionCertificate.FromSecrets(
+                RequireGkeSecret(gkeSecrets!, "legacy-intranet-data-protection-certificate-pfx-base64"),
+                RequireGkeSecret(gkeSecrets!, "legacy-intranet-data-protection-certificate-password"));
+        }
+
+        var postgres = builder.AddPostgres("legacy-postgres-main", postgresUsername, postgresPassword)
+            .WithImageTag("18-alpine")
+            .WithArgs(
+                "-c", "max_connections=100",
+                "-c", "shared_buffers=256MB",
+                "-c", "effective_cache_size=768MB",
+                "-c", "work_mem=2MB",
+                "-c", "maintenance_work_mem=64MB",
+                "-c", "wal_compression=on")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WithContainerRuntimeArgs("--cpus", "0.75", "--memory", "1024m");
+
+        if (localPersistentDataMode)
+        {
+            // Adopt the independently reconciled exact-23 Docker volume. Aspire's
+            // lifecycle-managed data volume creates a different physical volume.
+            postgres.WithVolume(
+                PersistentLocalDeltaReviewContract.PostgresVolumeName,
+                PersistentLocalDeltaReviewContract.PostgresVolumeTarget);
+        }
+
+        IResourceBuilder<ProjectResource>? localDeltaApply = null;
+        if (localDeltaModeRequested)
+        {
+            localDeltaApply = builder.AddProject<Projects.Legacy_Maliev_AppHost_LocalDeltaRunner>("legacy-local-delta-apply")
+                .WithEnvironment("LEGACY_LOCAL_DELTA_CONFIG", localDeltaConfigRequested)
+                .WithReference(postgres)
+                .WaitFor(postgres);
+            localDeltaApply.WithParentRelationship(postgres.Resource);
+        }
+
+        var pgbouncer = builder.AddContainer("legacy-postgres-pooler-rw", "edoburu/pgbouncer", "v1.25.2-p0")
+            .WithEndpoint(targetPort: 5432, name: "tcp")
+            .WithEnvironment("DB_HOST", postgres.GetEndpoint("tcp").Property(EndpointProperty.Host))
+            .WithEnvironment("DB_PORT", postgres.GetEndpoint("tcp").Property(EndpointProperty.Port))
+            .WithEnvironment("DB_USER", postgresUsername)
+            .WithEnvironment("DB_PASSWORD", postgresPassword)
+            .WithEnvironment("AUTH_TYPE", "scram-sha-256")
+            .WithEnvironment("POOL_MODE", "transaction")
+            .WithEnvironment("DEFAULT_POOL_SIZE", "3")
+            .WithEnvironment("MAX_CLIENT_CONN", "200")
+            .WithEnvironment("MIN_POOL_SIZE", "0")
+            .WithEnvironment("RESERVE_POOL_SIZE", "1")
+            .WithEnvironment("SERVER_IDLE_TIMEOUT", "60")
+            .WithContainerRuntimeArgs("--cpus", "0.10", "--memory", "96m")
+            .WaitFor(postgres);
+
+        ReferenceExpression CreatePooledDatabaseConnectionString(string databaseName)
+        {
+            if (gkeValidationMode)
+            {
+                var credentialKeys = LegacyGkeDatabaseCredentialKeys.For(databaseName);
+                if (!gkeSecrets!.TryGetValue(credentialKeys.Username, out var gkeUsername)
+                    || !gkeSecrets.TryGetValue(credentialKeys.Password, out var gkePassword))
+                {
+                    throw new InvalidOperationException(
+                        $"LEGACY_GKE_VALIDATION is set but the loaded GKE secret bundle has no credentials for database '{databaseName}' (expected keys {credentialKeys.Username}/{credentialKeys.Password}).");
+                }
+
+                return LegacyPoolerConnectionString.ForGke(databaseName, gkeUsername, gkePassword);
+            }
+
+            return LegacyPoolerConnectionString.ForLocal(
+                ReferenceExpression.Create($"{pgbouncer.GetEndpoint("tcp").Property(EndpointProperty.Host)}"),
+                ReferenceExpression.Create($"{pgbouncer.GetEndpoint("tcp").Property(EndpointProperty.Port)}"),
+                databaseName, postgresUsername.Resource, postgresPassword.Resource);
+        }
+
+        var databases = new Dictionary<string, IResourceBuilder<PostgresDatabaseResource>>(StringComparer.Ordinal);
+        foreach (var databaseName in LegacyTopology.DatabaseNames)
+        {
+            var resourceName = $"legacy-{ToKebabCase(databaseName)}-db";
+            databases.Add(databaseName, postgres.AddDatabase(resourceName, databaseName));
+        }
+
+        var authDatabase = postgres.AddDatabase("legacy-auth-db", "Auth");
+        var customerIdentityDatabase = databases["CustomerIdentity"];
+        var employeeIdentityDatabase = databases["EmployeeIdentity"];
+
+        var redis = builder.AddRedis("legacy-redis", port: null, password: redisPassword)
+            .WithImageTag("8.4-alpine")
+            .WithContainerRuntimeArgs("--cpus", "0.10", "--memory", "96m");
+        var redisResp3ConnectionString = ReferenceExpression.Create($"{redis.Resource.ConnectionStringExpression},protocol=resp3");
+
+        // FileService intentionally fails closed when malware scanning is unavailable.
+        // Keep a resource-bounded ClamAV daemon in the local Aspire graph so owner review
+        // can exercise the complete quarantine -> scan -> promotion path without adding
+        // any GKE workload or node-pool capacity.
+        var clamav = builder.AddContainer("legacy-clamav", "clamav/clamav", "1.4.5")
+            .WithEndpoint(targetPort: 3310, name: "tcp")
+            .WithContainerRuntimeArgs(
+                "--cpus", "0.25",
+                "--memory", "2g",
+                "--health-cmd", "clamdscan --ping=1 --wait /etc/hostname >/dev/null 2>&1",
+                "--health-interval", "30s",
+                "--health-timeout", "10s",
+                "--health-retries", "3",
+                "--health-start-period", "120s");
+
+        var countryDatabase = databases["Country"];
+        var countryMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-country-migrations")
+            .WithArgs("country")
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
+            .WithEnvironment("ConnectionStrings__CountryDbContext", countryDatabase.Resource.ConnectionStringExpression)
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WaitFor(countryDatabase);
+
+        var country = builder.AddProject<Projects.Legacy_Maliev_CountryService_Api>("legacy-maliev-country-service")
+            .WithEnvironment("ConnectionStrings__CountryDbContext", CreatePooledDatabaseConnectionString("Country"))
+            .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
+            .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+            .WithEnvironment("Jwt__Issuer", jwtIssuer)
+            .WithEnvironment("Jwt__Audience", jwtAudience)
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCConserveMemory", "3")
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WithHttpHealthCheck("/countries/liveness", endpointName: "http")
+            .WithHttpHealthCheck("/countries/readiness", endpointName: "http")
+            .WithUrlForEndpoint("http", url =>
+            {
+                url.Url = "/countries/scalar";
+                url.DisplayText = "Country Scalar";
+            })
+            .WaitForCompletion(countryMigrations)
+            .WaitFor(pgbouncer)
+            .WaitFor(redis);
+
+        countryMigrations.WithParentRelationship(country.Resource);
+
+        var document = builder.AddProject<Projects.Legacy_Maliev_DocumentService_Api>("legacy-maliev-document-service")
+            .WithHttpEndpoint(name: "http")
+            .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+            .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+            .WithEnvironment("Jwt__Issuer", jwtIssuer)
+            .WithEnvironment("Jwt__Audience", jwtAudience)
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
+            .WithEnvironment("DOTNET_GCConserveMemory", "3")
+            .WithHttpHealthCheck("/documents/liveness", endpointName: "http")
+            .WithHttpHealthCheck("/documents/readiness", endpointName: "http")
+            .WithUrlForEndpoint("http", url =>
+            {
+                url.Url = "/documents/scalar";
+                url.DisplayText = "Document Scalar";
+            });
+
+        // Auth is local in normal and snapshot modes, but explicit GKE validation must exercise the
+        // GitOps-managed Auth/RefreshSessions database without running migrations or writes against it.
+        var authConnectionString = gkeValidationMode
+            ? CreatePooledDatabaseConnectionString("Auth")
+            : authDatabase.Resource.ConnectionStringExpression;
+        var authMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-auth-migrations")
+            .WithArgs("auth")
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", gkeValidationMode ? "false" : "true")
+            .WithEnvironment("ConnectionStrings__RefreshSessions", authConnectionString)
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WaitFor(authDatabase);
+
+        var customerIdentityMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
+                "legacy-customer-identity-migrations")
+            .WithArgs("customer-identity")
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_FIXTURES", localFixtures ? "true" : "false")
+            .WithEnvironment("ConnectionStrings__CustomerIdentity", customerIdentityDatabase.Resource.ConnectionStringExpression)
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WaitFor(customerIdentityDatabase);
+
+        var employeeIdentityMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
+                "legacy-employee-identity-migrations")
+            .WithArgs("employee-identity")
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_FIXTURES", localFixtures ? "true" : "false")
+            .WithEnvironment("ConnectionStrings__EmployeeIdentity", employeeIdentityDatabase.Resource.ConnectionStringExpression)
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WaitFor(employeeIdentityDatabase);
+
+        // These preserved stores do not have an extracted service-owned EF migration
+        // runner. In local exact-data mode they still need to be restored so the snapshot
+        // represents the complete retained migrated production inventory rather than only
+        // databases with active APIs. Log is excluded from the current inventory.
+        if (localSnapshotMode)
+        {
+            _ = AddSnapshotMigration("legacy-contact-request-snapshot", "ContactRequest");
+            _ = AddSnapshotMigration("legacy-currency-snapshot", "Currency");
+            _ = AddSnapshotMigration("legacy-data-protection-keys-snapshot", "DataProtectionKeys");
+            _ = AddSnapshotMigration(
+                "legacy-data-protection-keys-employee-snapshot",
+                "DataProtectionKeysEmployee");
+            _ = AddSnapshotMigration("legacy-location-data-snapshot", "LocationData");
+        }
+
+        IResourceBuilder<ProjectResource> AddSnapshotMigration(string resourceName, string databaseName)
+        {
+            var database = databases[databaseName];
+            return builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(resourceName)
+                .WithArgs("snapshot", databaseName)
+                .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+                .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", "false")
+                .WithEnvironment("LEGACY_SNAPSHOT_DIRECTORY", localSnapshotDirectoryRequested)
+                .WithEnvironment("LEGACY_SNAPSHOT_ENCRYPTION_KEY_FILE", localSnapshotKeyFileRequested)
+                .WithEnvironment("LEGACY_SNAPSHOT_ID", localSnapshotIdRequested)
+                .WithEnvironment("ConnectionStrings__SnapshotDb", database.Resource.ConnectionStringExpression)
+                .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+                .WithEnvironment("PGGSSENCMODE", "disable")
+                .WaitFor(database);
+        }
+
+        var auth = builder.AddProject<Projects.Legacy_Maliev_AuthService_Api>("legacy-maliev-auth-service")
+            .WithHttpEndpoint(name: "http")
+            .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+            .WithEnvironment("ConnectionStrings__CustomerIdentity", CreatePooledDatabaseConnectionString("CustomerIdentity"))
+            .WithEnvironment("ConnectionStrings__EmployeeIdentity", CreatePooledDatabaseConnectionString("EmployeeIdentity"))
+            .WithEnvironment("ConnectionStrings__RefreshSessions", authConnectionString)
+            .WithEnvironment("Jwt__Issuer", jwtIssuer)
+            .WithEnvironment("Jwt__Audience", jwtAudience)
+            .WithEnvironment("Jwt__PrivateKeyPem", jwt.PrivateKeyPem)
+            .WithEnvironment("Jwt__KeyId", jwtKeyId)
+            .WithEnvironment("GoogleIdentity__Employee__HostedDomain", googleIdentityHostedDomain)
+            .WithEnvironment("GoogleIdentity__Employee__Audiences__intranet", googleIdentityAudience)
+            .WithEnvironment("ServiceClients__Clients__legacy-web__SecretSha256", webCredential.SecretSha256)
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__0", "legacy-auth.customer-self-service")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__1", "legacy-customer.customers.create")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__2", "legacy-customer.customers.delete")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__3", "legacy.notifications.send")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__4", "legacy-customer.customers.read")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__5", "legacy-customer.customers.update")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__6", "legacy-customer.addresses.create")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__7", "legacy-customer.addresses.update")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__8", "legacy-customer.companies.create")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__9", "legacy-customer.companies.update")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__10", "legacy-customer.companies.delete")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__11", "legacy.customer-orders.read")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__12", "legacy.customer-orders.cancel")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__13", "legacy.customer-quotations.read")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__14", "legacy-contact.messages.create")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__15", "legacy.quotation-requests.create")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__16", "legacy.quotation-files.write")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__17", "legacy-file.uploads.create")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__18", "legacy-file.uploads.delete")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__19", "legacy-catalog.countries.read")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__20", "legacy-catalog.currencies.read")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__21", "legacy-catalog.materials.read")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__22", "legacy-catalog.material-groups.read")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__23", "legacy.orders.create")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__24", "legacy.order-catalog.read")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__25", "legacy.order-files.write")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__26", "legacy.order-status.write")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__27", "legacy.orders.delete")
+            .WithEnvironment("ServiceClients__Clients__legacy-intranet__SecretSha256", intranetCredential.SecretSha256)
+            .WithEnvironment("ServiceClients__Clients__legacy-quotation__SecretSha256", quotationCredential.SecretSha256)
+            .WithEnvironment("ServiceClients__Clients__legacy-quotation__Permissions__0", "legacy.order-status.write")
+            .WithEnvironment("ServiceClients__Clients__legacy-accounting__SecretSha256", accountingCredential.SecretSha256)
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCConserveMemory", "3")
+            .WithHttpHealthCheck("/auth/liveness", endpointName: "http")
+            .WithHttpHealthCheck("/auth/readiness", endpointName: "http")
+            .WithUrlForEndpoint("http", url =>
+            {
+                url.Url = "/auth/scalar";
+                url.DisplayText = "Auth Scalar";
+            })
+            .WaitForCompletion(authMigrations)
+            .WaitForCompletion(customerIdentityMigrations)
+            .WaitForCompletion(employeeIdentityMigrations)
+            .WaitFor(pgbouncer);
+
+        for (var permissionIndex = 0; permissionIndex < LegacyTopology.IntranetPermissions.Count; permissionIndex++)
+        {
+            auth.WithEnvironment(
+                $"ServiceClients__Clients__legacy-intranet__Permissions__{permissionIndex}",
+                LegacyTopology.IntranetPermissions[permissionIndex]);
+        }
+
+        for (var permissionIndex = 0; permissionIndex < LegacyTopology.AccountingPermissions.Count; permissionIndex++)
+        {
+            auth.WithEnvironment(
+                $"ServiceClients__Clients__legacy-accounting__Permissions__{permissionIndex}",
+                LegacyTopology.AccountingPermissions[permissionIndex]);
+        }
+        authMigrations.WithParentRelationship(auth.Resource);
+        customerIdentityMigrations.WithParentRelationship(auth.Resource);
+        employeeIdentityMigrations.WithParentRelationship(auth.Resource);
+
+
+        var customerDatabase = databases["Customer"];
+        var customerMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-customer-migrations")
+            .WithArgs("customer")
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_FIXTURES", localFixtures ? "true" : "false")
+            .WithEnvironment("ConnectionStrings__CustomerDbContext", customerDatabase.Resource.ConnectionStringExpression)
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WaitFor(customerDatabase);
+
+        var customer = builder.AddProject<Projects.Legacy_Maliev_CustomerService_Api>(
+                "legacy-maliev-customer-service",
+                launchProfileName: "http")
+            .ConfigureDynamicHttpEndpoint()
+            .WithEnvironment("ConnectionStrings__CustomerDbContext", CreatePooledDatabaseConnectionString("Customer"))
+            .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
+            .WithEnvironment("AuthService__LegacyCustomerIdentityBaseUrl", ReferenceExpression.Create($"{auth.GetEndpoint("http")}/auth/v1/legacy/customers/"))
+            .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+            .WithEnvironment("Jwt__Issuer", jwtIssuer)
+            .WithEnvironment("Jwt__Audience", jwtAudience)
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCConserveMemory", "3")
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WithHttpHealthCheck("/customer/liveness", endpointName: "http")
+            .WithHttpHealthCheck("/customer/readiness", endpointName: "http")
+            .WithUrlForEndpoint("http", url =>
+            {
+                url.Url = "/customer/scalar";
+                url.DisplayText = "Customer Scalar";
+            })
+            .WaitForCompletion(customerMigrations)
+            .WaitFor(pgbouncer)
+            .WaitFor(redis)
+            .WaitFor(auth);
+
+        customerMigrations.WithParentRelationship(customer.Resource);
+
+        var employeeDatabase = databases["Employee"];
+        var employeeMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-employee-migrations")
+            .WithArgs("employee")
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
+            .WithEnvironment("ConnectionStrings__EmployeeDbContext", employeeDatabase.Resource.ConnectionStringExpression)
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WaitFor(employeeDatabase);
+
+        var employee = builder.AddProject<Projects.Legacy_Maliev_EmployeeService_Api>(
+                "legacy-maliev-employee-service",
+                launchProfileName: "http")
+            .ConfigureDynamicHttpEndpoint()
+            .WithEnvironment("ConnectionStrings__EmployeeDbContext", CreatePooledDatabaseConnectionString("Employee"))
+            .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
+            .WithEnvironment("AuthService__LegacyEmployeeIdentityBaseUrl", ReferenceExpression.Create($"{auth.GetEndpoint("http")}/auth/v1/legacy/employees/"))
+            .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+            .WithEnvironment("Jwt__Issuer", jwtIssuer)
+            .WithEnvironment("Jwt__Audience", jwtAudience)
+            .WithEnvironment("Features__AllowExactServiceClaimsForLiveCheck", allowExactSnapshotServiceClaims)
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCConserveMemory", "3")
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WithHttpHealthCheck("/employee/liveness", endpointName: "http")
+            .WithHttpHealthCheck("/employee/readiness", endpointName: "http")
+            .WithUrlForEndpoint("http", url =>
+            {
+                url.Url = "/employee/scalar";
+                url.DisplayText = "Employee Scalar";
+            })
+            .WaitForCompletion(employeeMigrations)
+            .WaitFor(pgbouncer)
+            .WaitFor(redis)
+            .WaitFor(auth);
+
+        employeeMigrations.WithParentRelationship(employee.Resource);
+
+        var catalogDatabase = databases["Material"];
+        var catalogMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-catalog-migrations")
+            .WithArgs("catalog")
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
+            .WithEnvironment("ConnectionStrings__CatalogDbContext", catalogDatabase.Resource.ConnectionStringExpression)
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WaitFor(catalogDatabase);
+
+        var catalog = builder.AddProject<Projects.Legacy_Maliev_CatalogService_Api>(
+                "legacy-maliev-catalog-service",
+                launchProfileName: "http")
+            .ConfigureDynamicHttpEndpoint()
+            .WithEnvironment("ConnectionStrings__CatalogDbContext", CreatePooledDatabaseConnectionString("Material"))
+            .WithEnvironment("ConnectionStrings__CountryDbContext", CreatePooledDatabaseConnectionString("Country"))
+            .WithEnvironment("ConnectionStrings__CurrencyDbContext", CreatePooledDatabaseConnectionString("Currency"))
+            .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
+            .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+            .WithEnvironment("Jwt__Issuer", jwtIssuer)
+            .WithEnvironment("Jwt__Audience", jwtAudience)
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCConserveMemory", "3")
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WithHttpHealthCheck("/catalog/liveness", endpointName: "http")
+            .WithHttpHealthCheck("/catalog/readiness", endpointName: "http")
+            .WithUrlForEndpoint("http", url =>
+            {
+                url.Url = "/catalog/scalar";
+                url.DisplayText = "Catalog Scalar";
+            })
+            .WaitForCompletion(catalogMigrations)
+            .WaitFor(pgbouncer)
+            .WaitFor(redis)
+            .WaitFor(auth);
+
+        catalogMigrations.WithParentRelationship(catalog.Resource);
+
+        var supplierDatabase = databases["Supplier"];
+        var purchaseOrderDatabase = databases["PurchaseOrder"];
+        var supplierMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-supplier-migrations")
+            .WithArgs("supplier")
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
+            .WithEnvironment("ConnectionStrings__SupplierDbContext", supplierDatabase.Resource.ConnectionStringExpression)
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WaitFor(supplierDatabase);
+        var purchaseOrderMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-purchase-order-migrations")
+            .WithArgs("purchase-order")
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
+            .WithEnvironment("ConnectionStrings__PurchaseOrderDbContext", purchaseOrderDatabase.Resource.ConnectionStringExpression)
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WaitFor(purchaseOrderDatabase);
+
+        var procurement = builder.AddProject<Projects.Legacy_Maliev_ProcurementService_Api>(
+                "legacy-maliev-procurement-service",
+                launchProfileName: "http")
+            .ConfigureDynamicHttpEndpoint()
+            .WithEnvironment("ConnectionStrings__SupplierDbContext", CreatePooledDatabaseConnectionString("Supplier"))
+            .WithEnvironment("ConnectionStrings__PurchaseOrderDbContext", CreatePooledDatabaseConnectionString("PurchaseOrder"))
+            .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
+            .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+            .WithEnvironment("Jwt__Issuer", jwtIssuer)
+            .WithEnvironment("Jwt__Audience", jwtAudience)
+            .WithEnvironment("Features__AllowExactServiceClaimsForLiveCheck", allowExactSnapshotServiceClaims)
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCConserveMemory", "3")
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WithHttpHealthCheck("/procurement/liveness", endpointName: "http")
+            .WithHttpHealthCheck("/procurement/readiness", endpointName: "http")
+            .WithUrlForEndpoint("http", url =>
+            {
+                url.Url = "/procurement/scalar";
+                url.DisplayText = "Procurement Scalar";
+            })
+            .WaitForCompletion(supplierMigrations)
+            .WaitForCompletion(purchaseOrderMigrations)
+            .WaitFor(pgbouncer)
+            .WaitFor(redis)
+            .WaitFor(auth);
+
+        supplierMigrations.WithParentRelationship(procurement.Resource);
+        purchaseOrderMigrations.WithParentRelationship(procurement.Resource);
+
+        var fileDatabase = databases["Upload"];
+        var fileMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-file-migrations")
+            .WithArgs("file")
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
+            .WithEnvironment("ConnectionStrings__FileDbContext", fileDatabase.Resource.ConnectionStringExpression)
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WaitFor(fileDatabase);
+
+        var file = builder.AddProject<Projects.Legacy_Maliev_FileService_Api>(
+                "legacy-maliev-file-service",
+                launchProfileName: "http")
+            .ConfigureDynamicHttpEndpoint()
+            .WithEnvironment("ConnectionStrings__FileDbContext", CreatePooledDatabaseConnectionString("Upload"))
+            .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+            .WithEnvironment("Jwt__Issuer", jwtIssuer)
+            .WithEnvironment("Jwt__Audience", jwtAudience)
+            .WithEnvironment("MalwareScanner__Host", clamav.GetEndpoint("tcp").Property(EndpointProperty.Host))
+            .WithEnvironment("MalwareScanner__Port", clamav.GetEndpoint("tcp").Property(EndpointProperty.Port))
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCConserveMemory", "3")
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WithHttpHealthCheck("/file/liveness", endpointName: "http")
+            .WithHttpHealthCheck("/file/readiness", endpointName: "http")
+            .WithUrlForEndpoint("http", url =>
+            {
+                url.Url = "/file/scalar";
+                url.DisplayText = "File Scalar";
+            })
+            .WaitForCompletion(fileMigrations)
+            .WaitFor(pgbouncer)
+            .WaitFor(clamav)
+            .WaitFor(auth);
+
+        fileMigrations.WithParentRelationship(file.Resource);
+
+        var notification = builder.AddProject<Projects.Legacy_Maliev_NotificationService_Api>(
+                "legacy-maliev-notification-service",
+                launchProfileName: "http")
+            .ConfigureDynamicHttpEndpoint()
+            .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+            .WithEnvironment("Notifications__UseDevelopmentRecordingProvider", "true")
+            .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+            .WithEnvironment("Jwt__Issuer", jwtIssuer)
+            .WithEnvironment("Jwt__Audience", jwtAudience)
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "100663296")
+            .WithEnvironment("DOTNET_GCConserveMemory", "3")
+            .WithHttpHealthCheck("/emails/liveness", endpointName: "http")
+            .WithHttpHealthCheck("/emails/readiness", endpointName: "http")
+            .WithUrlForEndpoint("http", url =>
+            {
+                url.Url = "/emails/scalar";
+                url.DisplayText = "Notification Scalar";
+            });
+
+        var orderDatabase = databases["Order"];
+        var orderStatusDatabase = databases["OrderStatus"];
+        var orderMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-order-migrations")
+            .WithArgs("order")
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
+            .WithEnvironment("ConnectionStrings__OrderDbContext", orderDatabase.Resource.ConnectionStringExpression)
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WaitFor(orderDatabase);
+        var orderStatusMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
+                "legacy-order-status-migrations")
+            .WithArgs("order-status")
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
+            .WithEnvironment("ConnectionStrings__OrderStatusDbContext", orderStatusDatabase.Resource.ConnectionStringExpression)
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WaitFor(orderStatusDatabase);
+
+        var order = builder.AddProject<Projects.Legacy_Maliev_OrderService_Api>(
+                "legacy-maliev-order-service",
+                launchProfileName: "http")
+            .ConfigureDynamicHttpEndpoint()
+            .WithEnvironment("ConnectionStrings__OrderDbContext", CreatePooledDatabaseConnectionString("Order"))
+            .WithEnvironment("ConnectionStrings__OrderStatusDbContext", CreatePooledDatabaseConnectionString("OrderStatus"))
+            .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
+            .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+            .WithEnvironment("Jwt__Issuer", jwtIssuer)
+            .WithEnvironment("Jwt__Audience", jwtAudience)
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCConserveMemory", "3")
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WithHttpHealthCheck("/order/liveness", endpointName: "http")
+            .WithHttpHealthCheck("/order/readiness", endpointName: "http")
+            .WithUrlForEndpoint("http", url =>
+            {
+                url.Url = "/order/scalar";
+                url.DisplayText = "Order Scalar";
+            })
+            .WaitForCompletion(orderMigrations)
+            .WaitForCompletion(orderStatusMigrations)
+            .WaitFor(pgbouncer)
+            .WaitFor(redis)
+            .WaitFor(auth);
+
+        orderMigrations.WithParentRelationship(order.Resource);
+        orderStatusMigrations.WithParentRelationship(order.Resource);
+
+        var quotationDatabase = databases["Quotation"];
+        var quotationRequestDatabase = databases["QuotationRequest"];
+        var quotationMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
+                "legacy-quotation-migrations")
+            .WithArgs("quotation")
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
+            .WithEnvironment("ConnectionStrings__QuotationDbContext", quotationDatabase.Resource.ConnectionStringExpression)
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WaitFor(quotationDatabase);
+        var quotationRequestMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>(
+                "legacy-quotation-request-migrations")
+            .WithArgs("quotation-request")
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
+            .WithEnvironment("ConnectionStrings__QuotationRequestDbContext", quotationRequestDatabase.Resource.ConnectionStringExpression)
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WaitFor(quotationRequestDatabase);
+
+        var quotation = builder.AddProject<Projects.Legacy_Maliev_QuotationService_Api>(
+                "legacy-maliev-quotation-service",
+                launchProfileName: "http")
+            .ConfigureDynamicHttpEndpoint()
+            .WithEnvironment("ConnectionStrings__QuotationDbContext", CreatePooledDatabaseConnectionString("Quotation"))
+            .WithEnvironment("ConnectionStrings__QuotationRequestDbContext", CreatePooledDatabaseConnectionString("QuotationRequest"))
+            .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
+            .WithEnvironment("ServiceAuthentication__ClientId", "legacy-quotation")
+            .WithEnvironment("ServiceAuthentication__ClientSecret", quotationCredential.Secret)
+            .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
+            .WithEnvironment("Services__Order", order.GetEndpoint("http"))
+            .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+            .WithEnvironment("Jwt__Issuer", jwtIssuer)
+            .WithEnvironment("Jwt__Audience", jwtAudience)
+            .WithEnvironment("Features__AllowExactServiceClaimsForLiveCheck", allowExactSnapshotServiceClaims)
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCConserveMemory", "3")
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WithHttpHealthCheck("/quotation/liveness", endpointName: "http")
+            .WithHttpHealthCheck("/quotation/readiness", endpointName: "http")
+            .WithUrlForEndpoint("http", url =>
+            {
+                url.Url = "/quotation/scalar";
+                url.DisplayText = "Quotation Scalar";
+            })
+            .WaitForCompletion(quotationMigrations)
+            .WaitForCompletion(quotationRequestMigrations)
+            .WithReference(auth)
+            .WithReference(order)
+            .WaitFor(pgbouncer)
+            .WaitFor(redis)
+            .WaitFor(auth)
+            .WaitFor(order);
+
+        quotationMigrations.WithParentRelationship(quotation.Resource);
+        quotationRequestMigrations.WithParentRelationship(quotation.Resource);
+
+        var careerDatabase = databases["JobOffers"];
+        var careerMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-career-migrations")
+            .WithArgs("career")
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
+            .WithEnvironment("ConnectionStrings__CareerDbContext", careerDatabase.Resource.ConnectionStringExpression)
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WaitFor(careerDatabase);
+        var career = builder.AddProject<Projects.Legacy_Maliev_CareerService_Api>(
+                "legacy-maliev-career-service",
+                launchProfileName: "http")
+            .ConfigureDynamicHttpEndpoint()
+            .WithEnvironment("ConnectionStrings__CareerDbContext", CreatePooledDatabaseConnectionString("JobOffers"))
+            .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
+            .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+            .WithEnvironment("Jwt__Issuer", jwtIssuer)
+            .WithEnvironment("Jwt__Audience", jwtAudience)
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCConserveMemory", "3")
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WithHttpHealthCheck("/Jobs/liveness", endpointName: "http")
+            .WithHttpHealthCheck("/Jobs/readiness", endpointName: "http")
+            .WithUrlForEndpoint("http", url =>
+            {
+                url.Url = "/Jobs/scalar";
+                url.DisplayText = "Career Scalar";
+            })
+            .WaitForCompletion(careerMigrations)
+            .WaitFor(pgbouncer)
+            .WaitFor(redis);
+
+        careerMigrations.WithParentRelationship(career.Resource);
+
+        var contactDatabase = databases["Message"];
+        var contactMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-contact-migrations")
+            .WithArgs("contact")
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
+            .WithEnvironment("ConnectionStrings__ContactRequestDbContext", contactDatabase.Resource.ConnectionStringExpression)
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WaitFor(contactDatabase);
+        var contact = builder.AddProject<Projects.Legacy_Maliev_ContactService_Api>(
+                "legacy-maliev-contact-service",
+                launchProfileName: "http")
+            .ConfigureDynamicHttpEndpoint()
+            .WithEnvironment("ConnectionStrings__ContactRequestDbContext", CreatePooledDatabaseConnectionString("Message"))
+            .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
+            .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+            .WithEnvironment("Jwt__Issuer", jwtIssuer)
+            .WithEnvironment("Jwt__Audience", jwtAudience)
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCConserveMemory", "3")
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WithHttpHealthCheck("/messages/liveness", endpointName: "http")
+            .WithHttpHealthCheck("/messages/readiness", endpointName: "http")
+            .WithUrlForEndpoint("http", url =>
+            {
+                url.Url = "/messages/scalar";
+                url.DisplayText = "Contact Scalar";
+            })
+            .WaitForCompletion(contactMigrations)
+            .WaitFor(pgbouncer)
+            .WaitFor(redis);
+
+        contactMigrations.WithParentRelationship(contact.Resource);
+
+        var paymentDatabase = databases["Payment"];
+        var invoiceDatabase = databases["Invoice"];
+        var receiptDatabase = databases["Receipt"];
+        var paymentMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-payment-migrations")
+            .WithArgs("payment")
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
+            .WithEnvironment("ConnectionStrings__PaymentDbContext", paymentDatabase.Resource.ConnectionStringExpression)
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WaitFor(paymentDatabase);
+        var invoiceMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-invoice-migrations")
+            .WithArgs("invoice")
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
+            .WithEnvironment("ConnectionStrings__InvoiceDbContext", invoiceDatabase.Resource.ConnectionStringExpression)
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WaitFor(invoiceDatabase);
+        var receiptMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-receipt-migrations")
+            .WithArgs("receipt")
+            .WithEnvironment("LEGACY_SKIP_MIGRATE", gkeValidationMode || localSnapshotMode ? "true" : "false")
+            .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", !gkeValidationMode && !localSnapshotMode ? "true" : "false")
+            .WithEnvironment("ConnectionStrings__ReceiptDbContext", receiptDatabase.Resource.ConnectionStringExpression)
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WaitFor(receiptDatabase);
+        var accounting = builder.AddProject<Projects.Legacy_Maliev_AccountingService_Api>(
+                "legacy-maliev-accounting-service",
+                launchProfileName: "http")
+            .ConfigureDynamicHttpEndpoint()
+            .WithEnvironment("ConnectionStrings__PaymentDbContext", CreatePooledDatabaseConnectionString("Payment"))
+            .WithEnvironment("ConnectionStrings__InvoiceDbContext", CreatePooledDatabaseConnectionString("Invoice"))
+            .WithEnvironment("ConnectionStrings__ReceiptDbContext", CreatePooledDatabaseConnectionString("Receipt"))
+            .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
+            .WithEnvironment("ServiceAuthentication__ClientId", "legacy-accounting")
+            .WithEnvironment("ServiceAuthentication__ClientSecret", accountingCredential.Secret)
+            .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
+            .WithEnvironment("Services__Document", document.GetEndpoint("http"))
+            .WithEnvironment("Services__File", file.GetEndpoint("http"))
+            .WithEnvironment("Services__Notification", notification.GetEndpoint("http"))
+            .WithEnvironment("Services__Customer", customer.GetEndpoint("http"))
+            .WithEnvironment("Services__Employee", employee.GetEndpoint("http"))
+            .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+            .WithEnvironment("Jwt__Issuer", jwtIssuer)
+            .WithEnvironment("Jwt__Audience", jwtAudience)
+            .WithEnvironment("Features__AllowExactServiceClaimsForLiveCheck", allowExactSnapshotServiceClaims)
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCConserveMemory", "3")
+            .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
+            .WithEnvironment("PGGSSENCMODE", "disable")
+            .WithHttpHealthCheck("/accounting/liveness", endpointName: "http")
+            .WithHttpHealthCheck("/accounting/readiness", endpointName: "http")
+            .WithUrlForEndpoint("http", url =>
+            {
+                url.Url = "/accounting/scalar";
+                url.DisplayText = "Accounting Scalar";
+            })
+            .WaitForCompletion(paymentMigrations)
+            .WaitForCompletion(invoiceMigrations)
+            .WaitForCompletion(receiptMigrations)
+            .WaitFor(pgbouncer)
+            .WaitFor(redis)
+            .WithReference(auth)
+            .WithReference(document)
+            .WithReference(file)
+            .WithReference(notification)
+            .WithReference(customer)
+            .WithReference(employee)
+            .WaitFor(auth)
+            .WaitFor(document)
+            .WaitFor(file)
+            .WaitFor(notification)
+            .WaitFor(customer)
+            .WaitFor(employee);
+
+        paymentMigrations.WithParentRelationship(accounting.Resource);
+        invoiceMigrations.WithParentRelationship(accounting.Resource);
+        receiptMigrations.WithParentRelationship(accounting.Resource);
+
+        var web = builder.AddProject<Projects.Legacy_Maliev_Web>("legacy-maliev-web")
+            .WithHttpEndpoint(port: legacyWebIdentity.Port, name: "http")
+            .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+            .WithEnvironment("DOTNET_ENVIRONMENT", "Development")
+            .WithEnvironment("BuildIdentity__Repository", legacyWebIdentity.Repository)
+            .WithEnvironment("BuildIdentity__Branch", legacyWebIdentity.Branch)
+            .WithEnvironment("BuildIdentity__Commit", legacyWebIdentity.Commit)
+            .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
+            .WithEnvironment("DataProtection__CertificatePfxBase64", dataProtectionCertificate.PfxBase64)
+            .WithEnvironment("DataProtection__CertificatePassword", dataProtectionCertificate.Password)
+            .WithEnvironment("ServiceAuthentication__ClientId", "legacy-web")
+            .WithEnvironment("ServiceAuthentication__ClientSecret", webCredential.Secret)
+            .WithEnvironment("Recaptcha__SiteKey", webRecaptchaSiteKey)
+            .WithEnvironment("Recaptcha__ProjectId", webRecaptchaProjectId)
+            .WithEnvironment("GoogleMaps__EmbedApiKey", webGoogleMapsEmbedApiKey)
+            .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
+            .WithEnvironment("Services__Customer", customer.GetEndpoint("http"))
+            .WithEnvironment("Services__Notification", notification.GetEndpoint("http"))
+            .WithEnvironment("Services__Country", country.GetEndpoint("http"))
+            .WithEnvironment("Services__Document", document.GetEndpoint("http"))
+            .WithEnvironment("Services__Catalog", catalog.GetEndpoint("http"))
+            .WithEnvironment("Services__File", file.GetEndpoint("http"))
+            .WithEnvironment("Services__Accounting", accounting.GetEndpoint("http"))
+            .WithEnvironment("Services__Order", order.GetEndpoint("http"))
+            .WithEnvironment("Services__Quotation", quotation.GetEndpoint("http"))
+            .WithEnvironment("Services__Career", career.GetEndpoint("http"))
+            .WithEnvironment("Services__Contact", contact.GetEndpoint("http"))
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
+            .WithEnvironment("DOTNET_GCConserveMemory", "3")
+            .WithHttpHealthCheck("/web/liveness", endpointName: "http")
+            .WithHttpHealthCheck("/web/readiness", endpointName: "http")
+            .WithUrlForEndpoint("http", url =>
+            {
+                url.Url = "/Account/Login";
+                url.DisplayText = "Legacy Web";
+            })
+            .WaitFor(redis)
+            .WaitFor(auth)
+            .WaitFor(customer)
+            .WaitFor(order)
+            .WaitFor(quotation)
+            .WaitFor(notification)
+            .WaitFor(career)
+            .WaitFor(contact);
+
+        // NOTE: The Legacy.Maliev.Intranet Razor Pages compatibility host is intentionally not launched
+        // here. Every original route (Customers, Employees, Materials, Suppliers, Orders, Purchase Orders,
+        // Quotations, Quotation Requests, Invoices, Finances, Dashboard, Server/ErrorReport) already has a
+        // Legacy.Maliev.Intranet.Client (Blazor WASM) + Legacy.Maliev.Intranet.Bff equivalent, so local
+        // Aspire now surfaces a single employee login instead of two. The Razor Pages project itself still
+        // exists in the solution (Legacy.Maliev.Intranet.slnx) for the formal GKE parity/cutover process —
+        // only its local AppHost registration was removed. Re-add the block below if you need to run it
+        // standalone again for a specific route comparison:
+        //
+        // var intranetCompatibility = builder.AddProject<Projects.Legacy_Maliev_Intranet>("legacy-maliev-intranet")
+        //     .WithHttpsEndpoint(name: "https")
+        //     ...(see git history for the full resource definition)...
+
+        var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>("legacy-maliev-intranet-bff")
+            .WithHttpsEndpoint(name: "https")
+            .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+            .WithEnvironment("Workspace__AllowLocalTestDomain", "true")
+            .WithEnvironment("ConnectionStrings__redis", redisResp3ConnectionString)
+            .WithEnvironment("DataProtection__CertificatePfxBase64", intranetDataProtectionCertificate.PfxBase64)
+            .WithEnvironment("DataProtection__CertificatePassword", intranetDataProtectionCertificate.Password)
+            .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
+            .WithEnvironment("Jwt__Issuer", jwtIssuer)
+            .WithEnvironment("Jwt__Audience", jwtAudience)
+            .WithEnvironment("Jwt__KeyId", jwtKeyId)
+            .WithEnvironment("ServiceAuthentication__ClientId", "legacy-intranet")
+            .WithEnvironment("ServiceAuthentication__ClientSecret", intranetCredential.Secret)
+            .WithEnvironment("Authentication__Google__ClientId", googleIdentityClientId)
+            .WithEnvironment("GoogleMaps__BrowserApiKey", intranetGoogleMapsBrowserApiKey)
+            .WithEnvironment("CustomerOnboarding__PublicWebBaseUrl", web.GetEndpoint("http"))
+            .WithEnvironment("Services__Auth", auth.GetEndpoint("http"))
+            .WithEnvironment("Services__Catalog", catalog.GetEndpoint("http"))
+            .WithEnvironment("Services__Order", order.GetEndpoint("http"))
+            .WithEnvironment("Services__Employee", employee.GetEndpoint("http"))
+            .WithEnvironment("Services__Quotation", quotation.GetEndpoint("http"))
+            .WithEnvironment("Services__Customer", customer.GetEndpoint("http"))
+            .WithEnvironment("Services__Procurement", procurement.GetEndpoint("http"))
+            .WithEnvironment("Services__Document", document.GetEndpoint("http"))
+            .WithEnvironment("Services__File", file.GetEndpoint("http"))
+            .WithEnvironment("Services__Notification", notification.GetEndpoint("http"))
+            .WithEnvironment("Services__Accounting", accounting.GetEndpoint("http"))
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
+            .WithEnvironment("DOTNET_GCConserveMemory", "3")
+            .WithHttpHealthCheck("/intranet-bff/liveness", endpointName: "https")
+            .WithHttpHealthCheck("/intranet-bff/readiness", endpointName: "https")
+            .WithUrlForEndpoint("https", url =>
+            {
+                url.Url = "/Login";
+                url.DisplayText = "Legacy Intranet BFF";
+            })
+            .WithReference(redis)
+            .WithReference(auth)
+            .WithReference(catalog)
+            .WithReference(order)
+            .WithReference(employee)
+            .WithReference(quotation)
+            .WithReference(customer)
+            .WithReference(procurement)
+            .WithReference(document)
+            .WithReference(file)
+            .WithReference(notification)
+            .WithReference(accounting)
+            .WaitFor(redis)
+            .WaitFor(auth)
+            .WaitFor(catalog)
+            .WaitFor(order)
+            .WaitFor(employee)
+            .WaitFor(quotation);
+
+        // Confirmation links must return to the browser-facing HTTPS endpoint, not a
+        // service-discovery URL or an untrusted request Host header. Resolve the local
+        // Aspire port from this resource's own endpoint after it has been declared.
+        intranetBff.WithEnvironment("EmployeeConfirmation__PublicOrigin", intranetBff.GetEndpoint("https"));
+        // Customer/Procurement/Document/File/Notification/Accounting are intentionally not
+        // WaitFor'd: login only needs Auth. Hard-waiting the Bff on every downstream page's
+        // service would reintroduce "login doesn't work locally" whenever any one of those six
+        // is slow to start, which is the exact class of bug this AppHost is meant to avoid.
+        // WithReference above still gives the Bff their URLs; slow/late services just mean
+        // Customers/Suppliers/Purchase Orders/Finances/Invoices load late, not that login blocks.
+
+        // Do not rely on parent-process environment inheritance for authenticated snapshot identity.
+        // Every workload capable of consuming a snapshot receives the run identity explicitly.
+        foreach (IResourceBuilder<ProjectResource> snapshotRunner in new[]
+        {
+            countryMigrations, authMigrations, customerIdentityMigrations, employeeIdentityMigrations,
+            customerMigrations, employeeMigrations, catalogMigrations, supplierMigrations, purchaseOrderMigrations,
+            fileMigrations, orderMigrations, orderStatusMigrations, quotationMigrations, quotationRequestMigrations,
+            careerMigrations, contactMigrations, paymentMigrations, invoiceMigrations, receiptMigrations
+        })
+        {
+            snapshotRunner.WithEnvironment("LEGACY_SNAPSHOT_DIRECTORY", localSnapshotDirectoryRequested);
+            snapshotRunner.WithEnvironment("LEGACY_SNAPSHOT_ENCRYPTION_KEY_FILE", localSnapshotKeyFileRequested);
+            snapshotRunner.WithEnvironment("LEGACY_SNAPSHOT_ID", localSnapshotIdRequested);
+            // Auth is runtime-only state and is deliberately outside the exact-23 production-data
+            // inventory. It still needs its own PostgreSQL schema when the persistent data volume is
+            // adopted; only the source-derived database migrations must remain disabled here.
+            if (localPersistentDataMode && !ReferenceEquals(snapshotRunner, authMigrations))
+            {
+                snapshotRunner
+                    .WithEnvironment("LEGACY_SKIP_MIGRATE", "true")
+                    .WithEnvironment("LEGACY_LOCAL_ALLOW_NONEMPTY_MIGRATE", "false");
+                if (localDeltaApply is not null)
+                {
+                    snapshotRunner.WaitForCompletion(localDeltaApply);
+                }
+            }
+        }
+
+        return builder;
     }
 
-    return result.ToString();
+    static string ToKebabCase(string value)
+    {
+        var result = new System.Text.StringBuilder(value.Length + 8);
+        for (var index = 0; index < value.Length; index++)
+        {
+            var character = value[index];
+            if (index > 0 && char.IsUpper(character))
+            {
+                result.Append('-');
+            }
+
+            result.Append(char.ToLowerInvariant(character));
+        }
+
+        return result.ToString();
+    }
 }
 
 static class LocalEndpointExtensions
@@ -1149,5 +1139,59 @@ static class LocalEndpointExtensions
             endpoint.Port = null;
             endpoint.TargetPort = null;
         });
+    }
+}
+
+internal static class AppHostStartupGuard
+{
+    internal static void Validate(
+        bool gkeValidationModeRequested,
+        bool localSnapshotModeRequested,
+        bool localDeltaModeRequested,
+        bool localDeltaReviewModeRequested,
+        bool localFixturesRequested,
+        string? localSnapshotDirectoryRequested,
+        string? localSnapshotKeyFileRequested,
+        string? localSnapshotIdRequested,
+        string? localDeltaConfigRequested)
+    {
+        if ((gkeValidationModeRequested ? 1 : 0) +
+            (localSnapshotModeRequested ? 1 : 0) +
+            (localDeltaModeRequested ? 1 : 0) +
+            (localDeltaReviewModeRequested ? 1 : 0) > 1)
+        {
+            throw new InvalidOperationException(
+                "LEGACY_GKE_VALIDATION, LEGACY_LOCAL_SNAPSHOT, LEGACY_LOCAL_DELTA, and LEGACY_LOCAL_DELTA_REVIEW are mutually exclusive.");
+        }
+
+        if (localSnapshotModeRequested && string.IsNullOrWhiteSpace(localSnapshotDirectoryRequested))
+        {
+            throw new InvalidOperationException("LEGACY_LOCAL_SNAPSHOT_DIR is required when LEGACY_LOCAL_SNAPSHOT=true.");
+        }
+
+        if (localSnapshotModeRequested && (string.IsNullOrWhiteSpace(localSnapshotKeyFileRequested) ||
+            !File.Exists(Path.GetFullPath(localSnapshotKeyFileRequested))))
+        {
+            throw new InvalidOperationException(
+                "LEGACY_MIGRATION_SNAPSHOT_ENCRYPTION_KEY_FILE must reference an existing key file when LEGACY_LOCAL_SNAPSHOT=true.");
+        }
+
+        if (localSnapshotModeRequested && string.IsNullOrWhiteSpace(localSnapshotIdRequested))
+        {
+            throw new InvalidOperationException("LEGACY_LOCAL_SNAPSHOT_ID is required when LEGACY_LOCAL_SNAPSHOT=true.");
+        }
+
+        if (localFixturesRequested && !localSnapshotModeRequested)
+        {
+            throw new InvalidOperationException("LEGACY_LOCAL_FIXTURES requires LEGACY_LOCAL_SNAPSHOT=true.");
+        }
+
+        if (localDeltaModeRequested)
+        {
+            if (string.IsNullOrWhiteSpace(localDeltaConfigRequested))
+            {
+                throw new InvalidOperationException("LEGACY_LOCAL_DELTA_CONFIG is required when LEGACY_LOCAL_DELTA=true.");
+            }
+        }
     }
 }

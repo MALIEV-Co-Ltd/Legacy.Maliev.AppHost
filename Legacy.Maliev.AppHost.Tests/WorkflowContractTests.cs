@@ -88,7 +88,7 @@ public sealed partial class WorkflowContractTests
         Assert.DoesNotContain("MALIEV-Co-Ltd/Maliev.Aspire", source, StringComparison.Ordinal);
         Assert.DoesNotContain("MALIEV-Co-Ltd/Maliev.MessagingContracts", source, StringComparison.Ordinal);
         Assert.Contains(
-            "MALIEV-Co-Ltd/Legacy.Maliev.Workflows/actions/dotnet-validate@d7efac266bc66273bc45eab583618871292ecbd6",
+            "MALIEV-Co-Ltd/Legacy.Maliev.Workflows/actions/dotnet-validate@e3a6093324a24968876782153286f52db8b29fd8",
             source,
             StringComparison.Ordinal);
         Assert.Contains("          working-directory: Legacy.Maliev.AppHost", source, StringComparison.Ordinal);

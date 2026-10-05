@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.ComponentModel;
 using Legacy.Maliev.AppHost.MigrationRunner;
+using Npgsql;
 
 namespace Legacy.Maliev.AppHost.Tests;
 
@@ -65,9 +66,18 @@ public sealed class PgRestoreProcessTerminationTests
         Environment.SetEnvironmentVariable("PG_RESTORE_PATH", Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "pg_restore"));
         try
         {
+            var connection = new NpgsqlConnectionStringBuilder
+            {
+                Host = "127.0.0.1",
+                Port = 5432,
+                Database = "missing",
+                Username = "test",
+                Password = "test",
+                SslMode = SslMode.Disable
+            };
             InvalidOperationException failure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 PgRestoreRunner.RunPgRestoreAsync((_, _) => Task.CompletedTask, "Synthetic",
-                    "Host=127.0.0.1;Port=5432;Database=missing;Username=test;Password=test;SSL Mode=Disable",
+                    connection.ConnectionString,
                     CancellationToken.None));
             Assert.Contains("requires pg_restore", failure.Message, StringComparison.Ordinal);
         }
