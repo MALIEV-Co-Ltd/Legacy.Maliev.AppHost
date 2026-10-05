@@ -21,7 +21,13 @@ public static class LegacyEdgeReviewPackage
         ("/emails", "notification"), ("/quotations", "quotation"), ("/employees", "employee"),
         ("/payments", "accounting"), ("/pdfs", "document"), ("/jobs", "career"),
         ("/invoices", "accounting"), ("/messages", "contact"), ("/purchaseorders", "procurement"),
-        ("/receipts", "accounting"), ("/quotationrequests", "quotation")
+        ("/receipts", "accounting"), ("/quotationrequests", "quotation"),
+        // Retain every legacy path above while forwarding the committed producers' canonical
+        // API/Scalar prefixes unchanged. Prefix matching is by path segment, not string prefix.
+        ("/country", "country"), ("/documents", "document"), ("/customer", "customer"),
+        ("/order", "order"), ("/quotation", "quotation"), ("/employee", "employee"),
+        ("/catalog", "catalog"), ("/procurement", "procurement"), ("/file", "file"),
+        ("/Jobs", "career"), ("/accounting", "accounting")
     ];
 
     /// <summary>Creates an inert JSON envelope of Kubernetes objects and unresolved acceptance gates.</summary>

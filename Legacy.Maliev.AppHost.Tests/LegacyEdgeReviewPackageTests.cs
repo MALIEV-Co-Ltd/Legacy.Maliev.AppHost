@@ -125,11 +125,15 @@ public sealed class LegacyEdgeReviewPackageTests
         var paths = api.GetProperty("http").GetProperty("paths").EnumerateArray().ToArray();
         string[] expectedPaths = ["/auth", "/countries", "/currencies", "/customers", "/materials", "/suppliers",
             "/orderstatuses", "/uploads", "/orders", "/emails", "/quotations", "/employees", "/payments", "/pdfs",
-            "/jobs", "/invoices", "/messages", "/purchaseorders", "/receipts", "/quotationrequests"];
+            "/jobs", "/invoices", "/messages", "/purchaseorders", "/receipts", "/quotationrequests",
+            "/country", "/documents", "/customer", "/order", "/quotation", "/employee", "/catalog",
+            "/procurement", "/file", "/Jobs", "/accounting"];
         Assert.Equal(expectedPaths, paths.Select(path => path.GetProperty("path").GetString()));
         string[] expectedServices = ["auth", "country", "catalog", "customer", "catalog", "procurement",
             "order", "file", "order", "notification", "quotation", "employee", "accounting", "document",
-            "career", "accounting", "contact", "procurement", "accounting", "quotation"];
+            "career", "accounting", "contact", "procurement", "accounting", "quotation",
+            "country", "document", "customer", "order", "quotation", "employee", "catalog",
+            "procurement", "file", "career", "accounting"];
         for (var index = 0; index < expectedPaths.Length; index++)
         {
             AssertService(paths, expectedPaths[index], "legacy-maliev-" + expectedServices[index] + "-service");
@@ -137,7 +141,7 @@ public sealed class LegacyEdgeReviewPackageTests
         foreach (var path in paths)
         {
             Assert.Equal("Prefix", path.GetProperty("pathType").GetString());
-            var expectedPort = path.GetProperty("path").GetString() is "/auth" or "/employees" ? 80 : 8080;
+            var expectedPort = path.GetProperty("path").GetString() is "/auth" or "/employees" or "/employee" ? 80 : 8080;
             Assert.Equal(expectedPort, path.GetProperty("backend").GetProperty("service").GetProperty("port").GetProperty("number").GetInt32());
         }
         var intranet = Assert.Single(rules, rule => rule.GetProperty("host").GetString() == "intranet.maliev.com");
@@ -159,6 +163,74 @@ public sealed class LegacyEdgeReviewPackageTests
         Assert.False(package.RootElement.GetProperty("productionDeploymentAllowed").GetBoolean());
         Assert.Contains(package.RootElement.GetProperty("unresolvedGates").EnumerateArray(),
             gate => gate.GetString()!.Contains("namespace/selector ownership", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("/country/v1/countries", "/country", "country", 8080)]
+    [InlineData("/documents/scalar", "/documents", "document", 8080)]
+    [InlineData("/customer/scalar", "/customer", "customer", 8080)]
+    [InlineData("/order/scalar", "/order", "order", 8080)]
+    [InlineData("/quotation/scalar", "/quotation", "quotation", 8080)]
+    [InlineData("/employee/scalar", "/employee", "employee", 80)]
+    [InlineData("/catalog/scalar", "/catalog", "catalog", 8080)]
+    [InlineData("/procurement/scalar", "/procurement", "procurement", 8080)]
+    [InlineData("/file/scalar", "/file", "file", 8080)]
+    [InlineData("/Jobs/scalar", "/Jobs", "career", 8080)]
+    [InlineData("/accounting/scalar", "/accounting", "accounting", 8080)]
+    public void Render_ForwardsCommittedCanonicalApiAndScalarPathsWithoutRewriting(string requestPath, string prefix, string service, int port)
+    {
+        using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip"));
+        AssertCanonicalRequest(package.RootElement, requestPath, prefix, service, port);
+        Assert.False(package.RootElement.GetProperty("productionDeploymentAllowed").GetBoolean());
+        Assert.Equal(0, package.RootElement.GetProperty("cutoverPercent").GetInt32());
+    }
+
+    [Theory]
+    [InlineData("/countrywide/v1/countries")]
+    [InlineData("/customers2/7")]
+    [InlineData("/ordering/v1/orders")]
+    [InlineData("/orders2/7")]
+    [InlineData("/file-system/uploads")]
+    [InlineData("/catalogue/scalar")]
+    [InlineData("/JobsExtra/scalar")]
+    [InlineData("/predictions")]
+    [InlineData("/logger")]
+    [InlineData("/swagger")]
+    public void Render_DoesNotClaimUnrelatedOrRetiredPathSegments(string requestPath)
+    {
+        using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip"));
+        Assert.DoesNotContain(ApiPaths(package.RootElement), path => MatchesKubernetesPrefix(path.GetProperty("path").GetString()!, requestPath));
+    }
+
+    [Theory]
+    [InlineData("/orders/7", "/orders", "order")]
+    [InlineData("/order/v1/orders/7", "/order", "order")]
+    [InlineData("/orderstatuses/7", "/orderstatuses", "order")]
+    [InlineData("/jobs/scalar", "/jobs", "career")]
+    [InlineData("/Jobs/scalar", "/Jobs", "career")]
+    [InlineData("/customer/v1/customers", "/customer", "customer")]
+    [InlineData("/customers/7", "/customers", "customer")]
+    [InlineData("/quotations/7", "/quotations", "quotation")]
+    [InlineData("/quotation/v1/quotations", "/quotation", "quotation")]
+    public void Render_KeepsLegacyAndCanonicalSegmentsUnambiguousUnderLongestPrefixSelection(string requestPath, string prefix, string service)
+    {
+        using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip"));
+        AssertCanonicalRequest(package.RootElement, requestPath, prefix, service, 8080);
+    }
+
+    [Fact]
+    public void Render_AllDeclaredApiPrefixesAreUniqueAndHaveOneSegmentMatch()
+    {
+        using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip"));
+        var paths = ApiPaths(package.RootElement);
+        Assert.Equal(31, paths.Length);
+        Assert.Equal(31, paths.Select(path => path.GetProperty("path").GetString()).Distinct(StringComparer.Ordinal).Count());
+        foreach (var path in paths)
+        {
+            var prefix = path.GetProperty("path").GetString()!;
+            Assert.Equal("Prefix", path.GetProperty("pathType").GetString());
+            Assert.Single(paths, candidate => MatchesKubernetesPrefix(candidate.GetProperty("path").GetString()!, prefix + "/retained-segment"));
+        }
     }
 
     [Fact]
@@ -195,6 +267,20 @@ public sealed class LegacyEdgeReviewPackageTests
             AssertBackendPort(root, "intranet.maliev.com", "/", "legacy-maliev-intranet-bff", 80);
             AssertBackendPort(root, "api.maliev.com", "/countries", "legacy-maliev-country-service", 8080);
             AssertBackendPort(root, "api.maliev.com", "/emails", "legacy-maliev-notification-service", 8080);
+            Assert.Equal(31, ApiPaths(root).Length);
+            foreach (var entry in new[]
+            {
+                ("/country/v1/countries", "/country", "country"), ("/documents/scalar", "/documents", "document"),
+                ("/customer/scalar", "/customer", "customer"), ("/order/scalar", "/order", "order"),
+                ("/quotation/scalar", "/quotation", "quotation"), ("/employee/scalar", "/employee", "employee"),
+                ("/catalog/scalar", "/catalog", "catalog"), ("/procurement/scalar", "/procurement", "procurement"),
+                ("/file/scalar", "/file", "file"), ("/Jobs/scalar", "/Jobs", "career"),
+                ("/accounting/scalar", "/accounting", "accounting")
+            })
+            {
+                AssertCanonicalRequest(root, entry.Item1, entry.Item2, entry.Item3, entry.Item3 == "employee" ? 80 : 8080);
+            }
+            Assert.DoesNotContain(ApiPaths(root), path => MatchesKubernetesPrefix(path.GetProperty("path").GetString()!, "/orders2/7"));
             Assert.True(root.GetProperty("reviewOnly").GetBoolean());
             Assert.False(root.GetProperty("productionDeploymentAllowed").GetBoolean());
             Assert.Equal(0, root.GetProperty("cutoverPercent").GetInt32());
@@ -236,6 +322,25 @@ public sealed class LegacyEdgeReviewPackageTests
             item => item.GetProperty("path").GetString() == path).GetProperty("backend").GetProperty("service");
         Assert.Equal(service, backend.GetProperty("name").GetString());
         Assert.Equal(port, backend.GetProperty("port").GetProperty("number").GetInt32());
+    }
+
+    private static JsonElement[] ApiPaths(JsonElement root) =>
+        Assert.Single(Single(root.GetProperty("objects").EnumerateArray().ToArray(), "Ingress")
+            .GetProperty("spec").GetProperty("rules").EnumerateArray(), rule => rule.GetProperty("host").GetString() == "api.maliev.com")
+            .GetProperty("http").GetProperty("paths").EnumerateArray().ToArray();
+
+    // Independent Kubernetes Prefix specification model over the actual renderer/CLI output;
+    // this verifies declared routing only and cannot establish a running GCE controller's behavior.
+    private static bool MatchesKubernetesPrefix(string prefix, string requestPath) =>
+        string.Equals(prefix, requestPath, StringComparison.Ordinal) || requestPath.StartsWith(prefix + "/", StringComparison.Ordinal);
+
+    private static void AssertCanonicalRequest(JsonElement root, string requestPath, string prefix, string service, int port)
+    {
+        var matches = ApiPaths(root).Where(path => MatchesKubernetesPrefix(path.GetProperty("path").GetString()!, requestPath))
+            .OrderByDescending(path => path.GetProperty("path").GetString()!.Length).ToArray();
+        var selected = Assert.Single(matches);
+        Assert.Equal(prefix, selected.GetProperty("path").GetString());
+        AssertBackendPort(root, "api.maliev.com", prefix, "legacy-maliev-" + service + "-service", port);
     }
 
     private static string RepositoryRoot()
