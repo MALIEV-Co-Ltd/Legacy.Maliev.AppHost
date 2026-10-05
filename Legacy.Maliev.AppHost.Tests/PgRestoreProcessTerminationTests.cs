@@ -68,8 +68,12 @@ public sealed class PgRestoreProcessTerminationTests
         {
             var connection = new NpgsqlConnectionStringBuilder
             {
-                Host = "127.0.0.1", Port = 5432, Database = "missing", Username = "test",
-                Password = "test", SslMode = SslMode.Disable
+                Host = "127.0.0.1",
+                Port = 5432,
+                Database = "missing",
+                Username = "test",
+                Password = "test",
+                SslMode = SslMode.Disable
             };
             InvalidOperationException failure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 PgRestoreRunner.RunPgRestoreAsync((_, _) => Task.CompletedTask, "Synthetic",

@@ -71,11 +71,15 @@ public static class LegacyEdgeReviewPackage
             var secret = host.Replace('.', '-') + "-tls";
             objects.Add(new
             {
-                apiVersion = "cert-manager.io/v1", kind = "Certificate",
+                apiVersion = "cert-manager.io/v1",
+                kind = "Certificate",
                 metadata = new { name = secret, @namespace = Namespace },
                 spec = new
                 {
-                    secretName = secret, renewBefore = "720h", commonName = host, dnsNames = new[] { host },
+                    secretName = secret,
+                    renewBefore = "720h",
+                    commonName = host,
+                    dnsNames = new[] { host },
                     issuerRef = new { name = IssuerName, kind = "ClusterIssuer" }
                 }
             });
@@ -83,10 +87,12 @@ public static class LegacyEdgeReviewPackage
 
         objects.Add(new
         {
-            apiVersion = "networking.k8s.io/v1", kind = "Ingress",
+            apiVersion = "networking.k8s.io/v1",
+            kind = "Ingress",
             metadata = new
             {
-                name = IngressName, @namespace = Namespace,
+                name = IngressName,
+                @namespace = Namespace,
                 annotations = new Dictionary<string, string>
                 {
                     ["kubernetes.io/ingress.class"] = "gce",
@@ -106,7 +112,8 @@ public static class LegacyEdgeReviewPackage
                         paths = (host == "api.maliev.com" ? ApiRoutes : [("/", host == "intranet.maliev.com" ? "intranet-bff" : "web")])
                             .Select(route => new
                             {
-                                path = route.Item1, pathType = "Prefix",
+                                path = route.Item1,
+                                pathType = "Prefix",
                                 backend = new { service = new { name = "legacy-maliev-" + route.Item2 + (route.Item2 is "web" or "intranet-bff" ? "" : "-service"), port = new { number = 8080 } } }
                             })
                     }
@@ -116,7 +123,10 @@ public static class LegacyEdgeReviewPackage
 
         return JsonSerializer.Serialize(new
         {
-            schemaVersion = 1, reviewOnly = true, productionDeploymentAllowed = false, cutoverPercent = 0,
+            schemaVersion = 1,
+            reviewOnly = true,
+            productionDeploymentAllowed = false,
+            cutoverPercent = 0,
             unresolvedGates = new[]
             {
                 "AppHost #33 owner Aspire review and deployment approval",

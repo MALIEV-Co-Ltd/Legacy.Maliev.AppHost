@@ -123,13 +123,13 @@ internal static class LocalDeltaExecution
     [SupportedOSPlatform("windows")]
     static bool IsOwnerOnlyWindows(string path)
     {
-    #pragma warning disable CA1416
+#pragma warning disable CA1416
         SecurityIdentifier owner = WindowsIdentity.GetCurrent().User ?? throw new InvalidOperationException("Current owner is unavailable.");
         FileSecurity security = new FileInfo(path).GetAccessControl();
         return owner.Equals(security.GetOwner(typeof(SecurityIdentifier))) && security.GetAccessRules(true, true, typeof(SecurityIdentifier))
             .OfType<FileSystemAccessRule>().Where(rule => rule.AccessControlType == AccessControlType.Allow)
             .All(rule => owner.Equals(rule.IdentityReference));
-    #pragma warning restore CA1416
+#pragma warning restore CA1416
     }
 
     static void CreateOwnerOnlyDirectory(string path)

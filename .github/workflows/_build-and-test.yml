@@ -16,7 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      VSTestCollect: XPlat Code Coverage
+      VSTestCollect: Code Coverage
+      VSTestSetting: ${{ github.workspace }}/Legacy.Maliev.AppHost/scripts/coverage/generated-inclusive.runsettings
       VSTestLogger: trx
       VSTestResultsDirectory: ${{ github.workspace }}/runner-results
     services:
@@ -219,6 +220,7 @@ jobs:
             >"${LEGACY_SNAPSHOT_INTEGRATION_CUSTOM_ARCHIVE}"
           dotnet test Legacy.Maliev.AppHost.Tests/Legacy.Maliev.AppHost.Tests.csproj \
             --configuration Release --no-build --no-restore \
+            -p:VSTestCollect= -p:VSTestSetting= \
             --filter 'FullyQualifiedName~ProducerCustomArchive_RestoresSchemaAndRowsThroughProductionStreamingConsumer'
       - name: Generate Aspire manifest
         working-directory: Legacy.Maliev.AppHost
@@ -258,7 +260,7 @@ jobs:
         shell: pwsh
         working-directory: Legacy.Maliev.AppHost
         run: |
-          $reports = @(Get-ChildItem -LiteralPath "$env:GITHUB_WORKSPACE/runner-results" -Filter coverage.cobertura.xml -Recurse)
+          $reports = @(Get-ChildItem -LiteralPath "$env:GITHUB_WORKSPACE/runner-results" -Filter '*.cobertura.xml' -Recurse)
           if ($reports.Count -eq 0) { throw 'Expected exactly one complete coverage report' }
           $reportHashes = @($reports | Get-FileHash -Algorithm SHA256 | Group-Object Hash)
           if ($reportHashes.Count -ne 1) { throw 'Expected exactly one complete coverage report; distinct reports are forbidden' }
