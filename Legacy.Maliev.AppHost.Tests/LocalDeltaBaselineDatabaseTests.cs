@@ -85,8 +85,8 @@ public sealed class LocalDeltaBaselineDatabaseTests(LocalDeltaBaselineDatabaseTe
 
     public sealed class DatabaseFixture : IAsyncLifetime
     {
-        private readonly PostgreSqlContainer container = new PostgreSqlBuilder()
-            .WithImage("postgres:18@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280")
+        private readonly PostgreSqlContainer container = new PostgreSqlBuilder(
+                "postgres:18@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280")
             .WithDatabase("baseline_" + Guid.NewGuid().ToString("N"))
             .WithUsername("owned_fixture")
             .WithPassword(Guid.NewGuid().ToString("N"))
