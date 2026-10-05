@@ -23,10 +23,20 @@ public static class LegacyCertificateReviewDiagnostics
         {
             throw new InvalidDataException("Certificate evidence must be an object.");
         }
+        var schemaVersion = 1;
+        if (root.TryGetProperty("schemaVersion", out var version))
+        {
+            if (version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out schemaVersion) || schemaVersion is not (1 or 2))
+            {
+                throw new InvalidDataException("An explicit supported integer observation schema version is required.");
+            }
+        }
         var keys = new HashSet<string>(StringComparer.Ordinal);
         foreach (var property in root.EnumerateObject())
         {
-            if (!keys.Add(property.Name) || property.Name is not ("condition" or "notAfterUtc" or "issuerReady" or "challengeFailed"))
+            var supported = property.Name is "condition" or "notAfterUtc" or "issuerReady" or "challengeFailed" or "schemaVersion"
+                || schemaVersion == 2 && property.Name == "challengeObservation";
+            if (!keys.Add(property.Name) || !supported)
             {
                 throw new InvalidDataException("Unknown or duplicate certificate evidence field.");
             }
@@ -40,16 +50,41 @@ public static class LegacyCertificateReviewDiagnostics
         {
             throw new InvalidDataException("Unsupported reported certificate condition.");
         }
-        DateTimeOffset? notAfter = null;
-        if (root.TryGetProperty("notAfterUtc", out var expiry) && expiry.ValueKind != JsonValueKind.Null)
+        var notAfter = ReadOptionalUtcTimestamp(root, "notAfterUtc");
+        DateTimeOffset? pendingSince = null;
+        int? failureCount = null;
+        if (schemaVersion == 2 && root.TryGetProperty("challengeObservation", out var observation) && observation.ValueKind != JsonValueKind.Null)
         {
-            if (expiry.ValueKind != JsonValueKind.String || !expiry.TryGetDateTimeOffset(out var parsed)
-                || parsed.Offset != TimeSpan.Zero
-                || !(expiry.GetString()!.EndsWith('Z') || expiry.GetString()!.EndsWith("+00:00", StringComparison.Ordinal)))
+            if (observation.ValueKind != JsonValueKind.Object)
             {
-                throw new InvalidDataException("Certificate expiry must be an explicit UTC timestamp or unknown.");
+                throw new InvalidDataException("Challenge observations must be an object or unknown.");
             }
-            notAfter = parsed;
+            var observationKeys = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var property in observation.EnumerateObject())
+            {
+                if (!observationKeys.Add(property.Name) || property.Name is not ("pendingSinceUtc" or "failureCount"))
+                {
+                    throw new InvalidDataException("Unknown or duplicate challenge observation field.");
+                }
+            }
+            pendingSince = ReadOptionalUtcTimestamp(observation, "pendingSinceUtc");
+            if (pendingSince is { } pendingInstant)
+            {
+                var timestamp = observation.GetProperty("pendingSinceUtc").GetString()!;
+                var dateLength = timestamp.Length - (timestamp.EndsWith('Z') ? 1 : 6);
+                if ((dateLength != 19 && (dateLength < 21 || dateLength > 27 || timestamp[19] != '.')) || pendingInstant > asOfUtc)
+                {
+                    throw new InvalidDataException("Pending observations require explicit UTC at no more than tick precision and cannot start after the review instant.");
+                }
+            }
+            if (observation.TryGetProperty("failureCount", out var failures) && failures.ValueKind != JsonValueKind.Null)
+            {
+                if (failures.ValueKind != JsonValueKind.Number || !failures.TryGetInt32(out var count) || count < 0)
+                {
+                    throw new InvalidDataException("Observed failure count must be a nonnegative integer or unknown.");
+                }
+                failureCount = count;
+            }
         }
         var issuerReady = ReadOptionalBoolean(root, "issuerReady");
         var challengeFailed = ReadOptionalBoolean(root, "challengeFailed");
@@ -74,7 +109,7 @@ public static class LegacyCertificateReviewDiagnostics
             : notAfter.Value - asOfUtc < TimeSpan.FromDays(7) ? "Critical"
             : notAfter.Value - asOfUtc < TimeSpan.FromDays(30) ? "Warning"
             : "None";
-        return JsonSerializer.Serialize(new
+        var report = new
         {
             schemaVersion = 1,
             evidenceOnly = true,
@@ -85,7 +120,40 @@ public static class LegacyCertificateReviewDiagnostics
             status,
             expiryAlert,
             checks = checks.Distinct(StringComparer.Ordinal)
-        }, new JsonSerializerOptions { WriteIndented = true });
+        };
+        var options = new JsonSerializerOptions { WriteIndented = true };
+        if (schemaVersion == 1) { return JsonSerializer.Serialize(report, options); }
+        // V2 deliberately retains the prose's precise >10-minute threshold rather than the
+        // source shell example's integer-minute floor. Supplied observations do not prove health.
+        var challengePendingAlert = pendingSince is null ? "Unknown"
+            : asOfUtc - pendingSince.Value > TimeSpan.FromMinutes(10) ? "Info" : "None";
+        var challengeFailureAlert = failureCount is null ? "Unknown" : failureCount > 3 ? "Critical" : "None";
+        return JsonSerializer.Serialize(new
+        {
+            schemaVersion = 2,
+            report.evidenceOnly,
+            report.runtimeAcceptanceProven,
+            report.productionDeploymentAllowed,
+            report.asOfUtc,
+            report.reportedCondition,
+            report.status,
+            report.expiryAlert,
+            report.checks,
+            challengePendingAlert,
+            challengeFailureAlert
+        }, options);
+    }
+
+    private static DateTimeOffset? ReadOptionalUtcTimestamp(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null) { return null; }
+        if (value.ValueKind != JsonValueKind.String || !value.TryGetDateTimeOffset(out var parsed)
+            || parsed.Offset != TimeSpan.Zero
+            || !(value.GetString()!.EndsWith('Z') || value.GetString()!.EndsWith("+00:00", StringComparison.Ordinal)))
+        {
+            throw new InvalidDataException("Observation timestamps must be explicit UTC or unknown.");
+        }
+        return parsed;
     }
 
     private static bool? ReadOptionalBoolean(JsonElement root, string name)
