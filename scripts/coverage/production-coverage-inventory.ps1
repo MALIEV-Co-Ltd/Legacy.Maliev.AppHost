@@ -1,6 +1,44 @@
 # Metadata-only coverage inventory. Dot-source this file; it starts no application.
 Set-StrictMode -Version Latest
 
+function Expand-LegacyEmbeddedSource {
+    param([Parameter(Mandatory)] [byte[]]$Blob)
+    if ($Blob.Length -lt 4) { throw 'Truncated embedded source header.' }
+    if ($Blob.Length -gt 1048580) { throw 'Oversized embedded source record.' }
+    $length = [BitConverter]::ToInt32($Blob, 0)
+    if ($length -lt 0 -or $length -gt 1048576) { throw 'Invalid or oversized embedded source length.' }
+    $payload = [byte[]]::new($Blob.Length - 4)
+    [Array]::Copy($Blob, 4, $payload, 0, $payload.Length)
+    if ($payload.Length -eq 0) { throw 'Empty embedded source payload.' }
+    if ($length -eq 0) {
+        if ($payload.Length -gt 1048576) { throw 'Oversized embedded source payload.' }
+        return ,$payload
+    }
+    $input = [IO.MemoryStream]::new($payload, $false)
+    $decompressor = [IO.Compression.DeflateStream]::new($input, [IO.Compression.CompressionMode]::Decompress)
+    $output = [IO.MemoryStream]::new()
+    try {
+        $buffer = [byte[]]::new(4096)
+        while (($read = $decompressor.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            if ($output.Length + $read -gt $length) { throw 'Embedded source exceeds declared length.' }
+            $output.Write($buffer, 0, $read)
+        }
+        if ($output.Length -ne $length) { throw 'Embedded source length mismatch.' }
+        return ,$output.ToArray()
+    } finally { $output.Dispose(); $decompressor.Dispose(); $input.Dispose() }
+}
+
+function Assert-LegacyDiskSourceChecksum {
+    param(
+        [Parameter(Mandatory)] [string]$Path,
+        [Parameter(Mandatory)] [string]$Checksum,
+        [ValidateSet('SHA256', 'SHA1')] [string]$Algorithm = 'SHA256'
+    )
+    if (-not [IO.File]::Exists($Path) -or (Get-FileHash -LiteralPath $Path -Algorithm $Algorithm).Hash -ne $Checksum) {
+        throw 'Compiled source bytes differ from Git-backed disk source.'
+    }
+}
+
 function Get-LegacyProductionAssemblyPlan {
     [CmdletBinding()]
     param([Parameter(Mandatory)] [string]$RepositoryRoot, [string]$Configuration = 'Release')
@@ -64,6 +102,7 @@ function Get-LegacyAssemblyExecutableLines {
         if ($id.Length -ne 20 -or [Guid]::new($guidBytes) -ne $codeView.Guid -or $codeView.Age -ne 1 -or $stamp -ne $codeViewEntries[0].Stamp) { throw 'PDB does not belong to production DLL.' }
         $files = @{}
         $checksums = @{}
+        $embeddedSources = @{}
         foreach ($documentHandle in $reader.Documents) {
             $document = $reader.GetDocument($documentHandle)
             $path = $reader.GetString($document.Name).Replace('\', '/')
@@ -72,6 +111,15 @@ function Get-LegacyAssemblyExecutableLines {
             $checksums[$path] = [pscustomobject]@{
                 Algorithm = $reader.GetGuid($document.HashAlgorithm).ToString()
                 Value = [Convert]::ToHexString($reader.GetBlobBytes($document.Hash))
+            }
+            $embeddedRecords = @($reader.GetCustomDebugInformation($documentHandle) | Where-Object {
+                $reader.GetGuid($reader.GetCustomDebugInformation($_).Kind).ToString() -eq '0e8a571b-6926-466e-b4ad-8ab04611f5fe'
+            })
+            if ($embeddedRecords.Count -gt 1) { throw 'Duplicate embedded source identity.' }
+            if ($embeddedRecords.Count -eq 1) {
+                $record = $reader.GetCustomDebugInformation($embeddedRecords[0])
+                $bytes = Expand-LegacyEmbeddedSource -Blob $reader.GetBlobBytes($record.Value)
+                $embeddedSources[$path] = [Convert]::ToBase64String($bytes)
             }
         }
         foreach ($handle in $reader.MethodDebugInformation) {
@@ -88,7 +136,7 @@ function Get-LegacyAssemblyExecutableLines {
         }
         if (-not $files.Count) { throw 'Production assembly has no executable source inventory.' }
         $documents = foreach ($path in ($files.Keys | Sort-Object)) {
-            [pscustomobject]@{ Path = $path; Lines = @($files[$path] | Sort-Object); Generated = ($path -match '(?:/obj/|\.g\.cs\z|\.generated\.cs\z)'); PdbChecksum = $checksums[$path] }
+            [pscustomobject]@{ Path = $path; Lines = @($files[$path] | Sort-Object); Generated = ($path -match '(?:/obj/|\.g\.cs\z|\.generated\.cs\z)'); PdbChecksum = $checksums[$path]; EmbeddedSourceBase64 = $embeddedSources[$path] }
         }
         [pscustomobject]@{ Name = $name; AssemblyVersion = $definition.Version.ToString(); ModuleVersionId = $metadata.GetGuid($metadata.GetModuleDefinition().Mvid).ToString(); PdbId = [Convert]::ToHexString($id); Dll = [IO.Path]::GetFullPath($Dll); Pdb = [IO.Path]::GetFullPath($Pdb); DllSha256 = (Get-FileHash -LiteralPath $Dll -Algorithm SHA256).Hash; PdbSha256 = (Get-FileHash -LiteralPath $Pdb -Algorithm SHA256).Hash; Documents = @($documents) }
     } finally {

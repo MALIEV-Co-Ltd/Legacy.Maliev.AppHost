@@ -17,20 +17,32 @@ $assemblies = @($plan.Assemblies)
 if ($Platform -eq 'windows') { $assemblies = @($assemblies | Where-Object Name -eq 'Legacy.Maliev.AppHost.LocalDeltaRunner') }
 if ($assemblies.Count -ne $(if ($Platform -eq 'windows') { 1 } else { 4 })) { throw 'Unexpected platform assembly ownership.' }
 $inventory = @()
+$copiedSourcePaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 foreach ($assembly in $assemblies) {
     $actual = Get-LegacyAssemblyExecutableLines -Dll $assembly.Dll -Pdb $assembly.Pdb
     if ($actual.Name -ne $assembly.Name) { throw 'Assembly ownership mismatch.' }
     foreach ($document in $actual.Documents) {
         $relative = [IO.Path]::GetRelativePath($root, $document.Path).Replace('\', '/')
         if ($relative.StartsWith('../') -or [IO.Path]::IsPathFullyQualified($relative)) { throw 'Source escapes repository.' }
+        if (-not $copiedSourcePaths.Add($relative)) { throw 'Ambiguous source output identity.' }
         $algorithm = switch ($document.PdbChecksum.Algorithm) {
             '8829d00f-11b8-4213-878b-770e8597ac16' { 'SHA256' }
             'ff1816ec-aa5e-4d10-87f7-6f4963833460' { 'SHA1' }
             default { throw 'Unknown source checksum algorithm.' }
         }
-        if ((Get-FileHash -LiteralPath $document.Path -Algorithm $algorithm).Hash -ne $document.PdbChecksum.Value) { throw 'Compiled source checksum mismatch.' }
+        $sourceOrigin = 'pdb-embedded'
+        if ($null -ne $document.EmbeddedSourceBase64) {
+            $sourceBytes = [Convert]::FromBase64String($document.EmbeddedSourceBase64)
+        } elseif ([IO.File]::Exists($document.Path)) {
+            $sourceOrigin = 'disk'
+            $sourceBytes = [IO.File]::ReadAllBytes($document.Path)
+        } else { throw 'Compiled source has neither disk bytes nor embedded PDB bytes.' }
+        $sourceHash = if ($algorithm -eq 'SHA256') { [Security.Cryptography.SHA256]::HashData($sourceBytes) } else { [Security.Cryptography.SHA1]::HashData($sourceBytes) }
+        $sourceChecksum = [Convert]::ToHexString($sourceHash)
+        if ($sourceChecksum -ne $document.PdbChecksum.Value) { throw 'Compiled source checksum mismatch.' }
         $blob = $null
         if (-not $document.Generated) {
+            Assert-LegacyDiskSourceChecksum -Path $document.Path -Checksum $sourceChecksum -Algorithm $algorithm
             $blob = & git -C $root rev-parse "HEAD:$relative"
             if ($LASTEXITCODE -ne 0) { throw 'Production source is not in exact Git tree.' }
             $actualBlob = & git -C $root hash-object --path $relative -- $document.Path
@@ -38,9 +50,10 @@ foreach ($assembly in $assemblies) {
         }
         $copy = Join-Path $OutputDirectory ('sources/' + $relative)
         [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($copy))
-        Copy-Item -LiteralPath $document.Path -Destination $copy
+        [IO.File]::WriteAllBytes($copy, $sourceBytes)
+        $document | Add-Member SourceOrigin $sourceOrigin
         $document | Add-Member RelativePath $relative
-        $document | Add-Member SourceSha256 (Get-FileHash -LiteralPath $document.Path -Algorithm SHA256).Hash
+        $document | Add-Member SourceSha256 (Get-FileHash -LiteralPath $copy -Algorithm SHA256).Hash
         $document | Add-Member GitBlob $blob
     }
     $moduleDirectory = Join-Path $OutputDirectory ('modules/' + $actual.Name)
