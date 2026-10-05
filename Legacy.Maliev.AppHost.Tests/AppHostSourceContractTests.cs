@@ -328,7 +328,7 @@ public sealed class AppHostSourceContractTests
         Assert.Equal(18, directMigrationConnectionCount);
         Assert.Equal(21, pooledApplicationConnectionCount);
         Assert.Contains(
-            "? CreatePooledDatabaseConnectionString(\"Auth\")\n    : authDatabase.Resource.ConnectionStringExpression",
+            "? CreatePooledDatabaseConnectionString(\"Auth\")\n            : authDatabase.Resource.ConnectionStringExpression",
             source,
             StringComparison.Ordinal);
 
@@ -744,7 +744,7 @@ public sealed class AppHostSourceContractTests
         var bff = ExtractResource(
             source,
             "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>",
-            "builder.Build().Run()");
+            "return builder;");
 
         Assert.Contains("\"legacy-maliev-intranet-bff\"", bff, StringComparison.Ordinal);
         Assert.Contains("WithEnvironment(\"Jwt__PublicKey\", jwt.PublicKeyBase64)", bff, StringComparison.Ordinal);
@@ -769,7 +769,7 @@ public sealed class AppHostSourceContractTests
         var bff = ExtractResource(
             source,
             "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>",
-            "builder.Build().Run()");
+            "return builder;");
 
         Assert.Contains(
             "WithEnvironment(\"ServiceAuthentication__ClientId\", \"legacy-intranet\")",
@@ -814,7 +814,7 @@ public sealed class AppHostSourceContractTests
         var bff = ExtractResource(
             source,
             "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>",
-            "builder.Build().Run()");
+            "return builder;");
 
         Assert.Contains(
             "WithEnvironment(\"Services__Quotation\", quotation.GetEndpoint(\"http\"))",
@@ -838,7 +838,7 @@ public sealed class AppHostSourceContractTests
         var bff = ExtractResource(
             source,
             "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>",
-            "builder.Build().Run()");
+            "return builder;");
 
         Assert.Contains(
             "WithEnvironment(\"Services__Order\", order.GetEndpoint(\"http\"))",
@@ -867,7 +867,7 @@ public sealed class AppHostSourceContractTests
         var bff = ExtractResource(
             source,
             "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>",
-            "builder.Build().Run()");
+            "return builder;");
 
         foreach (var service in new[] { "Customer", "Procurement", "Document", "File", "Notification", "Accounting" })
         {
@@ -898,7 +898,7 @@ public sealed class AppHostSourceContractTests
         var bff = ExtractResource(
             source,
             "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>",
-            "builder.Build().Run()");
+            "return builder;");
 
         // The Razor Pages compatibility host (formerly a 3rd DataProtection cert consumer) is
         // dormant locally. Web and the BFF must still have isolated key material so a browser
@@ -936,7 +936,7 @@ public sealed class AppHostSourceContractTests
         var bff = ExtractResource(
             source,
             "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>",
-            "builder.Build().Run()");
+            "return builder;");
 
         Assert.Contains("legacy-web-recaptcha-site-key", source, StringComparison.Ordinal);
         Assert.Contains("legacy-web-recaptcha-project-id", source, StringComparison.Ordinal);
@@ -959,7 +959,7 @@ public sealed class AppHostSourceContractTests
         var bff = ExtractResource(
             source,
             "var intranetBff = builder.AddProject<Projects.Legacy_Maliev_Intranet_Bff>",
-            "builder.Build().Run()");
+            "return builder;");
 
         Assert.Contains(
             "WithEnvironment(\"CustomerOnboarding__PublicWebBaseUrl\", web.GetEndpoint(\"http\"))",
@@ -1298,7 +1298,7 @@ public sealed class AppHostSourceContractTests
         Assert.DoesNotContain("SnapshotEncryptionKey.Load", appHostSource, StringComparison.Ordinal);
         Assert.Contains("LEGACY_SNAPSHOT_DIRECTORY", appHostSource, StringComparison.Ordinal);
         Assert.Contains(
-            "if (localSnapshotMode)\r\n{\r\n    _ = AddSnapshotMigration(\"legacy-contact-request-snapshot\", \"ContactRequest\");",
+            "if (localSnapshotMode)\r\n        {\r\n            _ = AddSnapshotMigration(\"legacy-contact-request-snapshot\", \"ContactRequest\");",
             appHostSource.ReplaceLineEndings("\r\n"),
             StringComparison.Ordinal);
         Assert.Contains("AddSnapshotMigration(\"legacy-contact-request-snapshot\", \"ContactRequest\")", appHostSource, StringComparison.Ordinal);
