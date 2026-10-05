@@ -298,8 +298,8 @@ public sealed class AppHostCompositionTests
         private static readonly IReadOnlyDictionary<string, string?> SyntheticConfiguration = new Dictionary<string, string?>
         {
             ["Parameters:legacy-postgres-username"] = "owned-fixture",
-            ["Parameters:legacy-postgres-password"] = "owned-fixture-only",
-            ["Parameters:legacy-redis-password"] = "owned-fixture-only",
+            ["Parameters:legacy-postgres-password"] = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)),
+            ["Parameters:legacy-redis-password"] = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)),
             ["Parameters:legacy-web-google-maps-embed-api-key"] = "owned-fixture-maps-embed",
             ["Parameters:legacy-intranet-google-maps-browser-api-key"] = "owned-fixture-maps-browser",
             ["Authentication:Google:ClientId"] = "owned-fixture-google-client",

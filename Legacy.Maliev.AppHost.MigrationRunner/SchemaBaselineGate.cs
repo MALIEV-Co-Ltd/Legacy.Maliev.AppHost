@@ -203,7 +203,7 @@ public static class SchemaBaselineGate
         return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
     }
 
-    private static async Task<string> ComputeSchemaFingerprintAsync(
+    internal static async Task<string> ComputeSchemaFingerprintAsync(
         NpgsqlConnection connection,
         CancellationToken cancellationToken)
     {
