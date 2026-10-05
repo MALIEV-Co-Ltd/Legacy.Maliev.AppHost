@@ -30,6 +30,224 @@ public static class LegacyEdgeReviewPackage
         ("/Jobs", "career"), ("/accounting", "accounting")
     ];
 
+    /// <summary>Reviews supplied legacy child outcomes without executing any deployment or directory operation.</summary>
+    /// <param name="acmeEmail">The explicitly supplied ACME contact for the unchanged base envelope.</param>
+    /// <param name="existingStaticIpName">The explicitly supplied existing static-IP name.</param>
+    /// <param name="suppliedObservationJson">Closed, bounded caller-supplied observations, never collected live.</param>
+    /// <returns>A schema-four envelope whose modeled source result is separate from real execution.</returns>
+    public static string RenderReleaseSelectorReview(string acmeEmail, string existingStaticIpName, string suppliedObservationJson)
+    {
+        ArgumentNullException.ThrowIfNull(suppliedObservationJson);
+        if (new System.Text.UTF8Encoding(false, true).GetByteCount(suppliedObservationJson) > 32 * 1024)
+        {
+            throw new ArgumentException("Supplied selector observations exceed 32 KiB.", nameof(suppliedObservationJson));
+        }
+        using var document = JsonDocument.Parse(suppliedObservationJson, new JsonDocumentOptions { MaxDepth = 8 });
+        var input = document.RootElement;
+        RejectDuplicateSelectorProperties(input);
+        RequireSelectorProperties(input, "schemaVersion", "selector", "children");
+        if (input.GetProperty("schemaVersion").ValueKind != JsonValueKind.Number
+            || !input.GetProperty("schemaVersion").TryGetInt32(out var inputVersion) || inputVersion != 1)
+        {
+            throw new JsonException("Only supplied-observation schema one is supported.");
+        }
+        if (input.GetProperty("selector").ValueKind != JsonValueKind.String)
+        {
+            throw new JsonException("An explicit source selector is required.");
+        }
+        var selector = input.GetProperty("selector").GetString()!;
+        var source = ReleaseSelectorSource(selector);
+        var children = input.GetProperty("children");
+        if (children.ValueKind != JsonValueKind.Array) { throw new JsonException("Children must be an array."); }
+        var reports = new Dictionary<string, (bool? File, bool? InvocationFailed, int? ExitCode)>(StringComparer.Ordinal);
+        // Validate every supplied record before considering the first modeled step.
+        foreach (var child in children.EnumerateArray())
+        {
+            RequireSelectorProperties(child, "sourceService", "deployScriptIsFile", "invocationFailed", "exitCode");
+            if (child.GetProperty("sourceService").ValueKind != JsonValueKind.String)
+            {
+                throw new JsonException("A selected source service is required.");
+            }
+            var service = child.GetProperty("sourceService").GetString()!;
+            if (!source.Members.Contains(service, StringComparer.Ordinal)) { throw new JsonException("Source service is outside the selected group."); }
+            var file = SelectorBoolean(child, "deployScriptIsFile");
+            var invocationFailed = SelectorBoolean(child, "invocationFailed");
+            int? exitCode = null;
+            if (child.TryGetProperty("exitCode", out var exit) && exit.ValueKind != JsonValueKind.Null)
+            {
+                if (exit.ValueKind != JsonValueKind.Number || !exit.TryGetInt32(out var value))
+                {
+                    throw new JsonException("A supplied exit code must be an Int32 or null.");
+                }
+                exitCode = value;
+            }
+            if ((file == false && (invocationFailed.HasValue || exitCode.HasValue))
+                || (invocationFailed == true && exitCode.HasValue))
+            {
+                throw new JsonException("Supplied observations contradict source invocation preconditions.");
+            }
+            if (!reports.TryAdd(service, (file, invocationFailed, exitCode)))
+            {
+                throw new JsonException("Duplicate source service observations are not permitted.");
+            }
+        }
+        var trace = new List<object>();
+        var stopped = false;
+        var status = "ReportedComplete";
+        int? modeledSourceExitCode = 0;
+        foreach (var service in source.Members)
+        {
+            var provided = reports.TryGetValue(service, out var report);
+            var consumed = !stopped;
+            var outcome = "NotReached";
+            if (consumed)
+            {
+                if (!provided || report.File is null) { outcome = "Unknown"; }
+                else if (report.File == false) { outcome = "MissingLeaf"; }
+                else if (report.InvocationFailed is null) { outcome = "Unknown"; }
+                else if (report.InvocationFailed == true) { outcome = "InvocationFailed"; }
+                else if (report.ExitCode is null) { outcome = "Unknown"; }
+                else if (report.ExitCode != 0) { outcome = "ChildExitFailure"; }
+                else { outcome = "ReportedSuccess"; }
+                if (outcome != "ReportedSuccess")
+                {
+                    stopped = true;
+                    status = outcome == "Unknown" ? "Unknown" : "ReportedFailure";
+                    modeledSourceExitCode = outcome == "Unknown" ? null : 1;
+                }
+            }
+            trace.Add(new
+            {
+                sourceService = service,
+                sourceDeployScriptRelativePath = service + "/deploy.ps1",
+                observationProvided = provided,
+                consumed,
+                outcome,
+                reportedExitCode = consumed && provided ? report.ExitCode : null,
+                executionVerified = false
+            });
+        }
+        var root = System.Text.Json.Nodes.JsonNode.Parse(Render(acmeEmail, existingStaticIpName, 3))!.AsObject();
+        root["schemaVersion"] = 4;
+        root["releaseSelectorReview"] = JsonSerializer.SerializeToNode(new
+        {
+            semantics = "SuppliedSourceControlFlowReview",
+            sourceCheckpoint = "135e526d0dab85c415b3afdcefd7b70fe2c82e2f",
+            sourceControlFlowCommit = "72163e9ae11f39f6579423841a2e20529b986fab",
+            sourceControlFlowParent = "91a8f128ae155e2fe046015e8d66f9ba4b306b30",
+            sourceLoggerRemovalCommit = "9e51e6c5da29de8e617b65b59d46882cde6d3b64",
+            selector,
+            sourceSelectorPath = source.Path,
+            sourceSelectorBlob = source.Blob,
+            selectedSourceServices = source.Members,
+            status,
+            modeledSourceExitCode,
+            observationsVerified = false,
+            sourceHelperExecutionVerified = false,
+            callerDirectoryRestoredVerified = false,
+            successorMappingVerified = false,
+            sourceRequiresInnerPopLocation = true,
+            sourceRequiresOuterCallerDirectoryRestore = true,
+            sourceLeafCheck = "Test-Path -LiteralPath -PathType Leaf",
+            sourceShellSelection = new
+            {
+                core = "PSHOME/pwsh.exe",
+                other = "PSHOME/powershell.exe",
+                arguments = new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "source deploy.ps1" },
+                invocationPerformed = false
+            },
+            retiredSuccessorDispositions = source.Members.Contains("maliev.predictionservice.api", StringComparer.Ordinal)
+                ? new object[] { new { sourceService = "maliev.predictionservice.api", disposition = "OwnerRetired", runtimeRegistered = false, recreateRuntimeAllowed = false } }
+                : Array.Empty<object>(),
+            unresolvedGates = new[]
+            {
+                "Supplied outcomes are not live verification of child scripts or source helper execution",
+                "Source directory restoration and deployment orchestration require independent acceptance",
+                "Successor consolidation and release ownership are not verified by this model",
+                "Prediction retains source selection but its owner-retired successor must not be recreated"
+            },
+            trace
+        });
+        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static (string Path, string Blob, string[] Members) ReleaseSelectorSource(string selector)
+    {
+        string[] all =
+        [
+            "maliev.authservice.api",
+            "maliev.countryservice.api",
+            "maliev.currencyservice.api",
+            "maliev.customerservice.api",
+            "maliev.emailservice.api",
+            "maliev.employeeservice.api",
+            "maliev.intranet",
+            "maliev.invoiceservice.api",
+            "maliev.jobservice.api",
+            "maliev.materialservice.api",
+            "maliev.messageservice.api",
+            "maliev.orderservice.api",
+            "maliev.orderstatusservice.api",
+            "maliev.paymentservice.api",
+            "maliev.pdfservice.api",
+            "maliev.predictionservice.api",
+            "maliev.purchaseorderservice.api",
+            "maliev.quotationrequestservice.api",
+            "maliev.quotationservice.api",
+            "maliev.receiptservice.api",
+            "maliev.supplierservice.api",
+            "maliev.uploadservice.api",
+            "maliev.web"
+        ];
+        return selector switch
+        {
+            "all" => ("deploy_all.ps1",
+                "f74d2c83fecd5f3e9ff49712caa46a09f12677a4", all),
+            "api" => ("deploy_api.ps1",
+                "c6604936515c87d9a9337c4b84a72ceb94e63c7e", all.Where(member => member is not "maliev.intranet" and not "maliev.web").ToArray()),
+            "web" => ("deploy_web.ps1",
+                "c0d90c21e655f66e30e35cb08b29fbf62428446b", ["maliev.web"]),
+            "intranet" => ("deploy_intranet.ps1",
+                "4fb465cb04f7c174ec8130ca8c4ecf1df424d6ba", ["maliev.intranet"]),
+            "pdf" => ("deploy_pdf.ps1",
+                "240e57135f446a56e1f507aa255f338057652ffc", ["maliev.pdfservice.api"]),
+            _ => throw new JsonException("Unknown source selector.")
+        };
+    }
+
+    private static bool? SelectorBoolean(JsonElement child, string name)
+    {
+        if (!child.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null) { return null; }
+        if (value.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) { throw new JsonException("A supplied observation must be a boolean or null."); }
+        return value.GetBoolean();
+    }
+
+    private static void RequireSelectorProperties(JsonElement value, params string[] allowed)
+    {
+        if (value.ValueKind != JsonValueKind.Object) { throw new JsonException("An observation object is required."); }
+        foreach (var property in value.EnumerateObject())
+        {
+            if (!allowed.Contains(property.Name, StringComparer.Ordinal)) { throw new JsonException("Unknown observation property."); }
+        }
+    }
+
+    private static void RejectDuplicateSelectorProperties(JsonElement value)
+    {
+        if (value.ValueKind == JsonValueKind.Object)
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var property in value.EnumerateObject())
+            {
+                if (!names.Add(property.Name)) { throw new JsonException("Duplicate observation properties are not permitted."); }
+                RejectDuplicateSelectorProperties(property.Value);
+            }
+        }
+        else if (value.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var child in value.EnumerateArray()) { RejectDuplicateSelectorProperties(child); }
+        }
+    }
+
     /// <summary>Opts into a resource-intent review without executing the retained source helper.</summary>
     /// <param name="acmeEmail">The explicitly supplied ACME contact.</param>
     /// <param name="existingStaticIpName">The explicitly supplied existing static-IP name.</param>
