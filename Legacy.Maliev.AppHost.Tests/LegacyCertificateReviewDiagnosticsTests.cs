@@ -10,6 +10,44 @@ public sealed class LegacyCertificateReviewDiagnosticsTests
     private static readonly DateTimeOffset AsOf = new(2026, 10, 5, 0, 0, 0, TimeSpan.Zero);
 
     [Theory]
+    [InlineData("2026-10-04T23:59:59.9999999Z", "Critical", "Expired")]
+    [InlineData("2026-10-05T00:00:00Z", "Critical", "Expired")]
+    [InlineData("2026-10-05T00:00:00.0000001Z", "Critical", "Ready")]
+    [InlineData("2026-10-11T23:59:59.9999999Z", "Critical", "Ready")]
+    [InlineData("2026-10-12T00:00:00Z", "Warning", "Ready")]
+    [InlineData("2026-10-12T00:00:00+00:00", "Warning", "Ready")]
+    [InlineData("2026-10-12T00:00:00.0000001Z", "Warning", "Ready")]
+    [InlineData("2026-11-03T23:59:59.9999999Z", "Warning", "Ready")]
+    [InlineData("2026-11-04T00:00:00Z", "None", "Ready")]
+    [InlineData("2026-11-04T00:00:00+00:00", "None", "Ready")]
+    [InlineData("2026-11-04T00:00:00.0000001Z", "None", "Ready")]
+    public void Diagnose_RetainsSourceExpiryAlertsAtExactUtcBoundaries(string expiry, string alert, string status)
+    {
+        var evidence = JsonSerializer.Serialize(new { condition = "Ready", notAfterUtc = expiry, issuerReady = true, challengeFailed = false });
+        using var result = JsonDocument.Parse(LegacyCertificateReviewDiagnostics.Diagnose(evidence, AsOf));
+        Assert.Equal(alert, result.RootElement.GetProperty("expiryAlert").GetString());
+        Assert.Equal(status, result.RootElement.GetProperty("status").GetString());
+        Assert.False(result.RootElement.GetProperty("runtimeAcceptanceProven").GetBoolean());
+        Assert.False(result.RootElement.GetProperty("productionDeploymentAllowed").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData("Ready")]
+    [InlineData("Renewing")]
+    [InlineData("Failed")]
+    [InlineData("Unknown")]
+    public void Diagnose_ExpiryAlertDoesNotRewriteReportedConditionOrSuppressExistingChecks(string condition)
+    {
+        var evidence = JsonSerializer.Serialize(new { condition, notAfterUtc = "2026-10-06T00:00:00Z", issuerReady = false, challengeFailed = true });
+        using var result = JsonDocument.Parse(LegacyCertificateReviewDiagnostics.Diagnose(evidence, AsOf));
+        Assert.Equal("Critical", result.RootElement.GetProperty("expiryAlert").GetString());
+        Assert.Equal(condition, result.RootElement.GetProperty("reportedCondition").GetString());
+        Assert.Equal(condition, result.RootElement.GetProperty("status").GetString());
+        Assert.Contains(result.RootElement.GetProperty("checks").EnumerateArray(), check => check.GetString() == "InspectClusterIssuerConfiguration");
+        Assert.Contains(result.RootElement.GetProperty("checks").EnumerateArray(), check => check.GetString() == "InspectChallengeAndIngress");
+    }
+
+    [Theory]
     [InlineData("Ready", "2026-11-01T00:00:00Z", "Ready")]
     [InlineData("Ready", "2026-11-01T00:00:00+00:00", "Ready")]
     [InlineData("Ready", null, "Unknown")]
@@ -51,6 +89,7 @@ public sealed class LegacyCertificateReviewDiagnosticsTests
     {
         using var result = JsonDocument.Parse(LegacyCertificateReviewDiagnostics.Diagnose(evidence, AsOf));
         Assert.Equal("Unknown", result.RootElement.GetProperty("status").GetString());
+        Assert.Equal("Unknown", result.RootElement.GetProperty("expiryAlert").GetString());
         Assert.Equal(new[] { "ObtainCertificateExpiry", "ObtainCertificateCondition", "ObtainClusterIssuerCondition", "ObtainChallengeCondition" },
             result.RootElement.GetProperty("checks").EnumerateArray().Select(check => check.GetString()));
     }
@@ -140,6 +179,7 @@ public sealed class LegacyCertificateReviewDiagnosticsTests
                 Assert.Equal(0, first);
                 using var report = JsonDocument.Parse(await File.ReadAllTextAsync(outputPath));
                 Assert.Equal("Unknown", report.RootElement.GetProperty("status").GetString());
+                Assert.Equal("Unknown", report.RootElement.GetProperty("expiryAlert").GetString());
                 Assert.False(report.RootElement.GetProperty("runtimeAcceptanceProven").GetBoolean());
                 var original = await File.ReadAllBytesAsync(outputPath);
                 Assert.NotEqual(0, await RunReviewScript(evidencePath, outputPath));
@@ -173,6 +213,42 @@ public sealed class LegacyCertificateReviewDiagnosticsTests
             await File.WriteAllTextAsync(evidencePath, """{"condition":"Unknown"}""");
             Assert.NotEqual(0, await RunReviewScript(evidencePath, outputPath, reviewInstant));
             Assert.False(File.Exists(outputPath));
+        }
+        finally
+        {
+            File.Delete(evidencePath);
+            File.Delete(outputPath);
+            Directory.Delete(directory);
+        }
+    }
+
+    [Theory]
+    [InlineData("2026-10-06T00:00:00Z", "Critical")]
+    [InlineData("2026-10-12T00:00:00Z", "Warning")]
+    [InlineData("2026-11-04T00:00:00Z", "None")]
+    [InlineData(null, "Unknown")]
+    public async Task ReviewScript_EmitsSourceExpiryAlertsFromTheReviewedCompiledConsumer(string? expiry, string alert)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "apphost-certificate-cli-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var evidencePath = Path.Combine(directory, "evidence.json");
+        var outputPath = Path.Combine(directory, "review.json");
+        try
+        {
+            await File.WriteAllTextAsync(evidencePath, JsonSerializer.Serialize(new
+            {
+                condition = "Ready", notAfterUtc = expiry, issuerReady = true, challengeFailed = false
+            }));
+            Assert.Equal(0, await RunReviewScript(evidencePath, outputPath));
+            using var report = JsonDocument.Parse(await File.ReadAllTextAsync(outputPath));
+            Assert.Equal(alert, report.RootElement.GetProperty("expiryAlert").GetString());
+            Assert.Equal(expiry is null ? "Unknown" : "Ready", report.RootElement.GetProperty("status").GetString());
+            Assert.Equal("Ready", report.RootElement.GetProperty("reportedCondition").GetString());
+            Assert.False(report.RootElement.GetProperty("runtimeAcceptanceProven").GetBoolean());
+            Assert.False(report.RootElement.GetProperty("productionDeploymentAllowed").GetBoolean());
+            var original = await File.ReadAllBytesAsync(outputPath);
+            Assert.NotEqual(0, await RunReviewScript(evidencePath, outputPath));
+            Assert.Equal(original, await File.ReadAllBytesAsync(outputPath));
         }
         finally
         {

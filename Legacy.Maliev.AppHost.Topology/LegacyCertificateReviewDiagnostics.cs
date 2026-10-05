@@ -68,6 +68,12 @@ public static class LegacyCertificateReviewDiagnostics
         else if (!issuerReady.Value) { checks.Add("InspectClusterIssuerConfiguration"); }
         if (challengeFailed is null) { checks.Add("ObtainChallengeCondition"); }
         else if (challengeFailed.Value) { checks.Add("InspectChallengeAndIngress"); }
+        // Source runbook alerts use strict seven/thirty-day UTC boundaries, independently
+        // of the reported condition. Missing expiry cannot establish absence of an alert.
+        var expiryAlert = notAfter is null ? "Unknown"
+            : notAfter.Value - asOfUtc < TimeSpan.FromDays(7) ? "Critical"
+            : notAfter.Value - asOfUtc < TimeSpan.FromDays(30) ? "Warning"
+            : "None";
         return JsonSerializer.Serialize(new
         {
             schemaVersion = 1,
@@ -77,6 +83,7 @@ public static class LegacyCertificateReviewDiagnostics
             asOfUtc,
             reportedCondition = condition,
             status,
+            expiryAlert,
             checks = checks.Distinct(StringComparer.Ordinal)
         }, new JsonSerializerOptions { WriteIndented = true });
     }
