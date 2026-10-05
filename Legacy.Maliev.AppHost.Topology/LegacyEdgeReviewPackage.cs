@@ -151,7 +151,8 @@ public static class LegacyEdgeReviewPackage
             sourceLeafCheck = "Test-Path -LiteralPath -PathType Leaf",
             sourceShellSelection = new
             {
-                core = "PSHOME/pwsh.exe", other = "PSHOME/powershell.exe",
+                core = "PSHOME/pwsh.exe",
+                other = "PSHOME/powershell.exe",
                 arguments = new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "source deploy.ps1" },
                 invocationPerformed = false
             },

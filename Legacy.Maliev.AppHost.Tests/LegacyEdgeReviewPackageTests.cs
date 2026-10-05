@@ -802,7 +802,10 @@ public sealed class LegacyEdgeReviewPackageTests
             "maliev.quotationservice.api", "maliev.receiptservice.api", "maliev.supplierservice.api", "maliev.uploadservice.api", "maliev.web"];
         var children = JsonSerializer.Serialize(expected.Select(service => new
         {
-            sourceService = service, deployScriptIsFile = true, invocationFailed = false, exitCode = 0
+            sourceService = service,
+            deployScriptIsFile = true,
+            invocationFailed = false,
+            exitCode = 0
         }));
         var result = await RunSelectorReview(SelectorInput("all", children));
         Assert.True(result.ExitCode == 0, result.Error);
