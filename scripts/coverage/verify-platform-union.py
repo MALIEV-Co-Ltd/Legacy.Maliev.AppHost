@@ -13,6 +13,11 @@ MODULES = {
     "Legacy.Maliev.AppHost.Topology",
 }
 LOCAL_DELTA = "Legacy.Maliev.AppHost.LocalDeltaRunner"
+SDK_ZERO_LINE_DOCUMENTS = {
+    LOCAL_DELTA + "/obj/Release/net10.0/.NETCoreApp,Version=v10.0.AssemblyAttributes.cs",
+    LOCAL_DELTA + "/obj/Release/net10.0/" + LOCAL_DELTA + ".AssemblyInfo.cs",
+    LOCAL_DELTA + "/obj/Release/net10.0/" + LOCAL_DELTA + ".GlobalUsings.g.cs",
+}
 
 
 def require(condition, reason):
@@ -124,6 +129,40 @@ def load_platform(directory, platform):
     return identity, result
 
 
+def prove_sdk_zero_line_eol_pair(key, left_document, right_document, left, right, left_sdk, right_sdk):
+    require(key in SDK_ZERO_LINE_DOCUMENTS, "Unknown zero-line SDK document")
+    require(left_document["RelativePath"] == key and right_document["RelativePath"] == key,
+            "SDK document path mismatch")
+    require(left_document["Generated"] is True and right_document["Generated"] is True,
+            "EOL predicate requires generated documents")
+    require(left_document["Lines"] == [] and right_document["Lines"] == [],
+            "EOL predicate forbids executable generated lines")
+    require(left_sdk == right_sdk == "10.0.401", "EOL predicate compiler SDK mismatch")
+    require(left and right, "Empty SDK source bytes")
+    for bom in [b"\xef\xbb\xbf", b"\xff\xfe", b"\xfe\xff"]:
+        require(not left.startswith(bom) and not right.startswith(bom), "SDK source BOM forbidden")
+    first, second, newlines = 0, 0, 0
+    # Compare streams without changing either artifact. Only CR immediately
+    # preceding LF may differ; every other byte and newline position must match.
+    while first < len(left) and second < len(right):
+        if left[first] == 13:
+            require(first + 1 < len(left) and left[first + 1] == 10, "Standalone source CR forbidden")
+            first += 1
+        if right[second] == 13:
+            require(second + 1 < len(right) and right[second + 1] == 10, "Standalone source CR forbidden")
+            second += 1
+        require(left[first] == right[second], "SDK source content/whitespace/token mismatch")
+        if left[first] == 10:
+            newlines += 1
+        first += 1
+        second += 1
+    require(first == len(left) and second == len(right), "SDK source length/newline order mismatch")
+    require(newlines > 0, "SDK source has no proven line endings")
+    return {"Path": key, "Rule": "exact-sdk-zero-executable-keys-eol-only", "ExecutableKeys": 0,
+            "NewlineCount": newlines, "UbuntuSourceSha256": hashlib.sha256(left).hexdigest().upper(),
+            "WindowsSourceSha256": hashlib.sha256(right).hexdigest().upper()}
+
+
 def evaluate(ubuntu_directory, windows_directory):
     ubuntu, linux = load_platform(ubuntu_directory, "ubuntu")
     windows, win = load_platform(windows_directory, "windows")
@@ -134,12 +173,16 @@ def evaluate(ubuntu_directory, windows_directory):
     linux_module = next(a for a in ubuntu["ArtifactInventory"] if a["Name"] == LOCAL_DELTA)
     require(linux_module["AssemblyVersion"] == windows["ArtifactInventory"][0]["AssemblyVersion"],
             "Cross-platform production assembly version mismatch")
+    eol_proofs = []
     for key, document in linux[LOCAL_DELTA]["documents"].items():
         other = win[LOCAL_DELTA]["documents"][key]
         require(set(document["Lines"]) == set(other["Lines"]), "Cross-platform executable line set mismatch")
         require(document["Generated"] == other["Generated"], "Cross-platform generated identity mismatch")
         if document["Generated"]:
-            require(document["SourceSha256"] == other["SourceSha256"], "Generated source bytes mismatch")
+            if document["SourceSha256"] != other["SourceSha256"]:
+                eol_proofs.append(prove_sdk_zero_line_eol_pair(
+                    key, document, other, (ubuntu_directory / "sources" / key).read_bytes(),
+                    (windows_directory / "sources" / key).read_bytes(), ubuntu["SdkVersion"], windows["SdkVersion"]))
         else:
             require(document["GitBlob"] == other["GitBlob"], "Production source Git blob mismatch")
     results = []
@@ -153,6 +196,7 @@ def evaluate(ubuntu_directory, windows_directory):
                         "CoveragePercent": 100 * covered / len(keys), "MeetsThreshold": covered * 100 >= len(keys) * 80})
     return {"Complete": True, "Head": ubuntu["Head"], "Tree": ubuntu["Tree"], "MinimumPercent": 80,
             "Assemblies": results, "MeetsThreshold": all(a["MeetsThreshold"] for a in results),
+            "GeneratedZeroLineEolProofs": eol_proofs,
             "Platforms": {"ubuntu": ubuntu, "windows": windows}}
 
 

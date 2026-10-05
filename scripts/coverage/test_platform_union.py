@@ -191,6 +191,130 @@ class PlatformUnionControls(unittest.TestCase):
         self.mutate(change)
         self.reject()
 
+    def eol_documents(self, key=None):
+        key = key or sorted(union.SDK_ZERO_LINE_DOCUMENTS)[0]
+        return key, {"RelativePath": key, "Generated": True, "Lines": []}
+
+    def prove_eol(self, left, right, key=None, left_document=None, right_document=None, right_sdk="10.0.401"):
+        key, document = self.eol_documents(key)
+        return union.prove_sdk_zero_line_eol_pair(key, left_document or document, right_document or document,
+                                                left, right, "10.0.401", right_sdk)
+
+    def test_genuine_sdk_zero_line_eol_pairs_retain_raw_hashes(self):
+        left = b'// SDK fixture\n[assembly: System.Reflection.AssemblyTitle("fixture")]\n'
+        right = b'// SDK fixture\r\n[assembly: System.Reflection.AssemblyTitle("fixture")]\r\n'
+        for key in union.SDK_ZERO_LINE_DOCUMENTS:
+            with self.subTest(key=key):
+                proof = self.prove_eol(left, right, key=key)
+                self.assertEqual(proof["ExecutableKeys"], 0)
+                self.assertEqual(proof["NewlineCount"], 2)
+                self.assertNotEqual(proof["UbuntuSourceSha256"], proof["WindowsSourceSha256"])
+                self.assertEqual(left, b'// SDK fixture\n[assembly: System.Reflection.AssemblyTitle("fixture")]\n')
+                self.assertEqual(right, b'// SDK fixture\r\n[assembly: System.Reflection.AssemblyTitle("fixture")]\r\n')
+
+    def test_sdk_eol_predicate_rejects_standalone_cr_and_bom_edits(self):
+        left = b'// fixture\nusing System;\n'
+        for right in [b'// fixture\rusing System;\r\n', b'// fixture\r', b'\xef\xbb\xbf// fixture\r\nusing System;\r\n']:
+            with self.subTest(right=right):
+                with self.assertRaises(ValueError):
+                    self.prove_eol(left, right)
+
+    def test_sdk_eol_predicate_rejects_content_token_comment_whitespace_attribute_edits(self):
+        left = b'// fixture\n[assembly: AssemblyTitle("fixture")]\n'
+        changes = [b'// other\r\n[assembly: AssemblyTitle("fixture")]\r\n',
+                   b'// fixture\r\n[assembly: AssemblyCompany("fixture")]\r\n',
+                   b'// fixture\r\n[assembly: AssemblyTitle("other")]\r\n',
+                   b'// fixture\r\n [assembly: AssemblyTitle("fixture")]\r\n',
+                   b'// fixture\r\n[assembly:  AssemblyTitle("fixture")]\r\n']
+        for right in changes:
+            with self.subTest(right=right):
+                with self.assertRaises(ValueError):
+                    self.prove_eol(left, right)
+
+    def test_sdk_eol_predicate_rejects_newline_count_or_order_change(self):
+        left = b'// fixture\nusing System;\n'
+        for right in [b'// fixture\r\nusing System;\r\n\r\n', b'// fixture using\r\nSystem;\r\n']:
+            with self.subTest(right=right):
+                with self.assertRaises(ValueError):
+                    self.prove_eol(left, right)
+
+    def test_sdk_eol_predicate_rejects_nonzero_generated_executable_keys(self):
+        key, document = self.eol_documents()
+        document["Lines"] = [1]
+        with self.assertRaises(ValueError):
+            self.prove_eol(b'// fixture\n', b'// fixture\r\n', key, document, document)
+
+    def test_sdk_eol_predicate_rejects_unknown_zero_line_document_and_wrong_tfm(self):
+        for key in [union.LOCAL_DELTA + '/obj/Release/net10.0/Unknown.g.cs',
+                    union.LOCAL_DELTA + '/obj/Release/net11.0/' + union.LOCAL_DELTA + '.GlobalUsings.g.cs']:
+            with self.subTest(key=key):
+                with self.assertRaises(ValueError):
+                    self.prove_eol(b'// fixture\n', b'// fixture\r\n', key)
+
+    def test_sdk_eol_predicate_rejects_path_sdk_and_generated_identity_mismatch(self):
+        key, document = self.eol_documents()
+        for field, value in [("RelativePath", "different"), ("Generated", False)]:
+            changed = copy.deepcopy(document)
+            changed[field] = value
+            with self.subTest(field=field):
+                with self.assertRaises(ValueError):
+                    self.prove_eol(b'// fixture\n', b'// fixture\r\n', key, document, changed)
+        with self.assertRaises(ValueError):
+            self.prove_eol(b'// fixture\n', b'// fixture\r\n', right_sdk="10.0.402")
+
+    def add_sdk_zero_line_route_fixture(self):
+        key = union.LOCAL_DELTA + '/obj/Release/net10.0/' + union.LOCAL_DELTA + '.GlobalUsings.g.cs'
+        for directory, content in [(self.linux, b'// fixture\nglobal using System;\n'),
+                                   (self.windows, b'// fixture\r\nglobal using System;\r\n')]:
+            source = directory / "sources" / key
+            source.parent.mkdir(parents=True)
+            source.write_bytes(content)
+            path = directory / "identity.json"
+            identity = json.loads(path.read_text())
+            module = next(a for a in identity["ArtifactInventory"] if a["Name"] == union.LOCAL_DELTA)
+            module["Documents"].append({"Path": "/fixture/" + key, "RelativePath": key, "Generated": True,
+                                        "Lines": [], "GitBlob": None, "SourceSha256": union.digest(source),
+                                        "PdbChecksum": {"Algorithm": "8829d00f-11b8-4213-878b-770e8597ac16", "Value": union.digest(source)}})
+            path.write_text(json.dumps(identity))
+        return key
+
+    def test_evaluate_routes_known_zero_line_eol_pair_without_denominator_change(self):
+        key = self.add_sdk_zero_line_route_fixture()
+        before = [(directory / "sources" / key).read_bytes() for directory in [self.linux, self.windows]]
+        result = union.evaluate(self.linux, self.windows)
+        self.assertTrue(result["MeetsThreshold"])
+        self.assertEqual(len(result["GeneratedZeroLineEolProofs"]), 1)
+        local = next(a for a in result["Assemblies"] if a["Name"] == union.LOCAL_DELTA)
+        self.assertEqual((local["RawLines"], local["CoveredLines"]), (5, 5))
+        self.assertEqual(before, [(directory / "sources" / key).read_bytes() for directory in [self.linux, self.windows]])
+
+    def test_evaluate_rejects_properly_rehashed_sdk_token_change(self):
+        key = self.add_sdk_zero_line_route_fixture()
+        source = self.windows / "sources" / key
+        source.write_bytes(b'// fixture\r\nglobal using Other;\r\n')
+        def change(identity):
+            document = next(d for d in identity["ArtifactInventory"][0]["Documents"] if d["RelativePath"] == key)
+            document["SourceSha256"] = document["PdbChecksum"]["Value"] = union.digest(source)
+        self.mutate(change)
+        self.reject()
+
+    def test_evaluate_rejects_generated_nonzero_keys_after_complete_rehashed_raw_mapping(self):
+        key = self.add_sdk_zero_line_route_fixture()
+        for directory in [self.linux, self.windows]:
+            identity_path = directory / "identity.json"
+            identity = json.loads(identity_path.read_text())
+            module = next(a for a in identity["ArtifactInventory"] if a["Name"] == union.LOCAL_DELTA)
+            next(d for d in module["Documents"] if d["RelativePath"] == key)["Lines"] = [1]
+            raw_path = directory / "raw.cobertura.xml"
+            raw = ET.parse(raw_path)
+            package = next(p for p in raw.findall("./packages/package") if p.attrib["name"] == union.LOCAL_DELTA)
+            cls = ET.SubElement(package.find("classes"), "class", filename="/fixture/" + key)
+            ET.SubElement(ET.SubElement(cls, "lines"), "line", number="1", hits="0")
+            raw.write(raw_path)
+            identity["RawSha256"] = union.digest(raw_path)
+            identity_path.write_text(json.dumps(identity))
+        self.reject()
+
 
 if __name__ == "__main__":
     unittest.main()
