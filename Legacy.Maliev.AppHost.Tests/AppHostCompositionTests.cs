@@ -82,7 +82,7 @@ public sealed class AppHostCompositionTests
         string migrationExpression = Assert.IsType<ReferenceExpression>(migration["ConnectionStrings__CountryDbContext"]).ValueExpression;
         Assert.Contains("legacy-postgres-pooler-rw", runtimeExpression, StringComparison.Ordinal);
         Assert.DoesNotContain("legacy-postgres-pooler-rw", migrationExpression, StringComparison.Ordinal);
-        Assert.Contains("legacy-country-db", migrationExpression, StringComparison.Ordinal);
+        Assert.Equal("{legacy-postgres-main.connectionString};Database=Country", migrationExpression);
         Assert.Equal("false", migration["LEGACY_SKIP_MIGRATE"]);
     }
 
@@ -109,7 +109,7 @@ public sealed class AppHostCompositionTests
         string authExpression = Assert.IsType<ReferenceExpression>((await EnvironmentFor(builder,
             "legacy-maliev-auth-service"))["ConnectionStrings__RefreshSessions"]).ValueExpression;
         Assert.DoesNotContain("legacy-postgres-pooler-rw", authExpression, StringComparison.Ordinal);
-        Assert.Contains("legacy-auth-db", authExpression, StringComparison.Ordinal);
+        Assert.Equal("{legacy-postgres-main.connectionString};Database=Auth", authExpression);
     }
 
     [Fact]
@@ -223,6 +223,7 @@ public sealed class AppHostCompositionTests
         using var fixture = new GraphFixture();
         string keyPath = Path.Combine(fixture.Root, "fixture-key.txt");
         File.WriteAllText(keyPath, Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)));
+        LocalDeltaExecution.ProtectFile(keyPath);
         fixture.Set("LEGACY_LOCAL_SNAPSHOT", "true");
         fixture.Set("LEGACY_LOCAL_SNAPSHOT_DIR", fixture.Root);
         fixture.Set("LEGACY_MIGRATION_SNAPSHOT_ENCRYPTION_KEY_FILE", keyPath);

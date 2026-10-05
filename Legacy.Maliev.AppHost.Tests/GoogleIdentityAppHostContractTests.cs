@@ -9,7 +9,7 @@ public sealed class GoogleIdentityAppHostContractTests
         var authStart = source.IndexOf("var auth =", StringComparison.Ordinal);
         var authEnd = source.IndexOf("var customerDatabase =", authStart, StringComparison.Ordinal);
         var bffStart = source.IndexOf("var intranetBff =", StringComparison.Ordinal);
-        var bffEnd = source.IndexOf("builder.Build()", bffStart, StringComparison.Ordinal);
+        var bffEnd = source.IndexOf("return builder;", bffStart, StringComparison.Ordinal);
 
         Assert.True(authStart >= 0 && authEnd > authStart, "AuthService resource was not found.");
         Assert.True(bffStart >= 0 && bffEnd > bffStart, "Intranet BFF resource was not found.");
