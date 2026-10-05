@@ -120,7 +120,7 @@ public static class LegacyEdgeReviewPackage
                             {
                                 path = route.Item1,
                                 pathType = "Prefix",
-                                backend = new { service = new { name = "legacy-maliev-" + route.Item2 + (route.Item2 is "web" or "intranet-bff" ? "" : "-service"), port = new { number = 8080 } } }
+                                backend = new { service = new { name = "legacy-maliev-" + route.Item2 + (route.Item2 is "web" or "intranet-bff" ? "" : "-service"), port = new { number = route.Item2 is "auth" or "employee" or "intranet-bff" ? 80 : 8080 } } }
                             })
                     }
                 })
@@ -150,7 +150,7 @@ public static class LegacyEdgeReviewPackage
                 "AppHost #33 owner Aspire review and deployment approval",
                 "Existing static-IP ownership and capacity verification",
                 "Cluster-scoped issuer ownership and private-key secret isolation",
-                "Retained backend Service port 8080 acceptance",
+                "Retained backend Service names, ports and namespace/selector ownership acceptance",
                 "Real retained API route/rewriting acceptance",
                 "Source line-chatbot ingress ownership and namespace mapping require independent acceptance",
                 "Installed cert-manager version and certificate issuance acceptance"
