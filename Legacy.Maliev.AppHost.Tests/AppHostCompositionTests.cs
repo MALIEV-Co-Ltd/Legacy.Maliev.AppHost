@@ -521,7 +521,7 @@ public sealed class AppHostCompositionTests
                 Set("LEGACY_WEB_PROJECT", new Projects.Legacy_Maliev_Web().ProjectPath);
                 Set("LEGACY_WEB_REPOSITORY", "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web");
                 Set("LEGACY_WEB_BRANCH", "owned-build-only-fixture");
-                Set("LEGACY_WEB_COMMIT", "e806c2c6bf3352ffe387436a40bf5c391b2f6377");
+                Set("LEGACY_WEB_COMMIT", "007c082b4abd3da36d335f55a98702f507661651");
                 Set("LEGACY_WEB_PORT", "59154");
                 Set("Parameters__legacy-postgres-username", "owned-fixture");
                 Set("Parameters__legacy-postgres-password", PostgresPassword);
