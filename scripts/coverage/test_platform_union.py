@@ -162,6 +162,35 @@ class PlatformUnionControls(unittest.TestCase):
                 path.write_text(value)
                 self.reject()
 
+    def test_typed_git_pin_records_preserve_all_frozen_references(self):
+        records = [{"repository": name, "commit": commit} for name, commit in union.PINS.items()]
+        path = self.root / "pins.json"
+        path.write_text(json.dumps(records))
+        self.assertEqual(union.load_pins(path), union.PINS)
+
+    def test_pin_records_reject_missing_duplicate_unknown_schema_and_partial_commit(self):
+        records = [{"repository": name, "commit": commit} for name, commit in union.PINS.items()]
+        path = self.root / "pins.json"
+        invalid = [records[:-1], [records[0]] * 19]
+        unknown = copy.deepcopy(records)
+        unknown[0]["extra"] = "not allowed"
+        invalid.append(unknown)
+        partial = copy.deepcopy(records)
+        partial[0]["commit"] = partial[0]["commit"][:7]
+        invalid.append(partial)
+        for value in invalid:
+            with self.subTest(value=value):
+                path.write_text(json.dumps(value))
+                with self.assertRaises(ValueError):
+                    union.load_pins(path)
+
+    def test_actual_dependency_set_rejects_unknown_repository(self):
+        def change(identity):
+            dependency = identity["Dependencies"].pop(next(iter(union.PINS)))
+            identity["Dependencies"]["Legacy.Maliev.UnknownRepository"] = dependency
+        self.mutate(change)
+        self.reject()
+
 
 if __name__ == "__main__":
     unittest.main()

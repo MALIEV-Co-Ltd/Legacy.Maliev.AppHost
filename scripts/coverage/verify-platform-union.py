@@ -13,12 +13,27 @@ MODULES = {
     "Legacy.Maliev.AppHost.Topology",
 }
 LOCAL_DELTA = "Legacy.Maliev.AppHost.LocalDeltaRunner"
-PINS = json.loads(Path(__file__).with_name("platform-dependency-pins.json").read_text())
 
 
 def require(condition, reason):
     if not condition:
         raise ValueError(reason)
+
+
+def load_pins(path):
+    records = json.loads(path.read_text(encoding="utf-8"))
+    require(isinstance(records, list) and len(records) == 19, "Incomplete frozen repository/commit records")
+    pins = {}
+    for record in records:
+        require(isinstance(record, dict) and set(record) == {"repository", "commit"}, "Unknown pin record schema")
+        name, commit = record["repository"], record["commit"]
+        require(isinstance(name, str) and name.startswith("Legacy.Maliev.") and name not in pins, "Duplicate/unknown repository pin")
+        require(isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit) is not None, "Invalid full Git commit")
+        pins[name] = commit
+    return pins
+
+
+PINS = load_pins(Path(__file__).with_name("platform-dependency-pins.json"))
 
 
 def digest(path, algorithm="sha256"):

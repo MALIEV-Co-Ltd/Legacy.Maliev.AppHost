@@ -1,21 +1,78 @@
-{
-  "Legacy.Maliev.DataMigration": "77c8f3c62ee74bee40c08654fdf457d639ba423f",
-  "Legacy.Maliev.CountryService": "9c53137022bbd4e48d03084a090357ea98215559",
-  "Legacy.Maliev.DocumentService": "36bb52747cec7854db2349f8a63d771c9479b2af",
-  "Legacy.Maliev.AuthService": "d3311024e863f97ad067b608c70dac23edb8f2cb",
-  "Legacy.Maliev.CustomerService": "1270d63295a53f79aee265e57949e793ccb6516d",
-  "Legacy.Maliev.NotificationService": "bc2fee84421edaaf544a8f6040ae57ea81eeb14e",
-  "Legacy.Maliev.OrderService": "c371e2f2e81e46e28787c4472ce25a4bd08052ef",
-  "Legacy.Maliev.QuotationService": "7d4d0061cdb595c86bfa67074fec7c61b9f3812f",
-  "Legacy.Maliev.ServiceDefaults": "9c4ac9d44a08bcd0aa2088348790ab863814669c",
-  "Legacy.Maliev.CompatibilityContracts": "13eefdb44cad42b46216bb0378af8c76e3672c2c",
-  "Legacy.Maliev.Web": "e806c2c6bf3352ffe387436a40bf5c391b2f6377",
-  "Legacy.Maliev.EmployeeService": "101e0dc8009174b24c3013011b5393aa1ca66bee",
-  "Legacy.Maliev.CatalogService": "de4b3364e924cca1aeebb3280817f0c9bd7ea6bc",
-  "Legacy.Maliev.ProcurementService": "931feb5c6ec8f71ce95bbf093478429d299af130",
-  "Legacy.Maliev.FileService": "992135d8d49adc6747ce5495a4386e88ace9de1d",
-  "Legacy.Maliev.Intranet": "cb52b0fe06151f161766bca683f23710cb6b1ac2",
-  "Legacy.Maliev.CareerService": "a1802d4e2a3bf5bdbaeaf2320be00e5e19157375",
-  "Legacy.Maliev.ContactService": "831816a3ce95ab5d2a5b029d3f933c09fec9452f",
-  "Legacy.Maliev.AccountingService": "4cc64bd9b419b3a73307af6265d2e59a37eb0e20"
-}
+[
+  {
+    "repository": "Legacy.Maliev.DataMigration",
+    "commit": "77c8f3c62ee74bee40c08654fdf457d639ba423f"
+  },
+  {
+    "repository": "Legacy.Maliev.CountryService",
+    "commit": "9c53137022bbd4e48d03084a090357ea98215559"
+  },
+  {
+    "repository": "Legacy.Maliev.DocumentService",
+    "commit": "36bb52747cec7854db2349f8a63d771c9479b2af"
+  },
+  {
+    "repository": "Legacy.Maliev.AuthService",
+    "commit": "d3311024e863f97ad067b608c70dac23edb8f2cb"
+  },
+  {
+    "repository": "Legacy.Maliev.CustomerService",
+    "commit": "1270d63295a53f79aee265e57949e793ccb6516d"
+  },
+  {
+    "repository": "Legacy.Maliev.NotificationService",
+    "commit": "bc2fee84421edaaf544a8f6040ae57ea81eeb14e"
+  },
+  {
+    "repository": "Legacy.Maliev.OrderService",
+    "commit": "c371e2f2e81e46e28787c4472ce25a4bd08052ef"
+  },
+  {
+    "repository": "Legacy.Maliev.QuotationService",
+    "commit": "7d4d0061cdb595c86bfa67074fec7c61b9f3812f"
+  },
+  {
+    "repository": "Legacy.Maliev.ServiceDefaults",
+    "commit": "9c4ac9d44a08bcd0aa2088348790ab863814669c"
+  },
+  {
+    "repository": "Legacy.Maliev.CompatibilityContracts",
+    "commit": "13eefdb44cad42b46216bb0378af8c76e3672c2c"
+  },
+  {
+    "repository": "Legacy.Maliev.Web",
+    "commit": "e806c2c6bf3352ffe387436a40bf5c391b2f6377"
+  },
+  {
+    "repository": "Legacy.Maliev.EmployeeService",
+    "commit": "101e0dc8009174b24c3013011b5393aa1ca66bee"
+  },
+  {
+    "repository": "Legacy.Maliev.CatalogService",
+    "commit": "de4b3364e924cca1aeebb3280817f0c9bd7ea6bc"
+  },
+  {
+    "repository": "Legacy.Maliev.ProcurementService",
+    "commit": "931feb5c6ec8f71ce95bbf093478429d299af130"
+  },
+  {
+    "repository": "Legacy.Maliev.FileService",
+    "commit": "992135d8d49adc6747ce5495a4386e88ace9de1d"
+  },
+  {
+    "repository": "Legacy.Maliev.Intranet",
+    "commit": "cb52b0fe06151f161766bca683f23710cb6b1ac2"
+  },
+  {
+    "repository": "Legacy.Maliev.CareerService",
+    "commit": "a1802d4e2a3bf5bdbaeaf2320be00e5e19157375"
+  },
+  {
+    "repository": "Legacy.Maliev.ContactService",
+    "commit": "831816a3ce95ab5d2a5b029d3f933c09fec9452f"
+  },
+  {
+    "repository": "Legacy.Maliev.AccountingService",
+    "commit": "4cc64bd9b419b3a73307af6265d2e59a37eb0e20"
+  }
+]
