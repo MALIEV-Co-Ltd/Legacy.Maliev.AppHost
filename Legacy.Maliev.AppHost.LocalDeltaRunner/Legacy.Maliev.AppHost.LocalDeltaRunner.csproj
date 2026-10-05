@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Legacy.Maliev.AppHost.Tests" />
+    <InternalsVisibleTo Include="Legacy.Maliev.AppHost.Windows.Tests" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="$(MalievWorkspaceRoot)\Legacy.Maliev.DataMigration\src\Legacy.Maliev.DataMigration.Console\Legacy.Maliev.DataMigration.Console.csproj" />

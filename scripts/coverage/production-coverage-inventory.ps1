@@ -50,7 +50,8 @@ function Get-LegacyAssemblyExecutableLines {
     $provider = $null
     try {
         $metadata = [Reflection.Metadata.PEReaderExtensions]::GetMetadataReader($pe)
-        $name = $metadata.GetString($metadata.GetAssemblyDefinition().Name)
+        $definition = $metadata.GetAssemblyDefinition()
+        $name = $metadata.GetString($definition.Name)
         $codeViewEntries = @($pe.ReadDebugDirectory() | Where-Object Type -eq ([Reflection.PortableExecutable.DebugDirectoryEntryType]::CodeView))
         if ($codeViewEntries.Count -ne 1) { throw 'Exactly one CodeView entry is required.' }
         $codeView = $pe.ReadCodeViewDebugDirectoryData($codeViewEntries[0])
@@ -62,10 +63,16 @@ function Get-LegacyAssemblyExecutableLines {
         $stamp = [BitConverter]::ToUInt32($id, 16)
         if ($id.Length -ne 20 -or [Guid]::new($guidBytes) -ne $codeView.Guid -or $codeView.Age -ne 1 -or $stamp -ne $codeViewEntries[0].Stamp) { throw 'PDB does not belong to production DLL.' }
         $files = @{}
+        $checksums = @{}
         foreach ($documentHandle in $reader.Documents) {
             $document = $reader.GetDocument($documentHandle)
             $path = $reader.GetString($document.Name).Replace('\', '/')
             if (-not $files.ContainsKey($path)) { $files[$path] = [Collections.Generic.HashSet[int]]::new() }
+            if ($checksums.ContainsKey($path)) { throw 'Duplicate PDB document identity.' }
+            $checksums[$path] = [pscustomobject]@{
+                Algorithm = $reader.GetGuid($document.HashAlgorithm).ToString()
+                Value = [Convert]::ToHexString($reader.GetBlobBytes($document.Hash))
+            }
         }
         foreach ($handle in $reader.MethodDebugInformation) {
             $method = $reader.GetMethodDebugInformation($handle)
@@ -81,9 +88,9 @@ function Get-LegacyAssemblyExecutableLines {
         }
         if (-not $files.Count) { throw 'Production assembly has no executable source inventory.' }
         $documents = foreach ($path in ($files.Keys | Sort-Object)) {
-            [pscustomobject]@{ Path = $path; Lines = @($files[$path] | Sort-Object); Generated = ($path -match '(?:/obj/|\.g\.cs\z|\.generated\.cs\z)') }
+            [pscustomobject]@{ Path = $path; Lines = @($files[$path] | Sort-Object); Generated = ($path -match '(?:/obj/|\.g\.cs\z|\.generated\.cs\z)'); PdbChecksum = $checksums[$path] }
         }
-        [pscustomobject]@{ Name = $name; Dll = [IO.Path]::GetFullPath($Dll); Pdb = [IO.Path]::GetFullPath($Pdb); DllSha256 = (Get-FileHash -LiteralPath $Dll -Algorithm SHA256).Hash; PdbSha256 = (Get-FileHash -LiteralPath $Pdb -Algorithm SHA256).Hash; Documents = @($documents) }
+        [pscustomobject]@{ Name = $name; AssemblyVersion = $definition.Version.ToString(); ModuleVersionId = $metadata.GetGuid($metadata.GetModuleDefinition().Mvid).ToString(); PdbId = [Convert]::ToHexString($id); Dll = [IO.Path]::GetFullPath($Dll); Pdb = [IO.Path]::GetFullPath($Pdb); DllSha256 = (Get-FileHash -LiteralPath $Dll -Algorithm SHA256).Hash; PdbSha256 = (Get-FileHash -LiteralPath $Pdb -Algorithm SHA256).Hash; Documents = @($documents) }
     } finally {
         if ($null -ne $provider) { $provider.Dispose() }
         if ($null -ne $pdbStream) { $pdbStream.Dispose() }
