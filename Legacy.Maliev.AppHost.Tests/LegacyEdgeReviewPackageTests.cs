@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Legacy.Maliev.AppHost.Topology;
 
@@ -135,7 +137,8 @@ public sealed class LegacyEdgeReviewPackageTests
         foreach (var path in paths)
         {
             Assert.Equal("Prefix", path.GetProperty("pathType").GetString());
-            Assert.Equal(8080, path.GetProperty("backend").GetProperty("service").GetProperty("port").GetProperty("number").GetInt32());
+            var expectedPort = path.GetProperty("path").GetString() is "/auth" or "/employees" ? 80 : 8080;
+            Assert.Equal(expectedPort, path.GetProperty("backend").GetProperty("service").GetProperty("port").GetProperty("number").GetInt32());
         }
         var intranet = Assert.Single(rules, rule => rule.GetProperty("host").GetString() == "intranet.maliev.com");
         AssertService(intranet.GetProperty("http").GetProperty("paths").EnumerateArray().ToArray(), "/", "legacy-maliev-intranet-bff");
@@ -143,6 +146,62 @@ public sealed class LegacyEdgeReviewPackageTests
         {
             AssertService(web.GetProperty("http").GetProperty("paths").EnumerateArray().ToArray(), "/", "legacy-maliev-web");
         }
+    }
+
+    [Theory]
+    [InlineData("api.maliev.com", "/auth", "legacy-maliev-auth-service")]
+    [InlineData("api.maliev.com", "/employees", "legacy-maliev-employee-service")]
+    [InlineData("intranet.maliev.com", "/", "legacy-maliev-intranet-bff")]
+    public void Render_UsesCommittedBackendServicePortRatherThanItsContainerPort(string host, string path, string service)
+    {
+        using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip"));
+        AssertBackendPort(package.RootElement, host, path, service, 80);
+        Assert.False(package.RootElement.GetProperty("productionDeploymentAllowed").GetBoolean());
+        Assert.Contains(package.RootElement.GetProperty("unresolvedGates").EnumerateArray(),
+            gate => gate.GetString()!.Contains("namespace/selector ownership", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task WriteReviewScript_EmitsCommittedServicePortsWithoutClaimingNamespaceOrRuntimeAcceptance()
+    {
+        var outputPath = Path.Combine(Path.GetTempPath(), "apphost-edge-cli-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var assembly = typeof(LegacyEdgeReviewPackage).Assembly.Location;
+            var hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(assembly)));
+            // This test-owned artifact correspondence is not an independently accepted build receipt.
+            var start = new ProcessStartInfo("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+            foreach (var argument in new[] { "-NoProfile", "-File", Path.Combine(RepositoryRoot(), "scripts", "write-edge-review-package.ps1"),
+                "-AcmeEmail", "owner@maliev.test", "-ExistingStaticIpName", "existing-ip", "-OutputPath", outputPath, "-ReviewedAssemblySha256", hash })
+            {
+                start.ArgumentList.Add(argument);
+            }
+            using var process = Process.Start(start) ?? throw new InvalidOperationException("The edge review process did not start.");
+            var output = process.StandardOutput.ReadToEndAsync();
+            var error = process.StandardError.ReadToEndAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+            try { await process.WaitForExitAsync(timeout.Token); }
+            catch (OperationCanceledException)
+            {
+                process.Kill(entireProcessTree: true);
+                throw;
+            }
+            await Task.WhenAll(output, error);
+            Assert.Equal(0, process.ExitCode);
+            using var package = JsonDocument.Parse(await File.ReadAllTextAsync(outputPath));
+            var root = package.RootElement;
+            AssertBackendPort(root, "api.maliev.com", "/auth", "legacy-maliev-auth-service", 80);
+            AssertBackendPort(root, "api.maliev.com", "/employees", "legacy-maliev-employee-service", 80);
+            AssertBackendPort(root, "intranet.maliev.com", "/", "legacy-maliev-intranet-bff", 80);
+            AssertBackendPort(root, "api.maliev.com", "/countries", "legacy-maliev-country-service", 8080);
+            AssertBackendPort(root, "api.maliev.com", "/emails", "legacy-maliev-notification-service", 8080);
+            Assert.True(root.GetProperty("reviewOnly").GetBoolean());
+            Assert.False(root.GetProperty("productionDeploymentAllowed").GetBoolean());
+            Assert.Equal(0, root.GetProperty("cutoverPercent").GetInt32());
+            Assert.False(root.TryGetProperty("kind", out _));
+            Assert.False(Assert.Single(root.GetProperty("externalIngressDependencies").EnumerateArray()).GetProperty("ownershipVerified").GetBoolean());
+        }
+        finally { File.Delete(outputPath); }
     }
 
     [Theory]
@@ -165,6 +224,27 @@ public sealed class LegacyEdgeReviewPackageTests
         using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "a"));
         Assert.Equal("a", Single(package.RootElement.GetProperty("objects").EnumerateArray().ToArray(), "Ingress")
             .GetProperty("metadata").GetProperty("annotations").GetProperty("kubernetes.io/ingress.global-static-ip-name").GetString());
+    }
+
+    private static void AssertBackendPort(JsonElement root, string host, string path, string service, int port)
+    {
+        var ingress = Single(root.GetProperty("objects").EnumerateArray().ToArray(), "Ingress");
+        Assert.Equal("maliev-legacy", ingress.GetProperty("metadata").GetProperty("namespace").GetString());
+        var rule = Assert.Single(ingress.GetProperty("spec").GetProperty("rules").EnumerateArray(),
+            item => item.GetProperty("host").GetString() == host);
+        var backend = Assert.Single(rule.GetProperty("http").GetProperty("paths").EnumerateArray(),
+            item => item.GetProperty("path").GetString() == path).GetProperty("backend").GetProperty("service");
+        Assert.Equal(service, backend.GetProperty("name").GetString());
+        Assert.Equal(port, backend.GetProperty("port").GetProperty("number").GetInt32());
+    }
+
+    private static string RepositoryRoot()
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "Legacy.Maliev.AppHost.slnx"))) { return directory.FullName; }
+        }
+        throw new DirectoryNotFoundException("The owned AppHost test checkout was not found.");
     }
 
     private static JsonElement Single(JsonElement[] objects, string kind) =>
