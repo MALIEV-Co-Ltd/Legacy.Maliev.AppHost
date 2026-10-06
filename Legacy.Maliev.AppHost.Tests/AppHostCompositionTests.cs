@@ -95,8 +95,13 @@ public sealed class AppHostCompositionTests
             ["legacy-maliev-web"] = 192,
             ["legacy-maliev-intranet-bff"] = 192,
         };
+        var projects = builder.Resources.OfType<ProjectResource>().ToArray();
+        var applications = projects.Where(resource => resource.Name.StartsWith("legacy-maliev-", StringComparison.Ordinal)).ToArray();
+        var migrations = projects.Except(applications).ToArray();
+        Assert.NotEmpty(migrations);
+        Assert.All(migrations, resource => Assert.EndsWith("-migrations", resource.Name, StringComparison.Ordinal));
         Assert.Equal(expectedMebibytes.Keys.Order(StringComparer.Ordinal),
-            builder.Resources.OfType<ProjectResource>().Select(resource => resource.Name).Order(StringComparer.Ordinal));
+            applications.Select(resource => resource.Name).Order(StringComparer.Ordinal));
         foreach (var (name, mebibytes) in expectedMebibytes)
         {
             string configured = Assert.IsType<string>((await EnvironmentFor(builder, name))["DOTNET_GCHeapHardLimit"]);
@@ -105,6 +110,10 @@ public sealed class AppHostCompositionTests
             ulong bytes = ulong.Parse(hexadecimal, System.Globalization.NumberStyles.AllowHexSpecifier,
                 System.Globalization.CultureInfo.InvariantCulture);
             Assert.Equal(mebibytes * 1024 * 1024, bytes);
+        }
+        foreach (var migration in migrations)
+        {
+            Assert.DoesNotContain("DOTNET_GCHeapHardLimit", (await EnvironmentFor(builder, migration.Name)).Keys);
         }
     }
 
