@@ -58,8 +58,9 @@ public sealed class AppHostCompositionTests
         {
             var workload = await EnvironmentFor(builder, resourceName);
             Assert.Equal(clientId, workload["ServiceAuthentication__ClientId"]);
-            Assert.Contains("legacy-maliev-catalog-service", Assert.IsType<ReferenceExpression>(workload["Services__Catalog"]).ValueExpression,
-                StringComparison.Ordinal);
+            var catalogEndpoint = Assert.IsType<EndpointReference>(workload["Services__Catalog"]);
+            Assert.Equal("legacy-maliev-catalog-service", catalogEndpoint.Resource.Name);
+            Assert.Equal("http", catalogEndpoint.EndpointName);
             Assert.DoesNotContain(workload.Keys, key => key.StartsWith("ServiceClients__Clients__", StringComparison.Ordinal));
         }
         // Evaluate configuration only: no application.Start/Run, containers, tokens or provider calls.
