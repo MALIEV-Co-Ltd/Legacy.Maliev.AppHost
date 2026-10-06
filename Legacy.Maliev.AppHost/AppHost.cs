@@ -440,6 +440,8 @@ internal static class AppHostComposition
             .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__25", "legacy.order-files.write")
             .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__26", "legacy.order-status.write")
             .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__27", "legacy.orders.delete")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__28", LegacyCatalogLookupWorkloadGrants.LocationsRead)
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__29", LegacyCatalogLookupWorkloadGrants.CompaniesRead)
             .WithEnvironment("ServiceClients__Clients__legacy-intranet__SecretSha256", intranetCredential.SecretSha256)
             .WithEnvironment("ServiceClients__Clients__legacy-quotation__SecretSha256", quotationCredential.SecretSha256)
             .WithEnvironment("ServiceClients__Clients__legacy-quotation__Permissions__0", "legacy.order-status.write")
@@ -458,11 +460,12 @@ internal static class AppHostComposition
             .WaitForCompletion(employeeIdentityMigrations)
             .WaitFor(pgbouncer);
 
-        for (var permissionIndex = 0; permissionIndex < LegacyTopology.IntranetPermissions.Count; permissionIndex++)
+        var intranetPermissions = LegacyCatalogLookupWorkloadGrants.AppendTo(LegacyTopology.IntranetPermissions);
+        for (var permissionIndex = 0; permissionIndex < intranetPermissions.Count; permissionIndex++)
         {
             auth.WithEnvironment(
                 $"ServiceClients__Clients__legacy-intranet__Permissions__{permissionIndex}",
-                LegacyTopology.IntranetPermissions[permissionIndex]);
+                intranetPermissions[permissionIndex]);
         }
 
         for (var permissionIndex = 0; permissionIndex < LegacyTopology.AccountingPermissions.Count; permissionIndex++)

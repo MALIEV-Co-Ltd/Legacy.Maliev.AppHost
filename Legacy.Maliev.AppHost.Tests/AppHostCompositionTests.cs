@@ -14,6 +14,57 @@ public sealed class AppHostCompositionCollection;
 [Collection("AppHostComposition")]
 public sealed class AppHostCompositionTests
 {
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public async Task CatalogLookupReadsAreEmittedOnlyForExistingServerWorkloads(string environmentName)
+    {
+        using var fixture = new GraphFixture();
+        var builder = fixture.Compose(environmentName: environmentName);
+        using var application = builder.Build();
+        var auth = await EnvironmentFor(builder, "legacy-maliev-auth-service");
+
+        var webPrefix = "ServiceClients__Clients__legacy-web__Permissions__";
+        Assert.Equal(30, auth.Keys.Count(key => key.StartsWith(webPrefix, StringComparison.Ordinal)));
+        Assert.Equal("legacy-customer.addresses.update", auth[webPrefix + "7"]);
+        Assert.Equal("legacy.orders.delete", auth[webPrefix + "27"]);
+        Assert.Equal("legacy-catalog.locations.read", auth[webPrefix + "28"]);
+        Assert.Equal("legacy-catalog.companies.read", auth[webPrefix + "29"]);
+
+        var intranetPrefix = "ServiceClients__Clients__legacy-intranet__Permissions__";
+        Assert.Equal(LegacyTopology.IntranetPermissions.Count + 2,
+            auth.Keys.Count(key => key.StartsWith(intranetPrefix, StringComparison.Ordinal)));
+        for (var index = 0; index < LegacyTopology.IntranetPermissions.Count; index++)
+        {
+            Assert.Equal(LegacyTopology.IntranetPermissions[index], auth[intranetPrefix + index]);
+        }
+        Assert.Equal("legacy-catalog.locations.read", auth[intranetPrefix + LegacyTopology.IntranetPermissions.Count]);
+        Assert.Equal("legacy-catalog.companies.read", auth[intranetPrefix + (LegacyTopology.IntranetPermissions.Count + 1)]);
+
+        foreach (var permission in new[] { "legacy-catalog.locations.read", "legacy-catalog.companies.read" })
+        {
+            var recipients = auth.Where(entry => entry.Key.Contains("__Permissions__", StringComparison.Ordinal)
+                && entry.Value is string value && value == permission).Select(entry => entry.Key).ToArray();
+            Assert.Equal(2, recipients.Length);
+            Assert.All(recipients, key => Assert.True(key.StartsWith(webPrefix, StringComparison.Ordinal)
+                || key.StartsWith(intranetPrefix, StringComparison.Ordinal), key));
+        }
+
+        foreach (var (resourceName, clientId) in new[]
+        {
+            ("legacy-maliev-web", "legacy-web"),
+            ("legacy-maliev-intranet-bff", "legacy-intranet"),
+        })
+        {
+            var workload = await EnvironmentFor(builder, resourceName);
+            Assert.Equal(clientId, workload["ServiceAuthentication__ClientId"]);
+            Assert.Contains("legacy-maliev-catalog-service", Assert.IsType<ReferenceExpression>(workload["Services__Catalog"]).ValueExpression,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(workload.Keys, key => key.StartsWith("ServiceClients__Clients__", StringComparison.Ordinal));
+        }
+        // Evaluate configuration only: no application.Start/Run, containers, tokens or provider calls.
+    }
+
     [Fact]
     public void ConfigurationUsesOnlyOwnedSyntheticProviderAndAllFiveParameters()
     {
