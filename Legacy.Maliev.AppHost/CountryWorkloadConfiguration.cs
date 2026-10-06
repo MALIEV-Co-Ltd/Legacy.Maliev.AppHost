@@ -1,6 +1,9 @@
+using System.Collections;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration.CommandLine;
+using Microsoft.Extensions.Configuration.Memory;
 
 internal sealed class CountryWorkloadConfiguration
 {
@@ -20,6 +23,31 @@ internal sealed class CountryWorkloadConfiguration
     internal string IamOrigin { get; }
     internal IReadOnlyList<string> Permissions { get; }
     internal string EnvironmentName { get; }
+
+    internal static IReadOnlyDictionary<string, string?> CaptureEnvironment()
+    {
+        var captured = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
+        {
+            var key = ((string)entry.Key).Replace("__", ":", StringComparison.Ordinal);
+            if (key.StartsWith("CountryWorkload:", StringComparison.OrdinalIgnoreCase))
+            {
+                captured[key] = (string?)entry.Value;
+            }
+        }
+        return captured;
+    }
+
+    internal static void RestoreEnvironment(IConfigurationBuilder configuration, IReadOnlyDictionary<string, string?> captured)
+    {
+        if (captured.Count == 0) return;
+        // Restore only the selected caller's configuration, never its ambient process variables.
+        // Command-line input keeps normal precedence over environment input.
+        var commandLineIndex = configuration.Sources.ToList().FindLastIndex(source => source is CommandLineConfigurationSource);
+        var source = new MemoryConfigurationSource { InitialData = captured };
+        if (commandLineIndex < 0) configuration.Add(source);
+        else configuration.Sources.Insert(commandLineIndex, source);
+    }
 
     internal static CountryWorkloadConfiguration? Read(IConfiguration configuration, string environmentName)
     {

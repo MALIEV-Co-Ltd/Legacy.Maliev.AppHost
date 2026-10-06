@@ -34,6 +34,7 @@ internal static class AppHostComposition
             gkeValidationModeRequested, localSnapshotModeRequested, localDeltaModeRequested,
             localDeltaReviewModeRequested, localFixturesRequested, localSnapshotDirectoryRequested,
             localSnapshotKeyFileRequested, localSnapshotIdRequested, localDeltaConfigRequested);
+        var countryWorkloadEnvironment = CountryWorkloadConfiguration.CaptureEnvironment();
         LocalEnvironmentPolicy.SanitizeCurrentProcess();
         Console.WriteLine(
             "Legacy Web source identity: repository={0}; branch={1}; commit={2}; project={3}; port={4}",
@@ -50,6 +51,7 @@ internal static class AppHostComposition
         var builder = applicationOptions is null
             ? DistributedApplication.CreateBuilder(args)
             : DistributedApplication.CreateBuilder(applicationOptions);
+        CountryWorkloadConfiguration.RestoreEnvironment(builder.Configuration, countryWorkloadEnvironment);
         configureBuilder?.Invoke(builder);
         var countryWorkload = CountryWorkloadConfiguration.Read(builder.Configuration, builder.Environment.EnvironmentName);
 
