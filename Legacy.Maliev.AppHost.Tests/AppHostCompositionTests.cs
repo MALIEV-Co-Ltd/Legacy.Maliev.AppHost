@@ -535,7 +535,8 @@ public sealed class AppHostCompositionTests
                 "legacy.orders.delete"
             };
             string prefix = $"ServiceClients__Clients__{clientId}__Permissions__";
-            Assert.Equal(expectedPermissions.Order(StringComparer.Ordinal), auth
+            Assert.Equal(expectedPermissions.Concat(new[] { "legacy-catalog.locations.read", "legacy-catalog.companies.read" })
+                .Order(StringComparer.Ordinal), auth
                 .Where(entry => entry.Key.StartsWith(prefix, StringComparison.Ordinal))
                 .Select(entry => Assert.IsType<string>(entry.Value)).Order(StringComparer.Ordinal));
             Assert.DoesNotContain("Jwt__PrivateKeyPem", client.Keys);
