@@ -40,6 +40,51 @@
     }
   },
   "pendingGates": {
+    "thaiAddressAndCompanyLookup": {
+      "issues": [
+        {
+          "repository": "Legacy.Maliev.AppHost",
+          "number": 144,
+          "state": "open",
+          "complete": false,
+          "url": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.AppHost/issues/144"
+        },
+        {
+          "repository": "Legacy.Maliev.CatalogService",
+          "number": 44,
+          "state": "open",
+          "complete": false,
+          "url": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.CatalogService/issues/44"
+        },
+        {
+          "repository": "Legacy.Maliev.CatalogService",
+          "number": 45,
+          "state": "open",
+          "complete": false,
+          "url": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.CatalogService/issues/45"
+        },
+        {
+          "repository": "Legacy.Maliev.CatalogService",
+          "number": 46,
+          "state": "open",
+          "complete": false,
+          "url": "https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.CatalogService/issues/46"
+        }
+      ],
+      "acceptance": {
+        "actualLegacyApiWiringVerified": false,
+        "productionEnvironmentInitializationVerifiedInNonProduction": false,
+        "datasetProvenanceAndVersionRollbackVerified": false,
+        "webLookupSaveAndReadbackVerified": false,
+        "intranetLookupSaveAndReadbackVerified": false,
+        "provincePostcodeAndPlaintextAmbiguityVerified": false,
+        "workloadPermissionsAndUnauthorizedAccessVerified": false,
+        "providerAccessAndBoundedConfigurationVerified": false,
+        "companySelectionAndManualFailureFallbackVerified": false,
+        "exactRevisionJoinedEvidenceRecorded": false
+      },
+      "evidenceRequired": "Link merged implementation revisions and real HTTP/browser save/readback evidence in AppHost #144 and release review #33. Safely test Production environment initialization against disposable non-production data. Snapshot restoration, proposed contracts and mock success alone are not acceptance. Keep live Creden enablement blocked until usage rights and supported provider configuration are verified."
+    },
     "instantQuotation": [
       {
         "repository": "Legacy.Maliev.Web",
