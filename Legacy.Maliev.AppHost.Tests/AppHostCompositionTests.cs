@@ -71,6 +71,53 @@ public sealed class AppHostCompositionTests
     }
 
     [Fact]
+    public async Task EveryProjectReceivesItsIntendedGcHeapByteBudget()
+    {
+        using var fixture = new GraphFixture();
+        var builder = fixture.Compose();
+        using var application = builder.Build();
+        var expectedMebibytes = new Dictionary<string, ulong>
+        {
+            ["legacy-maliev-country-service"] = 128,
+            ["legacy-maliev-document-service"] = 192,
+            ["legacy-maliev-auth-service"] = 128,
+            ["legacy-maliev-customer-service"] = 128,
+            ["legacy-maliev-employee-service"] = 128,
+            ["legacy-maliev-catalog-service"] = 128,
+            ["legacy-maliev-procurement-service"] = 128,
+            ["legacy-maliev-file-service"] = 128,
+            ["legacy-maliev-notification-service"] = 96,
+            ["legacy-maliev-order-service"] = 128,
+            ["legacy-maliev-quotation-service"] = 128,
+            ["legacy-maliev-career-service"] = 128,
+            ["legacy-maliev-contact-service"] = 128,
+            ["legacy-maliev-accounting-service"] = 128,
+            ["legacy-maliev-web"] = 192,
+            ["legacy-maliev-intranet-bff"] = 192,
+        };
+        var projects = builder.Resources.OfType<ProjectResource>().ToArray();
+        var applications = projects.Where(resource => resource.Name.StartsWith("legacy-maliev-", StringComparison.Ordinal)).ToArray();
+        var migrations = projects.Except(applications).ToArray();
+        Assert.NotEmpty(migrations);
+        Assert.All(migrations, resource => Assert.EndsWith("-migrations", resource.Name, StringComparison.Ordinal));
+        Assert.Equal(expectedMebibytes.Keys.Order(StringComparer.Ordinal),
+            applications.Select(resource => resource.Name).Order(StringComparer.Ordinal));
+        foreach (var (name, mebibytes) in expectedMebibytes)
+        {
+            string configured = Assert.IsType<string>((await EnvironmentFor(builder, name))["DOTNET_GCHeapHardLimit"]);
+            // .NET interprets GC environment limits as hexadecimal, with an optional 0x prefix.
+            string hexadecimal = configured.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? configured[2..] : configured;
+            ulong bytes = ulong.Parse(hexadecimal, System.Globalization.NumberStyles.AllowHexSpecifier,
+                System.Globalization.CultureInfo.InvariantCulture);
+            Assert.Equal(mebibytes * 1024 * 1024, bytes);
+        }
+        foreach (var migration in migrations)
+        {
+            Assert.DoesNotContain("DOTNET_GCHeapHardLimit", (await EnvironmentFor(builder, migration.Name)).Keys);
+        }
+    }
+
+    [Fact]
     public async Task CountryRuntimeUsesPoolerWhileMigrationUsesDirectDatabase()
     {
         using var fixture = new GraphFixture();
