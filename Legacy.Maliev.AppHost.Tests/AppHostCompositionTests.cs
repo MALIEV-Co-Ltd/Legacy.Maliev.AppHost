@@ -490,6 +490,37 @@ public sealed class AppHostCompositionTests
         }
     }
 
+    [Theory]
+    [InlineData("Quotation", "legacy-maliev-quotation-service")]
+    [InlineData("Catalog", "legacy-maliev-catalog-service")]
+    public async Task AccountingInvoiceClientsReceiveActualEndpointsDiscoveryAndHealthyStartupDependencies(string service, string resourceName)
+    {
+        using var fixture = new GraphFixture();
+        var builder = fixture.Compose();
+        using var application = builder.Build();
+        var accounting = Assert.Single(builder.Resources, resource => resource.Name == "legacy-maliev-accounting-service");
+        var downstream = Assert.Single(builder.Resources, resource => resource.Name == resourceName);
+        var values = await EnvironmentFor(builder, accounting.Name);
+        foreach (string key in new[] { $"Services__{service}", $"services__{resourceName}__http__0" })
+        {
+            var endpoint = Assert.IsType<EndpointReference>(values[key]);
+            Assert.Same(downstream, endpoint.Resource);
+            Assert.Equal("http", endpoint.EndpointName);
+        }
+        Assert.Contains(accounting.Annotations.OfType<EndpointReferenceAnnotation>(), reference => ReferenceEquals(reference.Resource, downstream));
+        Assert.Contains(accounting.Annotations.OfType<WaitAnnotation>(), wait =>
+            ReferenceEquals(wait.Resource, downstream) && wait.WaitType == WaitType.WaitUntilHealthy);
+        Assert.Equal("legacy-accounting", values["ServiceAuthentication__ClientId"]);
+        Assert.False(ReachesAccounting(downstream, []));
+
+        bool ReachesAccounting(IResource resource, HashSet<IResource> visited)
+        {
+            if (ReferenceEquals(resource, accounting)) return true;
+            return visited.Add(resource) && resource.Annotations.OfType<WaitAnnotation>()
+                .Any(wait => ReachesAccounting(wait.Resource, visited));
+        }
+    }
+
     [Fact]
     public void WebAndBffHaveTheirDeclaredBrowserEndpointsAndActualAuthRedisWaits()
     {

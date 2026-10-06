@@ -938,6 +938,8 @@ internal static class AppHostComposition
             .WithEnvironment("Services__Notification", notification.GetEndpoint("http"))
             .WithEnvironment("Services__Customer", customer.GetEndpoint("http"))
             .WithEnvironment("Services__Employee", employee.GetEndpoint("http"))
+            .WithEnvironment("Services__Quotation", quotation.GetEndpoint("http"))
+            .WithEnvironment("Services__Catalog", catalog.GetEndpoint("http"))
             .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
             .WithEnvironment("Jwt__Issuer", jwtIssuer)
             .WithEnvironment("Jwt__Audience", jwtAudience)
@@ -964,12 +966,16 @@ internal static class AppHostComposition
             .WithReference(notification)
             .WithReference(customer)
             .WithReference(employee)
+            .WithReference(quotation)
+            .WithReference(catalog)
             .WaitFor(auth)
             .WaitFor(document)
             .WaitFor(file)
             .WaitFor(notification)
             .WaitFor(customer)
-            .WaitFor(employee);
+            .WaitFor(employee)
+            .WaitFor(quotation)
+            .WaitFor(catalog);
 
         paymentMigrations.WithParentRelationship(accounting.Resource);
         invoiceMigrations.WithParentRelationship(accounting.Resource);
