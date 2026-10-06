@@ -212,6 +212,94 @@ public sealed class AppHostCompositionTests
             (await EnvironmentFor(builder, "legacy-maliev-auth-service"))["ServiceClients__Clients__owned-country__SecretSha256"]);
     }
 
+    [Fact]
+    public async Task CountryWorkloadEnvironmentOptInSurvivesSanitizationWithoutAmbientCredentialInheritance()
+    {
+        using var fixture = new GraphFixture();
+        var configuration = CountryWorkloadFixtureConfiguration();
+        foreach (var entry in configuration) fixture.Set(entry.Key.Replace(":", "__", StringComparison.Ordinal), entry.Value);
+        fixture.Set("UNRELATED_MACHINE_VARIABLE", "synthetic-unrelated-value");
+        var builder = fixture.Compose(environmentName: "Development", preserveCountryEnvironment: true);
+        using var application = builder.Build();
+        var country = await EnvironmentFor(builder, "legacy-maliev-country-service");
+        var auth = await EnvironmentFor(builder, "legacy-maliev-auth-service");
+        Assert.Equal(configuration["CountryWorkload:ClientSecret"], country["ServiceAuthentication__ClientSecret"]);
+        Assert.Equal(configuration["CountryWorkload:SecretSha256"], auth["ServiceClients__Clients__owned-country__SecretSha256"]);
+        Assert.Equal(configuration["CountryWorkload:IamOrigin"], country["Services__IAMService__BaseUrl"]);
+        foreach (var key in configuration.Keys)
+        {
+            Assert.Null(Environment.GetEnvironmentVariable(key.Replace(":", "__", StringComparison.Ordinal)));
+        }
+        Assert.Null(Environment.GetEnvironmentVariable("UNRELATED_MACHINE_VARIABLE"));
+        Assert.DoesNotContain(country.Keys, key => key.StartsWith("CountryWorkload__", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(auth.Keys, key => key.StartsWith("CountryWorkload__", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData("SecretSha256", null)]
+    [InlineData("Permissions:4", "legacy-country.countries.read")]
+    public void CountryWorkloadEnvironmentInvalidOptInFailsBeforeCertificateCreation(string key, string? value)
+    {
+        using var fixture = new GraphFixture();
+        var configuration = CountryWorkloadFixtureConfiguration();
+        configuration["CountryWorkload:" + key] = value;
+        foreach (var entry in configuration) fixture.Set(entry.Key.Replace(":", "__", StringComparison.Ordinal), entry.Value);
+        var error = Assert.Throws<InvalidOperationException>(() => fixture.Compose(
+            environmentName: "Development", preserveCountryEnvironment: true));
+        Assert.DoesNotContain(configuration["CountryWorkload:ClientSecret"]!, error.Message, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(fixture.CertificateDirectory));
+    }
+
+    [Fact]
+    public void CountryWorkloadEnvironmentCannotActivateInProduction()
+    {
+        using var fixture = new GraphFixture();
+        foreach (var entry in CountryWorkloadFixtureConfiguration()) fixture.Set(entry.Key.Replace(":", "__", StringComparison.Ordinal), entry.Value);
+        Assert.Throws<InvalidOperationException>(() => fixture.Compose(
+            environmentName: "Production", preserveCountryEnvironment: true));
+        Assert.False(Directory.Exists(fixture.CertificateDirectory));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("false")]
+    public async Task CountryWorkloadEnvironmentAbsentOrDisabledPreservesDefaultGraph(string? enabled)
+    {
+        using var fixture = new GraphFixture();
+        fixture.Set("CountryWorkload__Enabled", enabled);
+        var builder = fixture.Compose(environmentName: "Development", preserveCountryEnvironment: true);
+        using var application = builder.Build();
+        var country = await EnvironmentFor(builder, "legacy-maliev-country-service");
+        Assert.DoesNotContain(country.Keys, key => key.StartsWith("ServiceAuthentication__", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CountryWorkloadEnvironmentRestorationKeepsCommandLinePrecedence()
+    {
+        using var fixture = new GraphFixture();
+        var jsonPath = Path.Combine(fixture.Root, "precedence.json");
+        File.WriteAllText(jsonPath, "{\"CountryWorkload\":{\"Enabled\":false}}");
+        using var configuration = new ConfigurationManager();
+        configuration.AddJsonFile(jsonPath, optional: false, reloadOnChange: false);
+        configuration.AddCommandLine(["--CountryWorkload:Enabled=false"]);
+        CountryWorkloadConfiguration.RestoreEnvironment(configuration,
+            new Dictionary<string, string?> { ["CountryWorkload:Enabled"] = "true" });
+        Assert.Equal("false", configuration["CountryWorkload:Enabled"]);
+    }
+
+    [Fact]
+    public void CountryWorkloadEnvironmentRestorationOverridesFileConfiguration()
+    {
+        using var fixture = new GraphFixture();
+        var jsonPath = Path.Combine(fixture.Root, "precedence.json");
+        File.WriteAllText(jsonPath, "{\"CountryWorkload\":{\"Enabled\":false}}");
+        using var configuration = new ConfigurationManager();
+        configuration.AddJsonFile(jsonPath, optional: false, reloadOnChange: false);
+        CountryWorkloadConfiguration.RestoreEnvironment(configuration,
+            new Dictionary<string, string?> { ["CountryWorkload:Enabled"] = "true" });
+        Assert.Equal("true", configuration["CountryWorkload:Enabled"]);
+    }
+
     private static Dictionary<string, string?> CountryWorkloadFixtureConfiguration()
     {
         var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
@@ -504,7 +592,7 @@ public sealed class AppHostCompositionTests
                 Directory.CreateDirectory(Root);
                 foreach (string name in Environment.GetEnvironmentVariables().Keys.Cast<string>().ToArray())
                 {
-                    if (new[] { "ASPIRE_", "ASPNETCORE_", "DOTNET_", "Parameters__", "MALIEV_", "LEGACY_", "Authentication__", "GoogleIdentity__", "ConnectionStrings__" }
+                    if (new[] { "ASPIRE_", "ASPNETCORE_", "DOTNET_", "Parameters__", "MALIEV_", "LEGACY_", "Authentication__", "GoogleIdentity__", "ConnectionStrings__", "CountryWorkload__", "CountryWorkload:" }
                         .Any(prefix => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))) Set(name, null);
                 }
                 Set("DOTNET_ENVIRONMENT", "Production");
@@ -538,7 +626,7 @@ public sealed class AppHostCompositionTests
 
         public void Set(string name, string? value) => Environment.SetEnvironmentVariable(name, value, EnvironmentVariableTarget.Process);
 
-        public IDistributedApplicationBuilder Compose(IReadOnlyDictionary<string, string?>? additionalConfiguration = null, string? environmentName = null)
+        public IDistributedApplicationBuilder Compose(IReadOnlyDictionary<string, string?>? additionalConfiguration = null, string? environmentName = null, bool preserveCountryEnvironment = false)
         {
             if (environmentName is not null)
             {
@@ -554,9 +642,14 @@ public sealed class AppHostCompositionTests
                     TrustDeveloperCertificate = false
                 }, builder =>
                 {
+                    // Observe the actual restored builder configuration before replacing unrelated operator sources.
+                    var countryEnvironment = preserveCountryEnvironment
+                        ? builder.Configuration.AsEnumerable().Where(entry => entry.Key.StartsWith("CountryWorkload:", StringComparison.OrdinalIgnoreCase)).ToArray()
+                        : [];
                     // Owned empty directories and provider replacement prevent loading operator configuration.
                     builder.Configuration.Sources.Clear();
                     builder.Configuration.AddInMemoryCollection(SyntheticConfiguration);
+                    if (countryEnvironment.Length > 0) builder.Configuration.AddInMemoryCollection(countryEnvironment);
                     if (additionalConfiguration is not null) builder.Configuration.AddInMemoryCollection(additionalConfiguration);
                 });
         }
