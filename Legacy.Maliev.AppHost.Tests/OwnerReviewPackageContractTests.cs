@@ -116,6 +116,50 @@ public sealed class OwnerReviewPackageContractTests
     }
 
     [Fact]
+    public void OwnerReviewPackage_RequiresPendingThaiLookupIssuesAndJoinedAcceptance()
+    {
+        using var package = LoadPackage();
+        var lookup = package.RootElement.GetProperty("pendingGates").GetProperty("thaiAddressAndCompanyLookup");
+
+        Assert.Equal(4, lookup.GetProperty("issues").GetArrayLength());
+        AssertIssueIsOpen(lookup, "issues", "Legacy.Maliev.AppHost", 144);
+        AssertIssueIsOpen(lookup, "issues", "Legacy.Maliev.CatalogService", 44);
+        AssertIssueIsOpen(lookup, "issues", "Legacy.Maliev.CatalogService", 45);
+        AssertIssueIsOpen(lookup, "issues", "Legacy.Maliev.CatalogService", 46);
+
+        var requiredAcceptance = new[]
+        {
+            "actualLegacyApiWiringVerified",
+            "productionEnvironmentInitializationVerifiedInNonProduction",
+            "datasetProvenanceAndVersionRollbackVerified",
+            "webLookupSaveAndReadbackVerified",
+            "intranetLookupSaveAndReadbackVerified",
+            "provincePostcodeAndPlaintextAmbiguityVerified",
+            "workloadPermissionsAndUnauthorizedAccessVerified",
+            "providerAccessAndBoundedConfigurationVerified",
+            "companySelectionAndManualFailureFallbackVerified",
+            "exactRevisionJoinedEvidenceRecorded",
+        };
+        var acceptance = lookup.GetProperty("acceptance");
+        Assert.Equal(requiredAcceptance.Length, acceptance.EnumerateObject().Count());
+        foreach (var gate in requiredAcceptance)
+        {
+            Assert.False(acceptance.GetProperty(gate).GetBoolean(), gate);
+        }
+
+        Assert.False(ReadBoolean(package.RootElement, "releaseDecision", "productionDeploymentAllowed"));
+        Assert.Equal(0, ReadInt(package.RootElement, "releaseDecision", "cutoverPercent"));
+
+        var checklist = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "docs", "owner-review-checklist.md"));
+        foreach (var issue in lookup.GetProperty("issues").EnumerateArray())
+        {
+            Assert.Contains(issue.GetProperty("url").GetString()!, checklist, StringComparison.Ordinal);
+        }
+        Assert.Contains("thaiAddressAndCompanyLookup", checklist, StringComparison.Ordinal);
+        Assert.Contains("Snapshot restoration, proposed contracts and mock success alone are not acceptance", lookup.GetProperty("evidenceRequired").GetString()!, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void OwnerReviewChecklist_IsLinkedFromTheReadmeAndNamesTheMachineReadablePackage()
     {
         var root = FindRepositoryRoot();
@@ -156,6 +200,9 @@ public sealed class OwnerReviewPackageContractTests
 
         Assert.Equal("open", issue.GetProperty("state").GetString());
         Assert.False(issue.GetProperty("complete").GetBoolean());
+        Assert.Equal(
+            $"https://github.com/MALIEV-Co-Ltd/{repository}/issues/{number}",
+            issue.GetProperty("url").GetString());
     }
 
     private static string ReadString(JsonElement root, string group, string property) =>
