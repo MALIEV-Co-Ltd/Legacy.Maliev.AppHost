@@ -276,8 +276,11 @@ public sealed class AppHostCompositionTests
     [Fact]
     public void CountryWorkloadEnvironmentRestorationKeepsCommandLinePrecedence()
     {
-        var configuration = new ConfigurationManager();
-        configuration.AddJsonStream(new MemoryStream(Encoding.UTF8.GetBytes("{\"CountryWorkload\":{\"Enabled\":false}}")));
+        using var fixture = new GraphFixture();
+        var jsonPath = Path.Combine(fixture.Root, "precedence.json");
+        File.WriteAllText(jsonPath, "{\"CountryWorkload\":{\"Enabled\":false}}");
+        using var configuration = new ConfigurationManager();
+        configuration.AddJsonFile(jsonPath, optional: false, reloadOnChange: false);
         configuration.AddCommandLine(["--CountryWorkload:Enabled=false"]);
         CountryWorkloadConfiguration.RestoreEnvironment(configuration,
             new Dictionary<string, string?> { ["CountryWorkload:Enabled"] = "true" });
@@ -287,8 +290,11 @@ public sealed class AppHostCompositionTests
     [Fact]
     public void CountryWorkloadEnvironmentRestorationOverridesFileConfiguration()
     {
-        var configuration = new ConfigurationManager();
-        configuration.AddJsonStream(new MemoryStream(Encoding.UTF8.GetBytes("{\"CountryWorkload\":{\"Enabled\":false}}")));
+        using var fixture = new GraphFixture();
+        var jsonPath = Path.Combine(fixture.Root, "precedence.json");
+        File.WriteAllText(jsonPath, "{\"CountryWorkload\":{\"Enabled\":false}}");
+        using var configuration = new ConfigurationManager();
+        configuration.AddJsonFile(jsonPath, optional: false, reloadOnChange: false);
         CountryWorkloadConfiguration.RestoreEnvironment(configuration,
             new Dictionary<string, string?> { ["CountryWorkload:Enabled"] = "true" });
         Assert.Equal("true", configuration["CountryWorkload:Enabled"]);
@@ -643,7 +649,7 @@ public sealed class AppHostCompositionTests
                     // Owned empty directories and provider replacement prevent loading operator configuration.
                     builder.Configuration.Sources.Clear();
                     builder.Configuration.AddInMemoryCollection(SyntheticConfiguration);
-                    builder.Configuration.AddInMemoryCollection(countryEnvironment);
+                    if (countryEnvironment.Length > 0) builder.Configuration.AddInMemoryCollection(countryEnvironment);
                     if (additionalConfiguration is not null) builder.Configuration.AddInMemoryCollection(additionalConfiguration);
                 });
         }
