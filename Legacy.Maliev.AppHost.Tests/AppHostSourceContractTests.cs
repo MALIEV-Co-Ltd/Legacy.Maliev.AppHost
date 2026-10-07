@@ -201,6 +201,7 @@ public sealed class AppHostSourceContractTests
                 "legacy.order-files.write",
                 "legacy.order-status.write",
                 "legacy.orders.delete",
+                "legacy-file.uploads.read",
             ],
             permissions);
     }

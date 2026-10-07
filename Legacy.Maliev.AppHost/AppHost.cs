@@ -442,6 +442,7 @@ internal static class AppHostComposition
             .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__27", "legacy.orders.delete")
             .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__28", LegacyCatalogLookupWorkloadGrants.LocationsRead)
             .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__29", LegacyCatalogLookupWorkloadGrants.CompaniesRead)
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__30", "legacy-file.uploads.read")
             .WithEnvironment("ServiceClients__Clients__legacy-intranet__SecretSha256", intranetCredential.SecretSha256)
             .WithEnvironment("ServiceClients__Clients__legacy-quotation__SecretSha256", quotationCredential.SecretSha256)
             .WithEnvironment("ServiceClients__Clients__legacy-quotation__Permissions__0", "legacy.order-status.write")

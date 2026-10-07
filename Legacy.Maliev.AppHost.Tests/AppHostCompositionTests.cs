@@ -25,7 +25,7 @@ public sealed class AppHostCompositionTests
         var auth = await EnvironmentFor(builder, "legacy-maliev-auth-service");
 
         var webPrefix = "ServiceClients__Clients__legacy-web__Permissions__";
-        Assert.Equal(30, auth.Keys.Count(key => key.StartsWith(webPrefix, StringComparison.Ordinal)));
+        Assert.Equal(31, auth.Keys.Count(key => key.StartsWith(webPrefix, StringComparison.Ordinal)));
         Assert.Equal("legacy-customer.addresses.update", auth[webPrefix + "7"]);
         Assert.Equal("legacy.orders.delete", auth[webPrefix + "27"]);
         Assert.Equal("legacy-catalog.locations.read", auth[webPrefix + "28"]);
@@ -64,6 +64,81 @@ public sealed class AppHostCompositionTests
             Assert.DoesNotContain(workload.Keys, key => key.StartsWith("ServiceClients__Clients__", StringComparison.Ordinal));
         }
         // Evaluate configuration only: no application.Start/Run, containers, tokens or provider calls.
+    }
+
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public async Task WebSignedFileReadEnrollmentPreservesOtherClientsAndBindsTheFileEndpoint(string environmentName)
+    {
+        using var fixture = new GraphFixture();
+        var builder = fixture.Compose(environmentName: environmentName);
+        using var application = builder.Build();
+        var auth = await EnvironmentFor(builder, "legacy-maliev-auth-service");
+        var web = await EnvironmentFor(builder, "legacy-maliev-web");
+
+        string[] expectedWebPermissions =
+        [
+            "legacy-auth.customer-self-service",
+            "legacy-customer.customers.create",
+            "legacy-customer.customers.delete",
+            "legacy.notifications.send",
+            "legacy-customer.customers.read",
+            "legacy-customer.customers.update",
+            "legacy-customer.addresses.create",
+            "legacy-customer.addresses.update",
+            "legacy-customer.companies.create",
+            "legacy-customer.companies.update",
+            "legacy-customer.companies.delete",
+            "legacy.customer-orders.read",
+            "legacy.customer-orders.cancel",
+            "legacy.customer-quotations.read",
+            "legacy-contact.messages.create",
+            "legacy.quotation-requests.create",
+            "legacy.quotation-files.write",
+            "legacy-file.uploads.create",
+            "legacy-file.uploads.delete",
+            "legacy-catalog.countries.read",
+            "legacy-catalog.currencies.read",
+            "legacy-catalog.materials.read",
+            "legacy-catalog.material-groups.read",
+            "legacy.orders.create",
+            "legacy.order-catalog.read",
+            "legacy.order-files.write",
+            "legacy.order-status.write",
+            "legacy.orders.delete",
+            "legacy-catalog.locations.read",
+            "legacy-catalog.companies.read",
+            "legacy-file.uploads.read",
+        ];
+        Assert.Equal(expectedWebPermissions, PermissionsFor("legacy-web"));
+        Assert.Equal(LegacyCatalogLookupWorkloadGrants.AppendTo(LegacyTopology.IntranetPermissions), PermissionsFor("legacy-intranet"));
+        Assert.Equal(LegacyTopology.AccountingPermissions, PermissionsFor("legacy-accounting"));
+        Assert.Equal(["legacy.order-status.write"], PermissionsFor("legacy-quotation"));
+        Assert.All(auth.Where(entry => entry.Key.Contains("__Permissions__", StringComparison.Ordinal)), entry =>
+            Assert.DoesNotContain("*", Assert.IsType<string>(entry.Value), StringComparison.Ordinal));
+        Assert.Equal(
+            ["legacy-accounting", "legacy-intranet", "legacy-quotation", "legacy-web"],
+            auth.Keys.Where(key => key.Contains("__Permissions__", StringComparison.Ordinal))
+                .Select(key => key.Split("__", StringSplitOptions.None)[2]).Distinct().Order(StringComparer.Ordinal));
+
+        Assert.Equal("legacy-web", web["ServiceAuthentication__ClientId"]);
+        var secret = Assert.IsType<string>(web["ServiceAuthentication__ClientSecret"]);
+        var enrolledHash = Assert.IsType<string>(auth["ServiceClients__Clients__legacy-web__SecretSha256"]);
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(secret))), enrolledHash.ToUpperInvariant());
+        var endpoint = Assert.IsType<EndpointReference>(web["Services__File"]);
+        Assert.Same(Assert.Single(builder.Resources, resource => resource.Name == "legacy-maliev-file-service"), endpoint.Resource);
+        Assert.Equal("http", endpoint.EndpointName);
+        Assert.DoesNotContain(web.Keys, key => key.StartsWith("ServiceClients__Clients__", StringComparison.Ordinal));
+
+        string[] PermissionsFor(string clientId)
+        {
+            string prefix = $"ServiceClients__Clients__{clientId}__Permissions__";
+            var entries = auth.Where(entry => entry.Key.StartsWith(prefix, StringComparison.Ordinal))
+                .OrderBy(entry => int.Parse(entry.Key[prefix.Length..], System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+            Assert.Equal(Enumerable.Range(0, entries.Length).Select(index => prefix + index), entries.Select(entry => entry.Key));
+            return entries.Select(entry => Assert.IsType<string>(entry.Value)).ToArray();
+        }
     }
 
     [Fact]
@@ -524,6 +599,7 @@ public sealed class AppHostCompositionTests
                 "legacy.quotation-files.write",
                 "legacy-file.uploads.create",
                 "legacy-file.uploads.delete",
+                "legacy-file.uploads.read",
                 "legacy-catalog.countries.read",
                 "legacy-catalog.currencies.read",
                 "legacy-catalog.materials.read",
