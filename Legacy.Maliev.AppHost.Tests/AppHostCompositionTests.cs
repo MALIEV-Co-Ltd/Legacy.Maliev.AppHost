@@ -599,6 +599,7 @@ public sealed class AppHostCompositionTests
                 "legacy.quotation-files.write",
                 "legacy-file.uploads.create",
                 "legacy-file.uploads.delete",
+                "legacy-file.uploads.read",
                 "legacy-catalog.countries.read",
                 "legacy-catalog.currencies.read",
                 "legacy-catalog.materials.read",
