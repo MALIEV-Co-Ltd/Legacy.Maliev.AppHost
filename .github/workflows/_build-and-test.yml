@@ -177,6 +177,18 @@ jobs:
         shell: pwsh
         working-directory: Legacy.Maliev.AppHost
         run: ./scripts/tests/test-generated-documentation-isolation.ps1
+      - name: Verify standalone financial operator controls
+        shell: pwsh
+        working-directory: Legacy.Maliev.AppHost
+        run: |
+          $files = @('scripts/financial-enrollment/FinancialEnrollment.psm1', 'scripts/financial-enrollment/invoke-financial-enrollment.ps1', 'scripts/tests/financial-enrollment-component-tests.ps1', 'scripts/tests/financial-enrollment-cli-cleanup-tests.ps1')
+          foreach ($file in $files) {
+            $tokens = $null; $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Get-Location) $file), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
+          ./scripts/tests/financial-enrollment-component-tests.ps1
+          ./scripts/tests/financial-enrollment-cli-cleanup-tests.ps1
       - name: Validate .NET solution
         uses: MALIEV-Co-Ltd/Legacy.Maliev.Workflows/actions/dotnet-validate@e3a6093324a24968876782153286f52db8b29fd8
         with:
