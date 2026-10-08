@@ -31,7 +31,17 @@ Perform this review only against a source identity shown in the Aspire dashboard
 - [ ] Close Web [#149](https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web/issues/149), [#150](https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web/issues/150), [#151](https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web/issues/151), [#152](https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web/issues/152), and [#153](https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Web/issues/153) with browser, contract, fixture, localization, accessibility, consent, analytics, and Aspire evidence.
 - [ ] Close FileService [#7](https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.FileService/issues/7) after the upload session, signed transfer, malware quarantine, finalization, idempotency, ownership, GCS, and failure contracts pass and Web integration consumes that exact contract.
 
-### 3. Google malware, measurement, and search checks
+### 3. Thai address and company lookup release blockers
+
+- [ ] Complete AppHost [#144](https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.AppHost/issues/144) and Catalog [#44](https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.CatalogService/issues/44), [#45](https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.CatalogService/issues/45), and [#46](https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.CatalogService/issues/46) with merged implementation revisions and joined evidence. The `thaiAddressAndCompanyLookup` pending gate in the machine-readable package must remain false until separately reviewed evidence and matching contract-test changes are recorded.
+- [ ] Verify actual Catalog discovery/client configuration, separate LocationData connection if selected, initializer ordering, health/readiness and least-privilege workload permissions. Keep existing customer/staff save permissions, trusted-field locks and CSRF protections. Web public-form lookups must use bounded, rate-limited same-origin server calls with server-held identity; browser/customer principals receive no Catalog staff permissions.
+- [ ] Test Production environment dataset initialization safely using disposable non-production data, reviewed provenance, source/license/version/hash and retained-source reconciliation. Demonstrate controlled refresh and version rollback. Local snapshot restoration alone does not satisfy initialization or API acceptance.
+- [ ] Verify province-first and postcode-first narrowing with all supplied constraints combined, string codes/postcodes and complete pagination; changing parents clears incompatible children while preserving detail. Verify Thai/Bangkok/mixed-language plaintext, conflict and ambiguity handling without selecting an arbitrary first candidate or inferring uniqueness from a truncated preview.
+- [ ] Demonstrate actual Web and Intranet address/company selection and manual correction, existing persistence contracts, save and readback, localization, keyboard access and stale asynchronous-result protection. Include applicable customer/billing/shipping, supplier, employee and supported quotation flows; coordinate the Intranet relation editors with [#262](https://github.com/MALIEV-Co-Ltd/Legacy.Maliev.Intranet/issues/262).
+- [ ] Verify unauthorized access, dataset/provider unavailability, unsupported company capability, bounded request/response/timeout behavior and manual-entry fallback. Confirm Creden production usage rights and supported provider contract before live enablement; unavailable company facts remain null. Keep credentials and full customer addresses out of committed evidence.
+- [ ] Attach exact-revision service tests and real joined HTTP/browser evidence to #144 and this release review #33. Proposed DTOs, mocks and a healthy service alone do not prove these flows. Retain release blocked and cutover 0% until every prerequisite and explicit owner approval are satisfied.
+
+### 4. Google malware, measurement, and search checks
 
 - [ ] Confirm container scanning and every GTM destination are clean; remove or disable any malware-flagged destination before retest.
 - [ ] Confirm Google Safe Browsing reports the reviewed public host clean.
@@ -40,7 +50,7 @@ Perform this review only against a source identity shown in the Aspire dashboard
 - [ ] Use GA4 DebugView and Google Ads diagnostics to prove each approved conversion fires exactly once, with no Aspire/local event sent into production reporting.
 - [ ] Attach screenshots or exports that identify the host, timestamp, container/property, consent state, event, and result to Web #152 and program Wave 7 [#12](https://github.com/MALIEV-Co-Ltd/maliev-web/issues/12).
 
-### 4. Existing-cluster CloudNativePG gate
+### 5. Existing-cluster CloudNativePG gate
 
 - [ ] Record schedulable CPU, memory, ephemeral storage, persistent-volume capacity, and disruption headroom in the existing GKE cluster. Do not add a node pool.
 - [ ] Prove backup/WAL recovery into the dormant `legacy-postgres-recovery-rehearsal` cluster in `maliev-legacy` without reading from or writing to production databases outside the approved recovery path.
@@ -48,7 +58,7 @@ Perform this review only against a source identity shown in the Aspire dashboard
 - [ ] Rehearse database and service rollback, including the maximum acceptable recovery point and recovery time.
 - [ ] Keep `--require-cutover` failing closed until capacity, recovery, parity, rollback, this Aspire review, and explicit owner approval are all recorded.
 
-### 5. Rollback and approval
+### 6. Rollback and approval
 
 - [ ] Record the prior immutable image digest and manifest for every service.
 - [ ] Rehearse service rollback without changing schema ownership or the source-of-truth databases.

@@ -34,6 +34,7 @@ internal static class AppHostComposition
             gkeValidationModeRequested, localSnapshotModeRequested, localDeltaModeRequested,
             localDeltaReviewModeRequested, localFixturesRequested, localSnapshotDirectoryRequested,
             localSnapshotKeyFileRequested, localSnapshotIdRequested, localDeltaConfigRequested);
+        var countryWorkloadEnvironment = CountryWorkloadConfiguration.CaptureEnvironment();
         LocalEnvironmentPolicy.SanitizeCurrentProcess();
         Console.WriteLine(
             "Legacy Web source identity: repository={0}; branch={1}; commit={2}; project={3}; port={4}",
@@ -50,7 +51,9 @@ internal static class AppHostComposition
         var builder = applicationOptions is null
             ? DistributedApplication.CreateBuilder(args)
             : DistributedApplication.CreateBuilder(applicationOptions);
+        CountryWorkloadConfiguration.RestoreEnvironment(builder.Configuration, countryWorkloadEnvironment);
         configureBuilder?.Invoke(builder);
+        var countryWorkload = CountryWorkloadConfiguration.Read(builder.Configuration, builder.Environment.EnvironmentName);
 
         // === BEGIN LEGACY_GKE_VALIDATION (opt-in owner manual QA against real GKE-migrated data,
         // see maliev-web#15; entirely dormant unless LEGACY_GKE_VALIDATION=true is set explicitly).
@@ -296,7 +299,7 @@ internal static class AppHostComposition
             .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
             .WithEnvironment("Jwt__Issuer", jwtIssuer)
             .WithEnvironment("Jwt__Audience", jwtAudience)
-            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "0x8000000")
             .WithEnvironment("DOTNET_GCConserveMemory", "3")
             .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
             .WithEnvironment("PGGSSENCMODE", "disable")
@@ -319,7 +322,7 @@ internal static class AppHostComposition
             .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
             .WithEnvironment("Jwt__Issuer", jwtIssuer)
             .WithEnvironment("Jwt__Audience", jwtAudience)
-            .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "0xC000000")
             .WithEnvironment("DOTNET_GCConserveMemory", "3")
             .WithHttpHealthCheck("/documents/liveness", endpointName: "http")
             .WithHttpHealthCheck("/documents/readiness", endpointName: "http")
@@ -437,11 +440,14 @@ internal static class AppHostComposition
             .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__25", "legacy.order-files.write")
             .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__26", "legacy.order-status.write")
             .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__27", "legacy.orders.delete")
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__28", LegacyCatalogLookupWorkloadGrants.LocationsRead)
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__29", LegacyCatalogLookupWorkloadGrants.CompaniesRead)
+            .WithEnvironment("ServiceClients__Clients__legacy-web__Permissions__30", "legacy-file.uploads.read")
             .WithEnvironment("ServiceClients__Clients__legacy-intranet__SecretSha256", intranetCredential.SecretSha256)
             .WithEnvironment("ServiceClients__Clients__legacy-quotation__SecretSha256", quotationCredential.SecretSha256)
             .WithEnvironment("ServiceClients__Clients__legacy-quotation__Permissions__0", "legacy.order-status.write")
             .WithEnvironment("ServiceClients__Clients__legacy-accounting__SecretSha256", accountingCredential.SecretSha256)
-            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "0x8000000")
             .WithEnvironment("DOTNET_GCConserveMemory", "3")
             .WithHttpHealthCheck("/auth/liveness", endpointName: "http")
             .WithHttpHealthCheck("/auth/readiness", endpointName: "http")
@@ -455,11 +461,12 @@ internal static class AppHostComposition
             .WaitForCompletion(employeeIdentityMigrations)
             .WaitFor(pgbouncer);
 
-        for (var permissionIndex = 0; permissionIndex < LegacyTopology.IntranetPermissions.Count; permissionIndex++)
+        var intranetPermissions = LegacyCatalogLookupWorkloadGrants.AppendTo(LegacyTopology.IntranetPermissions);
+        for (var permissionIndex = 0; permissionIndex < intranetPermissions.Count; permissionIndex++)
         {
             auth.WithEnvironment(
                 $"ServiceClients__Clients__legacy-intranet__Permissions__{permissionIndex}",
-                LegacyTopology.IntranetPermissions[permissionIndex]);
+                intranetPermissions[permissionIndex]);
         }
 
         for (var permissionIndex = 0; permissionIndex < LegacyTopology.AccountingPermissions.Count; permissionIndex++)
@@ -471,6 +478,22 @@ internal static class AppHostComposition
         authMigrations.WithParentRelationship(auth.Resource);
         customerIdentityMigrations.WithParentRelationship(auth.Resource);
         employeeIdentityMigrations.WithParentRelationship(auth.Resource);
+
+        if (countryWorkload is not null)
+        {
+            country.WithEnvironment("ASPNETCORE_ENVIRONMENT", countryWorkload.EnvironmentName)
+                .WithEnvironment("ServiceAuthentication__ClientId", countryWorkload.ClientId)
+                .WithEnvironment("ServiceAuthentication__ClientSecret", countryWorkload.ClientSecret)
+                .WithEnvironment("Services__Auth__BaseUrl", auth.GetEndpoint("http"))
+                .WithEnvironment("Services__IAMService__BaseUrl", countryWorkload.IamOrigin)
+                .WaitFor(auth);
+            auth.WithEnvironment($"ServiceClients__Clients__{countryWorkload.ClientId}__SecretSha256", countryWorkload.SecretSha256);
+            for (var permissionIndex = 0; permissionIndex < countryWorkload.Permissions.Count; permissionIndex++)
+            {
+                auth.WithEnvironment($"ServiceClients__Clients__{countryWorkload.ClientId}__Permissions__{permissionIndex}",
+                    countryWorkload.Permissions[permissionIndex]);
+            }
+        }
 
 
         var customerDatabase = databases["Customer"];
@@ -494,7 +517,7 @@ internal static class AppHostComposition
             .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
             .WithEnvironment("Jwt__Issuer", jwtIssuer)
             .WithEnvironment("Jwt__Audience", jwtAudience)
-            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "0x8000000")
             .WithEnvironment("DOTNET_GCConserveMemory", "3")
             .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
             .WithEnvironment("PGGSSENCMODE", "disable")
@@ -533,7 +556,7 @@ internal static class AppHostComposition
             .WithEnvironment("Jwt__Issuer", jwtIssuer)
             .WithEnvironment("Jwt__Audience", jwtAudience)
             .WithEnvironment("Features__AllowExactServiceClaimsForLiveCheck", allowExactSnapshotServiceClaims)
-            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "0x8000000")
             .WithEnvironment("DOTNET_GCConserveMemory", "3")
             .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
             .WithEnvironment("PGGSSENCMODE", "disable")
@@ -572,7 +595,7 @@ internal static class AppHostComposition
             .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
             .WithEnvironment("Jwt__Issuer", jwtIssuer)
             .WithEnvironment("Jwt__Audience", jwtAudience)
-            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "0x8000000")
             .WithEnvironment("DOTNET_GCConserveMemory", "3")
             .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
             .WithEnvironment("PGGSSENCMODE", "disable")
@@ -620,7 +643,7 @@ internal static class AppHostComposition
             .WithEnvironment("Jwt__Issuer", jwtIssuer)
             .WithEnvironment("Jwt__Audience", jwtAudience)
             .WithEnvironment("Features__AllowExactServiceClaimsForLiveCheck", allowExactSnapshotServiceClaims)
-            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "0x8000000")
             .WithEnvironment("DOTNET_GCConserveMemory", "3")
             .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
             .WithEnvironment("PGGSSENCMODE", "disable")
@@ -660,7 +683,7 @@ internal static class AppHostComposition
             .WithEnvironment("Jwt__Audience", jwtAudience)
             .WithEnvironment("MalwareScanner__Host", clamav.GetEndpoint("tcp").Property(EndpointProperty.Host))
             .WithEnvironment("MalwareScanner__Port", clamav.GetEndpoint("tcp").Property(EndpointProperty.Port))
-            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "0x8000000")
             .WithEnvironment("DOTNET_GCConserveMemory", "3")
             .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
             .WithEnvironment("PGGSSENCMODE", "disable")
@@ -687,7 +710,7 @@ internal static class AppHostComposition
             .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
             .WithEnvironment("Jwt__Issuer", jwtIssuer)
             .WithEnvironment("Jwt__Audience", jwtAudience)
-            .WithEnvironment("DOTNET_GCHeapHardLimit", "100663296")
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "0x6000000")
             .WithEnvironment("DOTNET_GCConserveMemory", "3")
             .WithHttpHealthCheck("/emails/liveness", endpointName: "http")
             .WithHttpHealthCheck("/emails/readiness", endpointName: "http")
@@ -727,7 +750,7 @@ internal static class AppHostComposition
             .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
             .WithEnvironment("Jwt__Issuer", jwtIssuer)
             .WithEnvironment("Jwt__Audience", jwtAudience)
-            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "0x8000000")
             .WithEnvironment("DOTNET_GCConserveMemory", "3")
             .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
             .WithEnvironment("PGGSSENCMODE", "disable")
@@ -783,7 +806,7 @@ internal static class AppHostComposition
             .WithEnvironment("Jwt__Issuer", jwtIssuer)
             .WithEnvironment("Jwt__Audience", jwtAudience)
             .WithEnvironment("Features__AllowExactServiceClaimsForLiveCheck", allowExactSnapshotServiceClaims)
-            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "0x8000000")
             .WithEnvironment("DOTNET_GCConserveMemory", "3")
             .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
             .WithEnvironment("PGGSSENCMODE", "disable")
@@ -824,7 +847,7 @@ internal static class AppHostComposition
             .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
             .WithEnvironment("Jwt__Issuer", jwtIssuer)
             .WithEnvironment("Jwt__Audience", jwtAudience)
-            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "0x8000000")
             .WithEnvironment("DOTNET_GCConserveMemory", "3")
             .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
             .WithEnvironment("PGGSSENCMODE", "disable")
@@ -859,7 +882,7 @@ internal static class AppHostComposition
             .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
             .WithEnvironment("Jwt__Issuer", jwtIssuer)
             .WithEnvironment("Jwt__Audience", jwtAudience)
-            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "0x8000000")
             .WithEnvironment("DOTNET_GCConserveMemory", "3")
             .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
             .WithEnvironment("PGGSSENCMODE", "disable")
@@ -919,11 +942,13 @@ internal static class AppHostComposition
             .WithEnvironment("Services__Notification", notification.GetEndpoint("http"))
             .WithEnvironment("Services__Customer", customer.GetEndpoint("http"))
             .WithEnvironment("Services__Employee", employee.GetEndpoint("http"))
+            .WithEnvironment("Services__Quotation", quotation.GetEndpoint("http"))
+            .WithEnvironment("Services__Catalog", catalog.GetEndpoint("http"))
             .WithEnvironment("Jwt__PublicKey", jwt.PublicKeyBase64)
             .WithEnvironment("Jwt__Issuer", jwtIssuer)
             .WithEnvironment("Jwt__Audience", jwtAudience)
             .WithEnvironment("Features__AllowExactServiceClaimsForLiveCheck", allowExactSnapshotServiceClaims)
-            .WithEnvironment("DOTNET_GCHeapHardLimit", "134217728")
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "0x8000000")
             .WithEnvironment("DOTNET_GCConserveMemory", "3")
             .WithEnvironment("NPGSQL_GSSAPI_AUTHENTICATION", "false")
             .WithEnvironment("PGGSSENCMODE", "disable")
@@ -945,12 +970,16 @@ internal static class AppHostComposition
             .WithReference(notification)
             .WithReference(customer)
             .WithReference(employee)
+            .WithReference(quotation)
+            .WithReference(catalog)
             .WaitFor(auth)
             .WaitFor(document)
             .WaitFor(file)
             .WaitFor(notification)
             .WaitFor(customer)
-            .WaitFor(employee);
+            .WaitFor(employee)
+            .WaitFor(quotation)
+            .WaitFor(catalog);
 
         paymentMigrations.WithParentRelationship(accounting.Resource);
         invoiceMigrations.WithParentRelationship(accounting.Resource);
@@ -983,7 +1012,7 @@ internal static class AppHostComposition
             .WithEnvironment("Services__Quotation", quotation.GetEndpoint("http"))
             .WithEnvironment("Services__Career", career.GetEndpoint("http"))
             .WithEnvironment("Services__Contact", contact.GetEndpoint("http"))
-            .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "0xC000000")
             .WithEnvironment("DOTNET_GCConserveMemory", "3")
             .WithHttpHealthCheck("/web/liveness", endpointName: "http")
             .WithHttpHealthCheck("/web/readiness", endpointName: "http")
@@ -1041,7 +1070,7 @@ internal static class AppHostComposition
             .WithEnvironment("Services__File", file.GetEndpoint("http"))
             .WithEnvironment("Services__Notification", notification.GetEndpoint("http"))
             .WithEnvironment("Services__Accounting", accounting.GetEndpoint("http"))
-            .WithEnvironment("DOTNET_GCHeapHardLimit", "201326592")
+            .WithEnvironment("DOTNET_GCHeapHardLimit", "0xC000000")
             .WithEnvironment("DOTNET_GCConserveMemory", "3")
             .WithHttpHealthCheck("/intranet-bff/liveness", endpointName: "https")
             .WithHttpHealthCheck("/intranet-bff/readiness", endpointName: "https")

@@ -201,6 +201,7 @@ public sealed class AppHostSourceContractTests
                 "legacy.order-files.write",
                 "legacy.order-status.write",
                 "legacy.orders.delete",
+                "legacy-file.uploads.read",
             ],
             permissions);
     }
@@ -589,7 +590,7 @@ public sealed class AppHostSourceContractTests
         var web = ExtractResource(
             source,
             "builder.AddProject<Projects.Legacy_Maliev_Web>(\"legacy-maliev-web\")",
-            ".WithEnvironment(\"DOTNET_GCHeapHardLimit\", \"201326592\")");
+            ".WithEnvironment(\"DOTNET_GCHeapHardLimit\", \"0xC000000\")");
 
         foreach (var service in new[]
                  {

@@ -51,7 +51,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.CountryService
-          ref: 9c53137022bbd4e48d03084a090357ea98215559
+          ref: 01113637c751c7bea1354517be7f8b56a1637bb9
           path: Legacy.Maliev.CountryService
           persist-credentials: false
       - name: Check out Document service
@@ -65,7 +65,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.AuthService
-          ref: d3311024e863f97ad067b608c70dac23edb8f2cb
+          ref: b27fbef06a3aa58c1f4fc0e75d7c70b32be76266
           path: Legacy.Maliev.AuthService
           persist-credentials: false
       - name: Check out Customer service
@@ -100,7 +100,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.ServiceDefaults
-          ref: 9c4ac9d44a08bcd0aa2088348790ab863814669c
+          ref: 7edcd961024868513fd5f373cab3dcb261197f77
           path: Legacy.Maliev.ServiceDefaults
           persist-credentials: false
       - name: Check out compatibility contracts
@@ -114,7 +114,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.Web
-          ref: e806c2c6bf3352ffe387436a40bf5c391b2f6377
+          ref: 007c082b4abd3da36d335f55a98702f507661651
           path: Legacy.Maliev.Web
           persist-credentials: false
       - name: Check out Employee service
@@ -177,6 +177,18 @@ jobs:
         shell: pwsh
         working-directory: Legacy.Maliev.AppHost
         run: ./scripts/tests/test-generated-documentation-isolation.ps1
+      - name: Verify standalone financial operator controls
+        shell: pwsh
+        working-directory: Legacy.Maliev.AppHost
+        run: |
+          $files = @('scripts/financial-enrollment/FinancialEnrollment.psm1', 'scripts/financial-enrollment/invoke-financial-enrollment.ps1', 'scripts/tests/financial-enrollment-component-tests.ps1', 'scripts/tests/financial-enrollment-cli-cleanup-tests.ps1')
+          foreach ($file in $files) {
+            $tokens = $null; $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Get-Location) $file), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
+          ./scripts/tests/financial-enrollment-component-tests.ps1
+          ./scripts/tests/financial-enrollment-cli-cleanup-tests.ps1
       - name: Validate .NET solution
         uses: MALIEV-Co-Ltd/Legacy.Maliev.Workflows/actions/dotnet-validate@e3a6093324a24968876782153286f52db8b29fd8
         with:
@@ -302,7 +314,7 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         repository: MALIEV-Co-Ltd/Legacy.Maliev.CountryService
-        ref: 9c53137022bbd4e48d03084a090357ea98215559
+        ref: 01113637c751c7bea1354517be7f8b56a1637bb9
         path: Legacy.Maliev.CountryService
         persist-credentials: false
     - name: Check out Document service
@@ -316,7 +328,7 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         repository: MALIEV-Co-Ltd/Legacy.Maliev.AuthService
-        ref: d3311024e863f97ad067b608c70dac23edb8f2cb
+        ref: b27fbef06a3aa58c1f4fc0e75d7c70b32be76266
         path: Legacy.Maliev.AuthService
         persist-credentials: false
     - name: Check out Customer service
@@ -351,7 +363,7 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         repository: MALIEV-Co-Ltd/Legacy.Maliev.ServiceDefaults
-        ref: 9c4ac9d44a08bcd0aa2088348790ab863814669c
+        ref: 7edcd961024868513fd5f373cab3dcb261197f77
         path: Legacy.Maliev.ServiceDefaults
         persist-credentials: false
     - name: Check out compatibility contracts
@@ -365,7 +377,7 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         repository: MALIEV-Co-Ltd/Legacy.Maliev.Web
-        ref: e806c2c6bf3352ffe387436a40bf5c391b2f6377
+        ref: 007c082b4abd3da36d335f55a98702f507661651
         path: Legacy.Maliev.Web
         persist-credentials: false
     - name: Check out Employee service
