@@ -613,7 +613,7 @@ public static class LegacyEdgeReviewPackage
                             {
                                 path = route.Item1,
                                 pathType = "Prefix",
-                                backend = new { service = new { name = "legacy-maliev-" + route.Item2 + (route.Item2 is "web" or "intranet-bff" ? "" : "-service"), port = new { number = route.Item2 is "auth" or "employee" or "intranet-bff" ? 80 : 8080 } } }
+                                backend = new { service = new { name = "legacy-maliev-" + route.Item2 + (route.Item2 is "web" or "intranet-bff" ? "" : "-service"), port = new { number = route.Item2 is "auth" or "employee" or "quotation" or "intranet-bff" ? 80 : 8080 } } }
                             })
                     }
                 })
