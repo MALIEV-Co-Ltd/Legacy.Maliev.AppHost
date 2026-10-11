@@ -141,7 +141,7 @@ public sealed class LegacyEdgeReviewPackageTests
         foreach (var path in paths)
         {
             Assert.Equal("Prefix", path.GetProperty("pathType").GetString());
-            var expectedPort = path.GetProperty("path").GetString() is "/auth" or "/employees" or "/employee" ? 80 : 8080;
+            var expectedPort = path.GetProperty("path").GetString() is "/auth" or "/employees" or "/employee" or "/quotations" or "/quotationrequests" or "/quotation" ? 80 : 8080;
             Assert.Equal(expectedPort, path.GetProperty("backend").GetProperty("service").GetProperty("port").GetProperty("number").GetInt32());
         }
         var intranet = Assert.Single(rules, rule => rule.GetProperty("host").GetString() == "intranet.maliev.com");
@@ -165,12 +165,35 @@ public sealed class LegacyEdgeReviewPackageTests
             gate => gate.GetString()!.Contains("namespace/selector ownership", StringComparison.Ordinal));
     }
 
+    // QuotationService d928d2bad1231c05ec9aba7ba99f51195d48fb2e:
+    // deploy/base/service.yaml blob 8308da3f7479a91e4fa7ec22aa85f7185b097d6f exposes 80,
+    // while deployment.yaml exposes container port 8080. Ingress selects the Service port.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void Render_AllQuotationPrefixesUseCommittedServicePortAcrossReviewVersions(int schemaVersion)
+    {
+        using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", schemaVersion));
+        var root = package.RootElement;
+        foreach (var prefix in new[] { "/quotations", "/quotationrequests", "/quotation" })
+        {
+            AssertBackendPort(root, "api.maliev.com", prefix, "legacy-maliev-quotation-service", 80);
+        }
+        Assert.Equal(31, ApiPaths(root).Length);
+        Assert.True(root.GetProperty("reviewOnly").GetBoolean());
+        Assert.False(root.GetProperty("productionDeploymentAllowed").GetBoolean());
+        Assert.Equal(0, root.GetProperty("cutoverPercent").GetInt32());
+        Assert.Contains(root.GetProperty("unresolvedGates").EnumerateArray(),
+            gate => gate.GetString()!.Contains("namespace/selector ownership", StringComparison.Ordinal));
+    }
+
     [Theory]
     [InlineData("/country/v1/countries", "/country", "country", 8080)]
     [InlineData("/documents/scalar", "/documents", "document", 8080)]
     [InlineData("/customer/scalar", "/customer", "customer", 8080)]
     [InlineData("/order/scalar", "/order", "order", 8080)]
-    [InlineData("/quotation/scalar", "/quotation", "quotation", 8080)]
+    [InlineData("/quotation/scalar", "/quotation", "quotation", 80)]
     [InlineData("/employee/scalar", "/employee", "employee", 80)]
     [InlineData("/catalog/scalar", "/catalog", "catalog", 8080)]
     [InlineData("/procurement/scalar", "/procurement", "procurement", 8080)]
@@ -215,7 +238,7 @@ public sealed class LegacyEdgeReviewPackageTests
     public void Render_KeepsLegacyAndCanonicalSegmentsUnambiguousUnderLongestPrefixSelection(string requestPath, string prefix, string service)
     {
         using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip"));
-        AssertCanonicalRequest(package.RootElement, requestPath, prefix, service, 8080);
+        AssertCanonicalRequest(package.RootElement, requestPath, prefix, service, service == "quotation" ? 80 : 8080);
     }
 
     [Fact]
@@ -278,7 +301,7 @@ public sealed class LegacyEdgeReviewPackageTests
                 ("/accounting/scalar", "/accounting", "accounting")
             })
             {
-                AssertCanonicalRequest(root, entry.Item1, entry.Item2, entry.Item3, entry.Item3 == "employee" ? 80 : 8080);
+                AssertCanonicalRequest(root, entry.Item1, entry.Item2, entry.Item3, entry.Item3 is "employee" or "quotation" ? 80 : 8080);
             }
             Assert.DoesNotContain(ApiPaths(root), path => MatchesKubernetesPrefix(path.GetProperty("path").GetString()!, "/orders2/7"));
             Assert.True(root.GetProperty("reviewOnly").GetBoolean());
