@@ -260,6 +260,58 @@ public sealed class AppHostCompositionTests
         Assert.Equal("false", migration["LEGACY_SKIP_MIGRATE"]);
     }
 
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public async Task CatalogWaitsForBothDatabaseOwnersBeforeServingCountryLookups(string environmentName)
+    {
+        using var fixture = new GraphFixture();
+        var builder = fixture.Compose(environmentName: environmentName);
+        using var application = builder.Build();
+        var catalog = Assert.Single(builder.Resources, resource => resource.Name == "legacy-maliev-catalog-service");
+        var countryMigration = Assert.Single(builder.Resources, resource => resource.Name == "legacy-country-migrations");
+        var catalogMigration = Assert.Single(builder.Resources, resource => resource.Name == "legacy-catalog-migrations");
+        foreach (var migration in new[] { countryMigration, catalogMigration })
+        {
+            var wait = Assert.Single(catalog.Annotations.OfType<WaitAnnotation>(),
+                annotation => ReferenceEquals(annotation.Resource, migration));
+            Assert.Equal(WaitType.WaitForCompletion, wait.WaitType);
+        }
+        var catalogEnvironment = await EnvironmentFor(builder, catalog.Name);
+        var migrationEnvironment = await EnvironmentFor(builder, countryMigration.Name);
+        Assert.Contains("Database=Country",
+            Assert.IsType<ReferenceExpression>(catalogEnvironment["ConnectionStrings__CountryDbContext"]).ValueExpression,
+            StringComparison.Ordinal);
+        Assert.Equal("{legacy-postgres-main.connectionString};Database=Country",
+            Assert.IsType<ReferenceExpression>(migrationEnvironment["ConnectionStrings__CountryDbContext"]).ValueExpression);
+        // Build and inspect the graph only; no application.Start/Run or database access.
+    }
+
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public void CatalogCountryMigrationDependencyCannotCycleBackThroughCountryOrAuth(string environmentName)
+    {
+        using var fixture = new GraphFixture();
+        var builder = fixture.Compose(environmentName: environmentName);
+        using var application = builder.Build();
+        var catalog = Assert.Single(builder.Resources, resource => resource.Name == "legacy-maliev-catalog-service");
+        var countryMigration = Assert.Single(builder.Resources, resource => resource.Name == "legacy-country-migrations");
+        var visited = new HashSet<IResource>();
+        bool ReachesCatalog(IResource resource)
+        {
+            return ReferenceEquals(resource, catalog)
+                || (visited.Add(resource) && resource.Annotations.OfType<WaitAnnotation>()
+                    .Any(wait => ReachesCatalog(wait.Resource)));
+        }
+        Assert.False(ReachesCatalog(countryMigration));
+        foreach (string resourceName in new[] { "legacy-postgres-pooler-rw", "legacy-redis", "legacy-maliev-auth-service" })
+        {
+            Assert.Contains(catalog.Annotations.OfType<WaitAnnotation>(), wait =>
+                wait.Resource.Name == resourceName && wait.WaitType == WaitType.WaitUntilHealthy);
+        }
+    }
+
     [Fact]
     public async Task AdditionalDatabaseMappingsUseExactPooledStoresAndAuthRemainsDirect()
     {
