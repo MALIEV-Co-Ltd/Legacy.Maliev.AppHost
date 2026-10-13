@@ -196,6 +196,16 @@ jobs:
           solution: Legacy.Maliev.AppHost.slnx
           dotnet-version: 10.0.401
           use-local-maliev-dependencies: 'true'
+      - name: Verify Catalog Country migration startup ordering
+        working-directory: Legacy.Maliev.AppHost
+        shell: bash
+        run: >-
+          dotnet test Legacy.Maliev.AppHost.Tests/Legacy.Maliev.AppHost.Tests.csproj
+          --configuration Release --no-build --no-restore
+          -p:VSTestCollect= -p:VSTestSetting=
+          --filter 'FullyQualifiedName~CatalogWaitsForBothDatabaseOwnersBeforeServingCountryLookups|FullyQualifiedName~CatalogCountryMigrationDependencyCannotCycleBackThroughCountryOrAuth'
+          --logger 'trx;LogFileName=catalog-country-startup.trx'
+          --results-directory '${{ github.workspace }}/runner-results/focused-startup'
       - name: Prepare PostgreSQL 18 restore wrapper
         shell: bash
         run: |

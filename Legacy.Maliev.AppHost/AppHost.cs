@@ -607,6 +607,7 @@ internal static class AppHostComposition
                 url.DisplayText = "Catalog Scalar";
             })
             .WaitForCompletion(catalogMigrations)
+            .WaitForCompletion(countryMigrations)
             .WaitFor(pgbouncer)
             .WaitFor(redis)
             .WaitFor(auth);
