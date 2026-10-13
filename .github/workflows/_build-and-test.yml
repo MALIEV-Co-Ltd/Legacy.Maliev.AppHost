@@ -493,7 +493,7 @@ jobs:
         WINDOWS_RESULT: ${{ needs.windows-acl.result }}
       run: if ($env:UBUNTU_RESULT -ne 'success' -or $env:WINDOWS_RESULT -ne 'success') { throw 'Both platform validations must pass before union acceptance' }
     - name: Download original raw platform artifacts
-      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
       with:
         pattern: apphost-*-validation
         path: platform-artifacts
