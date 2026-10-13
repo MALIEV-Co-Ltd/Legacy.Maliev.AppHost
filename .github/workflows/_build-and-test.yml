@@ -289,7 +289,7 @@ jobs:
           ./scripts/coverage/export-platform-evidence.ps1 -Platform ubuntu -CoberturaPath $reports[0].FullName -OutputDirectory "$env:GITHUB_WORKSPACE/runner-results/platform-ubuntu"
       - name: Preserve synthetic validation evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: apphost-synthetic-validation
           path: |
@@ -464,7 +464,7 @@ jobs:
         ./scripts/coverage/export-platform-evidence.ps1 -Platform windows -CoberturaPath $reports[0].FullName -OutputDirectory "$env:GITHUB_WORKSPACE/runner-results/platform-windows"
     - name: Preserve Windows raw evidence
       if: always()
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
         name: apphost-windows-validation
         path: |
@@ -507,7 +507,7 @@ jobs:
       run: python3 -B scripts/coverage/verify-platform-union.py --ubuntu ../platform-artifacts/apphost-synthetic-validation/platform-ubuntu --windows ../platform-artifacts/apphost-windows-validation/platform-windows --output ../platform-artifacts/raw-production-union.json
     - name: Preserve union decision and untouched platform evidence
       if: always()
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
         name: apphost-production-union
         path: |
