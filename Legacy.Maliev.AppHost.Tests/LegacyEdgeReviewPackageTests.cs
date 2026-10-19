@@ -122,7 +122,8 @@ public sealed class LegacyEdgeReviewPackageTests
         Assert.Equal(new[] { "www.maliev.com", "maliev.com", "api.maliev.com", "intranet.maliev.com" },
             rules.Select(rule => rule.GetProperty("host").GetString()));
         var api = Assert.Single(rules, rule => rule.GetProperty("host").GetString() == "api.maliev.com");
-        var paths = api.GetProperty("http").GetProperty("paths").EnumerateArray().ToArray();
+        var paths = api.GetProperty("http").GetProperty("paths").EnumerateArray()
+            .Where(path => path.GetProperty("pathType").GetString() == "Prefix").ToArray();
         string[] expectedPaths = ["/auth", "/countries", "/currencies", "/customers", "/materials", "/suppliers",
             "/orderstatuses", "/uploads", "/orders", "/emails", "/quotations", "/employees", "/payments", "/pdfs",
             "/jobs", "/invoices", "/messages", "/purchaseorders", "/receipts", "/quotationrequests",
@@ -150,6 +151,76 @@ public sealed class LegacyEdgeReviewPackageTests
         {
             AssertService(web.GetProperty("http").GetProperty("paths").EnumerateArray().ToArray(), "/", "legacy-maliev-web");
         }
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public void Render_AuthenticationValidationUsesOnlyExactSourcePathsAcrossReviewVersions(int schemaVersion)
+    {
+        var json = schemaVersion == 4
+            ? LegacyEdgeReviewPackage.RenderReleaseSelectorReview("owner@maliev.test", "existing-ip",
+                "{\"schemaVersion\":1,\"selector\":\"web\",\"children\":[]}")
+            : LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", schemaVersion);
+        using var package = JsonDocument.Parse(json);
+        var root = package.RootElement;
+        var routes = AllApiPaths(root);
+        Assert.Equal(schemaVersion, root.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(33, routes.Length);
+        Assert.Equal(33, routes.Select(route => route.GetProperty("path").GetString()).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(31, ApiPaths(root).Length);
+        var exact = routes.Where(route => route.GetProperty("pathType").GetString() == "Exact").ToArray();
+        Assert.Equal(new[] { "/customers/v1/validate", "/Employees/v1/validate" },
+            exact.Select(route => route.GetProperty("path").GetString()));
+        foreach (var route in exact)
+        {
+            AssertBackendPort(root, "api.maliev.com", route.GetProperty("path").GetString()!,
+                "legacy-maliev-auth-service", 80);
+        }
+
+        (string RequestPath, string? Route, string? Service, int Port)[] cases =
+        [
+            ("/customers/v1/validate", "/customers/v1/validate", "auth", 80),
+            ("/Employees/v1/validate", "/Employees/v1/validate", "auth", 80),
+            ("/customers/v1/validate/child", "/customers", "customer", 8080),
+            ("/customers/v1/validate/", "/customers", "customer", 8080),
+            ("/customers/v1/validatex", "/customers", "customer", 8080),
+            ("/customers/v1/Validate", "/customers", "customer", 8080),
+            ("/Customers/v1/validate", null, null, 0),
+            ("/employees/v1/validate", "/employees", "employee", 80),
+            ("/Employees/v1/validate/child", null, null, 0),
+            ("/Employees/v1/validate/", null, null, 0),
+            ("/Employees/v1/validatex", null, null, 0),
+            ("/Employees/v1/Validate", null, null, 0),
+            ("/customers/42", "/customers", "customer", 8080),
+            ("/employees/42", "/employees", "employee", 80),
+            ("/customer/v1/customers", "/customer", "customer", 8080),
+            ("/employee/v1/employees", "/employee", "employee", 80),
+        ];
+        foreach (var expected in cases)
+        {
+            // Independent Kubernetes path model: case-sensitive, longest path, Exact before Prefix.
+            var matches = routes.Where(route => route.GetProperty("pathType").GetString() == "Exact"
+                    ? string.Equals(route.GetProperty("path").GetString(), expected.RequestPath, StringComparison.Ordinal)
+                    : MatchesKubernetesPrefix(route.GetProperty("path").GetString()!, expected.RequestPath))
+                .OrderByDescending(route => route.GetProperty("path").GetString()!.Length)
+                .ThenByDescending(route => route.GetProperty("pathType").GetString() == "Exact").ToArray();
+            if (expected.Route is null)
+            {
+                Assert.Empty(matches);
+                continue;
+            }
+
+            Assert.NotEmpty(matches);
+            Assert.Equal(expected.Route, matches[0].GetProperty("path").GetString());
+            AssertBackendPort(root, "api.maliev.com", expected.Route,
+                "legacy-maliev-" + expected.Service + "-service", expected.Port);
+        }
+        Assert.True(root.GetProperty("reviewOnly").GetBoolean());
+        Assert.False(root.GetProperty("productionDeploymentAllowed").GetBoolean());
+        Assert.Equal(0, root.GetProperty("cutoverPercent").GetInt32());
     }
 
     [Theory]
@@ -977,7 +1048,11 @@ public sealed class LegacyEdgeReviewPackageTests
         Assert.Equal(port, backend.GetProperty("port").GetProperty("number").GetInt32());
     }
 
+    // Keep the complete original Prefix roster separate from the two exact Auth exceptions.
     private static JsonElement[] ApiPaths(JsonElement root) =>
+        AllApiPaths(root).Where(path => path.GetProperty("pathType").GetString() == "Prefix").ToArray();
+
+    private static JsonElement[] AllApiPaths(JsonElement root) =>
         Assert.Single(Single(root.GetProperty("objects").EnumerateArray().ToArray(), "Ingress")
             .GetProperty("spec").GetProperty("rules").EnumerateArray(), rule => rule.GetProperty("host").GetString() == "api.maliev.com")
             .GetProperty("http").GetProperty("paths").EnumerateArray().ToArray();
