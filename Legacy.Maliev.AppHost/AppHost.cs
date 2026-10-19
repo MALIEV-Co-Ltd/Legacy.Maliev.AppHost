@@ -148,6 +148,7 @@ internal static class AppHostComposition
         var intranetCredential = LocalServiceCredential.Create();
         var quotationCredential = LocalServiceCredential.Create();
         var accountingCredential = LocalServiceCredential.Create();
+        var authProfileCredential = gkeValidationMode ? null : LocalServiceCredential.Create();
         var dataProtectionCertificate = certificateStorageDirectory is null
             ? LocalDataProtectionCertificate.CreateOrLoad("Web")
             : LocalDataProtectionCertificate.CreateOrLoad("Web", certificateStorageDirectory);
@@ -573,6 +574,23 @@ internal static class AppHostComposition
             .WaitFor(auth);
 
         employeeMigrations.WithParentRelationship(employee.Resource);
+
+        // Only the ordinary local graph enrolls Auth's own profile-read transport.
+        // GKE validation continues to require its separately approved workload configuration.
+        if (authProfileCredential is not null)
+        {
+            auth.WithHttpsEndpoint(name: "https");
+            customer.WithHttpsEndpoint(name: "https");
+            employee.WithHttpsEndpoint(name: "https");
+            auth.WithEnvironment("ServiceAuthentication__ClientId", "legacy-auth")
+                .WithEnvironment("ServiceAuthentication__ClientSecret", authProfileCredential.Secret)
+                .WithEnvironment("ServiceClients__Clients__legacy-auth__SecretSha256", authProfileCredential.SecretSha256)
+                .WithEnvironment("ServiceClients__Clients__legacy-auth__Permissions__0", "legacy-employee.employees.read")
+                .WithEnvironment("ServiceClients__Clients__legacy-auth__Permissions__1", "legacy-customer.customers.read")
+                .WithEnvironment("Services__Auth__BaseUrl", auth.GetEndpoint("https"))
+                .WithEnvironment("Services__CustomerService__BaseUrl", customer.GetEndpoint("https"))
+                .WithEnvironment("Services__EmployeeService__BaseUrl", employee.GetEndpoint("https"));
+        }
 
         var catalogDatabase = databases["Material"];
         var catalogMigrations = builder.AddProject<Projects.Legacy_Maliev_AppHost_MigrationRunner>("legacy-catalog-migrations")

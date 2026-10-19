@@ -1,7 +1,7 @@
 [
   {
     "repository": "Legacy.Maliev.DataMigration",
-    "commit": "77c8f3c62ee74bee40c08654fdf457d639ba423f"
+    "commit": "caf6ad3414ca860518674e919510a778efd236a7"
   },
   {
     "repository": "Legacy.Maliev.CountryService",
@@ -13,11 +13,11 @@
   },
   {
     "repository": "Legacy.Maliev.AuthService",
-    "commit": "b27fbef06a3aa58c1f4fc0e75d7c70b32be76266"
+    "commit": "15e64445af22bbb1ee065f6ad6cf2fc3a6da5f38"
   },
   {
     "repository": "Legacy.Maliev.CustomerService",
-    "commit": "1270d63295a53f79aee265e57949e793ccb6516d"
+    "commit": "cd265781de9fe4dac67571c3f2ddde5456a49cc0"
   },
   {
     "repository": "Legacy.Maliev.NotificationService",
@@ -29,11 +29,11 @@
   },
   {
     "repository": "Legacy.Maliev.QuotationService",
-    "commit": "7d4d0061cdb595c86bfa67074fec7c61b9f3812f"
+    "commit": "a866e26fbbbcf013f9c1ecfe53cafa7f93a10da9"
   },
   {
     "repository": "Legacy.Maliev.ServiceDefaults",
-    "commit": "7edcd961024868513fd5f373cab3dcb261197f77"
+    "commit": "f72be151917cb3962380971418c187e3df563f8d"
   },
   {
     "repository": "Legacy.Maliev.CompatibilityContracts",
@@ -45,11 +45,11 @@
   },
   {
     "repository": "Legacy.Maliev.EmployeeService",
-    "commit": "101e0dc8009174b24c3013011b5393aa1ca66bee"
+    "commit": "f041cce1895aa1dc7fa2e426f37d62936e97a660"
   },
   {
     "repository": "Legacy.Maliev.CatalogService",
-    "commit": "de4b3364e924cca1aeebb3280817f0c9bd7ea6bc"
+    "commit": "158f08f8dd6ccb2eade4979023e97ed4822864ab"
   },
   {
     "repository": "Legacy.Maliev.ProcurementService",
@@ -61,7 +61,7 @@
   },
   {
     "repository": "Legacy.Maliev.Intranet",
-    "commit": "cb52b0fe06151f161766bca683f23710cb6b1ac2"
+    "commit": "0767d993752f17b0949a0e12d20369adfc945c7e"
   },
   {
     "repository": "Legacy.Maliev.CareerService",
