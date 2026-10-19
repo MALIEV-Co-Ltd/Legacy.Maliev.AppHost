@@ -118,7 +118,7 @@ public sealed class AppHostCompositionTests
         Assert.All(auth.Where(entry => entry.Key.Contains("__Permissions__", StringComparison.Ordinal)), entry =>
             Assert.DoesNotContain("*", Assert.IsType<string>(entry.Value), StringComparison.Ordinal));
         Assert.Equal(
-            ["legacy-accounting", "legacy-intranet", "legacy-quotation", "legacy-web"],
+            ["legacy-accounting", "legacy-auth", "legacy-intranet", "legacy-quotation", "legacy-web"],
             auth.Keys.Where(key => key.Contains("__Permissions__", StringComparison.Ordinal))
                 .Select(key => key.Split("__", StringSplitOptions.None)[2]).Distinct().Order(StringComparer.Ordinal));
 
@@ -139,6 +139,98 @@ public sealed class AppHostCompositionTests
             Assert.Equal(Enumerable.Range(0, entries.Length).Select(index => prefix + index), entries.Select(entry => entry.Key));
             return entries.Select(entry => Assert.IsType<string>(entry.Value)).ToArray();
         }
+    }
+
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public async Task AuthProfileBindingUsesFreshPrivateCredentialsAndOnlyTwoReadScopes(string environmentName)
+    {
+        var secrets = new HashSet<string>(StringComparer.Ordinal);
+        var hashes = new HashSet<string>(StringComparer.Ordinal);
+        for (var composition = 0; composition < 2; composition++)
+        {
+            using var fixture = new GraphFixture();
+            var builder = fixture.Compose(environmentName: environmentName);
+            using var application = builder.Build();
+            var auth = await EnvironmentFor(builder, "legacy-maliev-auth-service");
+
+            Assert.Equal("legacy-auth", auth["ServiceAuthentication__ClientId"]);
+            string secret = Assert.IsType<string>(auth["ServiceAuthentication__ClientSecret"]);
+            Assert.NotEmpty(secret);
+            string hash = Assert.IsType<string>(auth["ServiceClients__Clients__legacy-auth__SecretSha256"]);
+            Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(secret))), hash);
+            Assert.True(secrets.Add(secret), "Each owned composition must use a fresh Auth credential.");
+            Assert.True(hashes.Add(hash), "Each owned composition must enroll a fresh Auth credential hash.");
+
+            const string prefix = "ServiceClients__Clients__legacy-auth__";
+            Assert.Equal(
+                new[] { prefix + "Permissions__0", prefix + "Permissions__1", prefix + "SecretSha256" }.Order(StringComparer.Ordinal),
+                auth.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).Order(StringComparer.Ordinal));
+            Assert.Equal(
+                new[] { "legacy-customer.customers.read", "legacy-employee.employees.read" },
+                new[] { Assert.IsType<string>(auth[prefix + "Permissions__0"]), Assert.IsType<string>(auth[prefix + "Permissions__1"]) }
+                    .Order(StringComparer.Ordinal));
+            foreach (var enrollment in auth.Where(entry =>
+                entry.Key.StartsWith("ServiceClients__Clients__", StringComparison.Ordinal)
+                && entry.Key.EndsWith("__SecretSha256", StringComparison.Ordinal)
+                && entry.Key != prefix + "SecretSha256"))
+            {
+                Assert.NotEqual(hash, Assert.IsType<string>(enrollment.Value));
+            }
+
+            foreach (var resource in builder.Resources.Where(resource => resource.Name != "legacy-maliev-auth-service"))
+            {
+                var values = await EnvironmentFor(builder, resource.Name);
+                Assert.DoesNotContain(values.Values.OfType<string>(), value => value.Contains(secret, StringComparison.Ordinal));
+                Assert.DoesNotContain(values.Values.OfType<ReferenceExpression>(), value =>
+                    value.ValueExpression.Contains(secret, StringComparison.Ordinal));
+            }
+            // Dispose the built application and owned fixture before composing the next graph.
+            // No application.Start/Run, network, token issuance or provider operation.
+        }
+    }
+
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public async Task AuthProfileBindingUsesRealHttpsEndpointsWithoutProfileWaitCycles(string environmentName)
+    {
+        using var fixture = new GraphFixture();
+        var builder = fixture.Compose(environmentName: environmentName);
+        using var application = builder.Build();
+        var auth = Assert.Single(builder.Resources, resource => resource.Name == "legacy-maliev-auth-service");
+        var customer = Assert.Single(builder.Resources, resource => resource.Name == "legacy-maliev-customer-service");
+        var employee = Assert.Single(builder.Resources, resource => resource.Name == "legacy-maliev-employee-service");
+        var values = await EnvironmentFor(builder, auth.Name);
+
+        foreach (var (key, target) in new[]
+        {
+            ("Services__Auth__BaseUrl", auth),
+            ("Services__CustomerService__BaseUrl", customer),
+            ("Services__EmployeeService__BaseUrl", employee),
+        })
+        {
+            var reference = Assert.IsType<EndpointReference>(values[key]);
+            Assert.Same(target, reference.Resource);
+            Assert.Equal("https", reference.EndpointName);
+            var https = Assert.Single(target.Annotations.OfType<EndpointAnnotation>(), endpoint => endpoint.Name == "https");
+            Assert.Equal("https", https.UriScheme);
+            var http = Assert.Single(target.Annotations.OfType<EndpointAnnotation>(), endpoint => endpoint.Name == "http");
+            Assert.Equal("http", http.UriScheme);
+        }
+
+        Assert.DoesNotContain(auth.Annotations.OfType<WaitAnnotation>(), wait =>
+            ReferenceEquals(wait.Resource, customer) || ReferenceEquals(wait.Resource, employee));
+        Assert.False(auth.Annotations.OfType<WaitAnnotation>().Any(wait => ReachesAuth(wait.Resource, [])));
+
+        bool ReachesAuth(IResource resource, HashSet<IResource> visited)
+        {
+            return ReferenceEquals(resource, auth)
+                || (visited.Add(resource) && resource.Annotations.OfType<WaitAnnotation>()
+                    .Any(wait => ReachesAuth(wait.Resource, visited)));
+        }
+        // Endpoint/Wait annotations are inspected without allocating ports or starting resources.
     }
 
     [Fact]
