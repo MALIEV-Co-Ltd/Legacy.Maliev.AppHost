@@ -99,6 +99,14 @@ public sealed partial class WorkflowContractTests
         Assert.DoesNotMatch(DuplicatedDotnetValidationRegex(), source);
         Assert.DoesNotContain("GITHUB_ACTIONS=false dotnet", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotMatch(UnpinnedActionRegex(), source);
+
+        using var sdkPolicy = System.Text.Json.JsonDocument.Parse(
+            File.ReadAllText(Path.Combine(FindRepositoryRoot(), "global.json")));
+        var sdk = sdkPolicy.RootElement.GetProperty("sdk");
+        Assert.Equal("10.0.401", sdk.GetProperty("version").GetString());
+        Assert.Equal("disable", sdk.GetProperty("rollForward").GetString());
+        Assert.False(sdk.GetProperty("allowPrerelease").GetBoolean());
+        Assert.Equal(2, Regex.Matches(source, @"dotnet-version: 10\.0\.401").Count);
     }
 
     [Fact]
