@@ -343,14 +343,18 @@ public sealed class LegacyInstallerArtifactTests
             Microsoft.PowerShell.Management\New-Item -Path $Path -ItemType $ItemType
         }
         function kubectl {
-            $arguments = @($args)
+            $arguments = @($args | ForEach-Object { [string]$_ })
             $piped = @($input)
             $info = [Diagnostics.ProcessStartInfo]::new($script:native)
             $info.UseShellExecute = $false
             $info.RedirectStandardInput = $true
             $info.RedirectStandardOutput = $true
             $info.RedirectStandardError = $true
-            foreach ($value in @('-NoProfile', '-NonInteractive', '-File', $script:recorder) + $arguments) { $info.ArgumentList.Add([string]$value) }
+            # -File reparses leading-dash argv at colons; do not send native argv through that binder.
+            $argumentJson = ConvertTo-Json -InputObject ([string[]]$arguments) -Compress
+            if ($arguments.Count -lt 1 -or $arguments.Count -gt 32 -or $argumentJson.Length -gt 16384) { throw 'Recorder argv exceeded bound.' }
+            $info.Environment['REVIEW_ARGV_JSON'] = $argumentJson
+            foreach ($value in @('-NoProfile', '-NonInteractive', '-File', $script:recorder)) { $info.ArgumentList.Add([string]$value) }
             $child = [Diagnostics.Process]::new()
             $child.StartInfo = $info
             $started = $false
@@ -382,7 +386,17 @@ public sealed class LegacyInstallerArtifactTests
 
     private const string Recorder = """
         $ErrorActionPreference = 'Stop'
-        $values = @($args | ForEach-Object { [string]$_ })
+        $argumentJson = $env:REVIEW_ARGV_JSON
+        if ([string]::IsNullOrEmpty($argumentJson) -or $argumentJson.Length -gt 16384) { throw 'Recorder argv is missing or oversized.' }
+        $document = [Text.Json.JsonDocument]::Parse($argumentJson)
+        try {
+            $array = $document.RootElement
+            if ($array.ValueKind -ne [Text.Json.JsonValueKind]::Array -or $array.GetArrayLength() -lt 1 -or $array.GetArrayLength() -gt 32) { throw 'Recorder argv requires a bounded array.' }
+            $values = @(foreach ($item in $array.EnumerateArray()) {
+                if ($item.ValueKind -ne [Text.Json.JsonValueKind]::String -or $item.GetString().Length -gt 4096) { throw 'Recorder argv requires bounded strings.' }
+                $item.GetString()
+            })
+        } finally { $document.Dispose() }
         $root = $env:REVIEW_ROOT
         $exit = [int]$env:REVIEW_EXIT
         $line = @{ arguments = $values; exit = $exit } | ConvertTo-Json -Compress -Depth 4
