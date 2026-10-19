@@ -311,6 +311,129 @@ public static class LegacyEdgeReviewPackage
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }
 
+    /// <summary>Returns inert source-control-flow text; this method never runs any command.</summary>
+    /// <returns>Three fixed text artifacts requiring independent review, never executable export names.</returns>
+    public static IReadOnlyDictionary<string, string> RenderInstallerReviewArtifacts() =>
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["deploy-certmanager.ps1.txt"] = """
+                # INERT REVIEW TEXT ONLY. Export does not authorize execution, installation, or deployment.
+                $certmanager_version = 'v1.18.2'
+                # see https://github.com/cert-manager/cert-manager/releases for available releases
+
+                ######################
+                # Installation
+                ######################
+
+                if (-not (Test-Path -Path ".backup")) {
+                    Write-Host "'.backup' folder not found. Creating it..."
+                    New-Item -Path ".backup" -ItemType Directory | Out-Null
+                }
+
+                Write-Host "Backing up existing certificates and cluster issuers..."
+                kubectl get certificates -A -o yaml > .backup/certificates-backup-$(Get-Date -Format 'yyyyMMdd-HHmmss').yaml 2>$null
+                kubectl get clusterissuers -o yaml > .backup/clusterissuers-backup-$(Get-Date -Format 'yyyyMMdd-HHmmss').yaml 2>$null
+
+                Write-Host "Creating cert-manager namespace..."
+                kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -
+
+                Write-Host "Disabling resource validation on cert-manager namespace..."
+                kubectl label namespace cert-manager cert-manager.io/disable-validation=true --overwrite
+
+                # if encounter 'permission denied' error, uncomment this line
+                # kubectl create clusterrolebinding cluster-admin-binding --clusterrole=cluster-admin --user=$(gcloud config get-value core/account)
+
+                Write-Host "Checking for existing cert-manager installation..."
+                $existingCRDs = kubectl get crd | Select-String "cert-manager.io"
+                if ($existingCRDs) {
+                    Write-Host "Found existing cert-manager CRDs. Performing complete cleanup for upgrade..."
+
+                    # Uninstall everything including CRDs to ensure clean upgrade
+                    Write-Host "Removing all cert-manager resources..."
+                    kubectl delete namespace cert-manager --ignore-not-found=true
+
+                    Write-Host "Removing cert-manager CRDs with timeout..."
+                    kubectl delete crd certificaterequests.cert-manager.io --ignore-not-found=true --timeout=30s
+                    kubectl delete crd certificates.cert-manager.io --ignore-not-found=true --timeout=30s
+                    kubectl delete crd challenges.acme.cert-manager.io --ignore-not-found=true --timeout=30s
+                    kubectl delete crd clusterissuers.cert-manager.io --ignore-not-found=true --timeout=30s
+                    kubectl delete crd issuers.cert-manager.io --ignore-not-found=true --timeout=30s
+                    kubectl delete crd orders.acme.cert-manager.io --ignore-not-found=true --timeout=30s
+
+                    Write-Host "Force cleaning any remaining CRDs..."
+                    kubectl patch crd certificaterequests.cert-manager.io -p '{\"metadata\":{\"finalizers\":[]}}' --type=merge 2>$null
+                    kubectl patch crd certificates.cert-manager.io -p '{\"metadata\":{\"finalizers\":[]}}' --type=merge 2>$null
+                    kubectl patch crd challenges.acme.cert-manager.io -p '{\"metadata\":{\"finalizers\":[]}}' --type=merge 2>$null
+                    kubectl patch crd clusterissuers.cert-manager.io -p '{\"metadata\":{\"finalizers\":[]}}' --type=merge 2>$null
+                    kubectl patch crd issuers.cert-manager.io -p '{\"metadata\":{\"finalizers\":[]}}' --type=merge 2>$null
+                    kubectl patch crd orders.acme.cert-manager.io -p '{\"metadata\":{\"finalizers\":[]}}' --type=merge 2>$null
+
+                    Write-Host "Final cleanup with force delete..."
+                    kubectl delete crd certificaterequests.cert-manager.io --force --grace-period=0 2>$null
+                    kubectl delete crd certificates.cert-manager.io --force --grace-period=0 2>$null
+                    kubectl delete crd challenges.acme.cert-manager.io --force --grace-period=0 2>$null
+                    kubectl delete crd clusterissuers.cert-manager.io --force --grace-period=0 2>$null
+                    kubectl delete crd issuers.cert-manager.io --force --grace-period=0 2>$null
+                    kubectl delete crd orders.acme.cert-manager.io --force --grace-period=0 2>$null
+
+                    Write-Host "Waiting for cleanup to complete..."
+                    Start-Sleep -Seconds 5
+                }
+
+                Write-Host "Installing cert-manager $certmanager_version..."
+                kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/$certmanager_version/cert-manager.yaml
+
+                Write-Host "Configuring feature gates for compatibility..."
+                # Disable ACME HTTP01 strict path validation if using ingress-nginx >= 1.8.0
+                kubectl patch deployment cert-manager -n cert-manager --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--feature-gates=ACMEHTTP01IngressPathTypeExact=false"}]' --dry-run=client
+
+                Write-Host "Waiting for cert-manager pods to be ready..."
+                kubectl wait --namespace cert-manager --for=condition=Ready pods --selector=app.kubernetes.io/instance=cert-manager --timeout=180s
+
+                ######################
+                # Verify installation
+                ######################
+
+                Write-Host "Listing cert-manager pods..."
+                kubectl get pods --namespace cert-manager
+
+                Write-Host "Creating test resources..."
+                kubectl apply -f .\test-resources.yaml
+
+                Write-Host "Waiting for test certificate to be ready..."
+                kubectl wait certificate/selfsigned-cert --namespace cert-manager-test --for=condition=Ready --timeout=120s
+
+                Write-Host "Describing test certificate..."
+                kubectl describe certificate selfsigned-cert -n cert-manager-test
+
+                Write-Host "Cleaning up test resources..."
+                kubectl delete -f .\test-resources.yaml
+
+                Write-Host "All done."
+                pause
+                """ + "\n",
+            ["deploy-clusterissuers.ps1.txt"] = """
+                # INERT REVIEW TEXT ONLY. Export does not authorize execution, installation, or deployment.
+                # Create cluster issuers
+                kubectl apply -f .\prod-clusterissuers.yaml
+
+                # Describe cluster issuers
+                kubectl describe clusterissuer
+
+                # List all cluster issuers
+                kubectl get clusterissuer
+
+                pause
+                """ + "\n",
+            ["deploy-certificate-prod.ps1.txt"] = """
+                # INERT REVIEW TEXT ONLY. Export does not authorize execution, installation, or deployment.
+                # #### Create certificates ####
+                kubectl apply -f certificates-prod.yaml
+
+                pause
+                """ + "\n"
+        };
+
     private static object InstallerReview() => new
     {
         sourceCommit = "dc03cc8e425f43b67fc04b40af4e18e0aeebf3d1",

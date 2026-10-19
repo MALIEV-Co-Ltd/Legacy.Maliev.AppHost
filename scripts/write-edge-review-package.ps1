@@ -5,7 +5,8 @@ param(
     [Parameter(Mandatory)] [string]$OutputPath,
     [ValidateSet(1, 2, 3, 4)] [int]$SchemaVersion = 1,
     [Parameter(Mandatory)] [ValidatePattern('\A[A-Fa-f0-9]{64}\z')] [string]$ReviewedAssemblySha256,
-    [string]$ReleaseObservationPath
+    [string]$ReleaseObservationPath,
+    [string]$ExportDirectory
 )
 
 $ErrorActionPreference = 'Stop'
@@ -104,6 +105,29 @@ try {
 } finally {
     $document.Dispose()
 }
+
+# Opt-in creates text files only; no script block, child process, apply or execute operation exists here.
+# The explicit directory must already exist. CreateNew prevents replacement, not multi-file atomicity.
+$exports = @()
+if ($PSBoundParameters.ContainsKey('ExportDirectory')) {
+    if ($SchemaVersion -lt 3 -or [string]::IsNullOrWhiteSpace($ExportDirectory)) {
+        throw 'Installer text export requires schema three or four and an explicit existing directory.'
+    }
+    $exportRoot = [IO.Path]::GetFullPath($ExportDirectory)
+    if (-not [IO.Directory]::Exists($exportRoot)) { throw 'The explicit export directory must already exist.' }
+    $artifacts = [Legacy.Maliev.AppHost.Topology.LegacyEdgeReviewPackage]::RenderInstallerReviewArtifacts()
+    $names = @('deploy-certmanager.ps1.txt', 'deploy-clusterissuers.ps1.txt', 'deploy-certificate-prod.ps1.txt')
+    if ($artifacts.Count -ne $names.Count) { throw 'Compiled installer text artifact roster changed.' }
+    foreach ($name in $names) {
+        if (-not $artifacts.ContainsKey($name)) { throw 'Compiled installer text artifact name changed.' }
+        $path = [IO.Path]::Combine($exportRoot, $name)
+        if ([IO.File]::Exists($path) -or [IO.Directory]::Exists($path) -or
+            [string]::Equals($path, [IO.Path]::GetFullPath($OutputPath), [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'An installer text destination already exists or aliases the JSON output.'
+        }
+        $exports += [PSCustomObject]@{ Path = $path; Text = $artifacts[$name] }
+    }
+}
 $destination = [IO.Path]::GetFullPath($OutputPath)
 $bytes = [Text.UTF8Encoding]::new($false).GetBytes($package)
 $stream = [IO.FileStream]::new($destination, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
@@ -114,3 +138,14 @@ try {
     $stream.Dispose()
 }
 Write-Output "Offline edge review package written: $destination"
+foreach ($export in $exports) {
+    $exportBytes = [Text.UTF8Encoding]::new($false).GetBytes($export.Text)
+    $exportStream = [IO.FileStream]::new($export.Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try {
+        $exportStream.Write($exportBytes, 0, $exportBytes.Length)
+        $exportStream.Flush($true)
+    } finally {
+        $exportStream.Dispose()
+    }
+    Write-Output "Inert installer review text written: $($export.Path)"
+}
