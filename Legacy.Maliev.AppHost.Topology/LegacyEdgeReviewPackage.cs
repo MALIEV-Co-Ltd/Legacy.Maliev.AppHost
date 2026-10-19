@@ -27,7 +27,9 @@ public static class LegacyEdgeReviewPackage
         ("/country", "country"), ("/documents", "document"), ("/customer", "customer"),
         ("/order", "order"), ("/quotation", "quotation"), ("/employee", "employee"),
         ("/catalog", "catalog"), ("/procurement", "procurement"), ("/file", "file"),
-        ("/Jobs", "career"), ("/accounting", "accounting")
+        ("/Jobs", "career"), ("/accounting", "accounting"),
+        // Authentication validation must not enter the ordinary CRM prefix routes.
+        ("/customers/v1/validate", "auth"), ("/Employees/v1/validate", "auth")
     ];
 
     /// <summary>Reviews supplied legacy child outcomes without executing any deployment or directory operation.</summary>
@@ -735,7 +737,7 @@ public static class LegacyEdgeReviewPackage
                             .Select(route => new
                             {
                                 path = route.Item1,
-                                pathType = "Prefix",
+                                pathType = route.Item1 is "/customers/v1/validate" or "/Employees/v1/validate" ? "Exact" : "Prefix",
                                 backend = new { service = new { name = "legacy-maliev-" + route.Item2 + (route.Item2 is "web" or "intranet-bff" ? "" : "-service"), port = new { number = route.Item2 is "auth" or "employee" or "quotation" or "intranet-bff" ? 80 : 8080 } } }
                             })
                     }
