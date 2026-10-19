@@ -222,7 +222,7 @@ public sealed class AppHostCompositionTests
 
         Assert.DoesNotContain(auth.Annotations.OfType<WaitAnnotation>(), wait =>
             ReferenceEquals(wait.Resource, customer) || ReferenceEquals(wait.Resource, employee));
-        Assert.False(auth.Annotations.OfType<WaitAnnotation>().Any(wait => ReachesAuth(wait.Resource, [])));
+        Assert.DoesNotContain(auth.Annotations.OfType<WaitAnnotation>(), wait => ReachesAuth(wait.Resource, []));
 
         bool ReachesAuth(IResource resource, HashSet<IResource> visited)
         {
