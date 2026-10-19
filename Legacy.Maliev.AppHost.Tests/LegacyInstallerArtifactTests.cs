@@ -15,7 +15,8 @@ public sealed class LegacyInstallerArtifactTests
             var output = Path.Combine(directory, "review.json");
             Assert.Equal(0, (await Writer(output, null, 1)).ExitCode);
             Assert.Equal(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-reviewed-ip"), await File.ReadAllTextAsync(output));
-            Assert.Equal(["review.json"], Directory.GetFiles(directory).Select(Path.GetFileName).ToArray());
+            Assert.Equal(["review.json"], Directory.GetFiles(directory)
+                .Select(path => Path.GetFileName(path) ?? throw new InvalidOperationException("Scratch entry requires a file name.")).ToArray());
             var retained = Path.Combine(directory, "deploy-certificate-prod.ps1.txt");
             await File.WriteAllTextAsync(retained, "retained");
             var second = Path.Combine(directory, "second.json");
