@@ -100,7 +100,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.ServiceDefaults
-          ref: 7edcd961024868513fd5f373cab3dcb261197f77
+          ref: 628a99803f92e17da4dd587e40638d3828b3c59c
           path: Legacy.Maliev.ServiceDefaults
           persist-credentials: false
       - name: Check out compatibility contracts
@@ -376,7 +376,7 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         repository: MALIEV-Co-Ltd/Legacy.Maliev.ServiceDefaults
-        ref: 7edcd961024868513fd5f373cab3dcb261197f77
+        ref: 628a99803f92e17da4dd587e40638d3828b3c59c
         path: Legacy.Maliev.ServiceDefaults
         persist-credentials: false
     - name: Check out compatibility contracts
