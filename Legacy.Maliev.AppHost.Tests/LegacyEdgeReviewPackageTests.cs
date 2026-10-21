@@ -168,12 +168,12 @@ public sealed class LegacyEdgeReviewPackageTests
         var root = package.RootElement;
         var routes = AllApiPaths(root);
         Assert.Equal(schemaVersion, root.GetProperty("schemaVersion").GetInt32());
-        Assert.Equal(37, routes.Length);
-        Assert.Equal(37, routes.Select(route => route.GetProperty("path").GetString()).Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(35, routes.Count(route => route.GetProperty("pathType").GetString() == "Prefix"));
+        Assert.Equal(39, routes.Length);
+        Assert.Equal(39, routes.Select(route => route.GetProperty("path").GetString()).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(37, routes.Count(route => route.GetProperty("pathType").GetString() == "Prefix"));
         Assert.Equal(31, ApiPaths(root).Length);
         var credentialNamespaces = routes.Where(IsCredentialNamespace).ToArray();
-        Assert.Equal(new[] { "/customers/v1", "/customers/V1", "/employees/v1", "/employees/V1" },
+        Assert.Equal(new[] { "/customers/v1", "/customers/V1", "/employees/v1", "/employees/V1", "/Employees/v1", "/Employees/V1" },
             credentialNamespaces.Select(route => route.GetProperty("path").GetString()));
         foreach (var route in credentialNamespaces)
         {
@@ -202,10 +202,10 @@ public sealed class LegacyEdgeReviewPackageTests
             ("/customers/v1/Validate", "/customers/v1", "auth", 80),
             ("/Customers/v1/validate", null, null, 0),
             ("/employees/v1/validate", "/employees/v1", "auth", 80),
-            ("/Employees/v1/validate/child", null, null, 0),
-            ("/Employees/v1/validate/", null, null, 0),
-            ("/Employees/v1/validatex", null, null, 0),
-            ("/Employees/v1/Validate", null, null, 0),
+            ("/Employees/v1/validate/child", "/Employees/v1", "auth", 80),
+            ("/Employees/v1/validate/", "/Employees/v1", "auth", 80),
+            ("/Employees/v1/validatex", "/Employees/v1", "auth", 80),
+            ("/Employees/v1/Validate", "/Employees/v1", "auth", 80),
             ("/customers/42", "/customers", "customer", 8080),
             ("/employees/42", "/employees", "employee", 80),
             ("/customer/v1/customers", "/customer", "customer", 8080),
@@ -222,6 +222,15 @@ public sealed class LegacyEdgeReviewPackageTests
             ("/customers2/v1/validate", null, null, 0),
             ("/customers//v1/validate", "/customers", "customer", 8080),
             ("/employees//v1/validate", "/employees", "employee", 80),
+            ("/Employees/V1/VALIDATE/", "/Employees/V1", "auth", 80),
+            ("/Employees/v1", "/Employees/v1", "auth", 80),
+            ("/Employees/V1/", "/Employees/V1", "auth", 80),
+            ("/Employees/v1x/validate", null, null, 0),
+            ("/Employees/V1x/validate", null, null, 0),
+            ("/Employees/v10/validate", null, null, 0),
+            ("/Employees2/v1/validate", null, null, 0),
+            ("/Employees/42", null, null, 0),
+            ("/Employees//v1/validate", null, null, 0),
         ];
         foreach (var expected in cases)
         {
@@ -268,7 +277,7 @@ public sealed class LegacyEdgeReviewPackageTests
             Assert.Equal(new[] { "path", "pathType", "backend" },
                 route.EnumerateObject().Select(property => property.Name));
         }
-        foreach (var prefix in new[] { "/customers/v1", "/customers/V1", "/employees/v1", "/employees/V1" })
+        foreach (var prefix in new[] { "/customers/v1", "/customers/V1", "/employees/v1", "/employees/V1", "/Employees/v1", "/Employees/V1" })
         {
             for (var mask = 0; mask < 256; mask++)
             {
@@ -284,8 +293,8 @@ public sealed class LegacyEdgeReviewPackageTests
                         .OrderByDescending(route => route.GetProperty("path").GetString()!.Length)
                         .ThenByDescending(route => route.GetProperty("pathType").GetString() == "Exact").ToArray();
                     Assert.NotEmpty(matches);
-                    var expected = prefix == "/customers/v1" && suffix == "validate" && trailing.Length == 0
-                        ? "/customers/v1/validate" : prefix;
+                    var expected = (prefix is "/customers/v1" or "/Employees/v1") && suffix == "validate" && trailing.Length == 0
+                        ? prefix + "/validate" : prefix;
                     Assert.Equal(expected, matches[0].GetProperty("path").GetString());
                     Assert.Equal("legacy-maliev-auth-service",
                         matches[0].GetProperty("backend").GetProperty("service").GetProperty("name").GetString());
@@ -1123,12 +1132,12 @@ public sealed class LegacyEdgeReviewPackageTests
         Assert.Equal(port, backend.GetProperty("port").GetProperty("number").GetInt32());
     }
 
-    // Keep all 31 ordinary CRM prefixes separate from the two exact Auth aliases and four exclusive namespaces.
+    // Keep all 31 ordinary CRM prefixes separate from the two exact Auth aliases and six exclusive namespaces.
     private static JsonElement[] ApiPaths(JsonElement root) =>
         AllApiPaths(root).Where(path => path.GetProperty("pathType").GetString() == "Prefix" && !IsCredentialNamespace(path)).ToArray();
 
     private static bool IsCredentialNamespace(JsonElement path) => path.GetProperty("path").GetString()
-        is "/customers/v1" or "/customers/V1" or "/employees/v1" or "/employees/V1";
+        is "/customers/v1" or "/customers/V1" or "/employees/v1" or "/employees/V1" or "/Employees/v1" or "/Employees/V1";
 
     private static JsonElement[] AllApiPaths(JsonElement root) =>
         Assert.Single(Single(root.GetProperty("objects").EnumerateArray().ToArray(), "Ingress")
