@@ -50,18 +50,18 @@ public sealed partial class WorkflowContractTests
         Assert.Contains("ref: 36bb52747cec7854db2349f8a63d771c9479b2af", source, StringComparison.Ordinal);
         Assert.Contains("path: Legacy.Maliev.DocumentService", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.AuthService", source, StringComparison.Ordinal);
-        const string qualifiedAuthCommit = "501f05a65f310fcec46fcb31901ec420920aa502";
-        Assert.Contains($"ref: {qualifiedAuthCommit}", source, StringComparison.Ordinal);
+        const string qualifiedProducerCommit = "501f05a65f310fcec46fcb31901ec420920aa502";
+        Assert.Contains($"ref: {qualifiedProducerCommit}", source, StringComparison.Ordinal);
         var authCheckouts = Regex.Matches(source,
             @"repository: MALIEV-Co-Ltd/Legacy\.Maliev\.AuthService\r?\n\s+ref: (?<sha>[0-9a-f]{40})\r?\n\s+path: Legacy\.Maliev\.AuthService");
         Assert.Equal(2, authCheckouts.Count);
         Assert.All(authCheckouts.Cast<Match>(), match =>
-            Assert.Equal(qualifiedAuthCommit, match.Groups["sha"].Value));
+            Assert.Equal(qualifiedProducerCommit, match.Groups["sha"].Value));
         using var dependencyPins = System.Text.Json.JsonDocument.Parse(
             File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "coverage", "platform-dependency-pins.json")));
         var authPin = Assert.Single(dependencyPins.RootElement.EnumerateArray().Where(pin =>
             pin.GetProperty("repository").GetString() == "Legacy.Maliev.AuthService"));
-        Assert.Equal(qualifiedAuthCommit, authPin.GetProperty("commit").GetString());
+        Assert.Equal(qualifiedProducerCommit, authPin.GetProperty("commit").GetString());
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.CustomerService", source, StringComparison.Ordinal);
         Assert.Contains("ref: cd265781de9fe4dac67571c3f2ddde5456a49cc0", source, StringComparison.Ordinal);
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.NotificationService", source, StringComparison.Ordinal);
