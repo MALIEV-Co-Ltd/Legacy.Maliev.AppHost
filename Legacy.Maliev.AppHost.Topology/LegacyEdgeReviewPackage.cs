@@ -28,8 +28,11 @@ public static class LegacyEdgeReviewPackage
         ("/order", "order"), ("/quotation", "quotation"), ("/employee", "employee"),
         ("/catalog", "catalog"), ("/procurement", "procurement"), ("/file", "file"),
         ("/Jobs", "career"), ("/accounting", "accounting"),
-        // Authentication validation must not enter the ordinary CRM prefix routes.
-        ("/customers/v1/validate", "auth"), ("/Employees/v1/validate", "auth")
+        // Retain exact aliases and forward the source-exclusive v1 namespaces so action case/trailing forms reach Auth.
+        ("/customers/v1/validate", "auth"), ("/Employees/v1/validate", "auth"),
+        ("/customers/v1", "auth"), ("/customers/V1", "auth"),
+        ("/employees/v1", "auth"), ("/employees/V1", "auth"),
+        ("/Employees/v1", "auth"), ("/Employees/V1", "auth")
     ];
 
     /// <summary>Reviews supplied legacy child outcomes without executing any deployment or directory operation.</summary>
