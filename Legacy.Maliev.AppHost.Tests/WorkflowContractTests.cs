@@ -59,8 +59,8 @@ public sealed partial class WorkflowContractTests
             Assert.Equal(qualifiedProducerCommit, match.Groups["sha"].Value));
         using var dependencyPins = System.Text.Json.JsonDocument.Parse(
             File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "coverage", "platform-dependency-pins.json")));
-        var authPin = Assert.Single(dependencyPins.RootElement.EnumerateArray().Where(pin =>
-            pin.GetProperty("repository").GetString() == "Legacy.Maliev.AuthService"));
+        var authPin = Assert.Single(dependencyPins.RootElement.EnumerateArray(),
+            pin => pin.GetProperty("repository").GetString() == "Legacy.Maliev.AuthService");
         Assert.Equal(qualifiedProducerCommit, authPin.GetProperty("commit").GetString());
         Assert.Contains("repository: MALIEV-Co-Ltd/Legacy.Maliev.CustomerService", source, StringComparison.Ordinal);
         Assert.Contains("ref: cd265781de9fe4dac67571c3f2ddde5456a49cc0", source, StringComparison.Ordinal);
