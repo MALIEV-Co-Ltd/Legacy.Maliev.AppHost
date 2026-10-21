@@ -13,7 +13,7 @@ concurrency:
 jobs:
   ubuntu-validation:
     name: Ubuntu validation
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       VSTestCollect: Code Coverage
@@ -295,6 +295,7 @@ jobs:
           path: |
             runner-results/platform-ubuntu/
             runner-results/**/*.trx
+            runner-results/**/*.cobertura.xml
           include-hidden-files: true
           retention-days: 7
 

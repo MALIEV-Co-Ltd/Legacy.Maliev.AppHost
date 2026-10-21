@@ -107,6 +107,8 @@ public sealed partial class WorkflowContractTests
         Assert.Equal("disable", sdk.GetProperty("rollForward").GetString());
         Assert.False(sdk.GetProperty("allowPrerelease").GetBoolean());
         Assert.Equal(2, Regex.Matches(source, @"dotnet-version: 10\.0\.401").Count);
+        Assert.Contains("    name: Ubuntu validation\n    runs-on: ubuntu-24.04", source.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
+        Assert.Contains("            runner-results/**/*.cobertura.xml", source, StringComparison.Ordinal);
     }
 
     [Fact]
