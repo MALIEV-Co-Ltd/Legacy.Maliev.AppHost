@@ -65,7 +65,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: MALIEV-Co-Ltd/Legacy.Maliev.AuthService
-          ref: 15e64445af22bbb1ee065f6ad6cf2fc3a6da5f38
+          ref: 501f05a65f310fcec46fcb31901ec420920aa502
           path: Legacy.Maliev.AuthService
           persist-credentials: false
       - name: Check out Customer service
@@ -342,7 +342,7 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         repository: MALIEV-Co-Ltd/Legacy.Maliev.AuthService
-        ref: 15e64445af22bbb1ee065f6ad6cf2fc3a6da5f38
+        ref: 501f05a65f310fcec46fcb31901ec420920aa502
         path: Legacy.Maliev.AuthService
         persist-credentials: false
     - name: Check out Customer service
