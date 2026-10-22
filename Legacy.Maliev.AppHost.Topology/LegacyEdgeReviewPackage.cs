@@ -264,10 +264,12 @@ public static class LegacyEdgeReviewPackage
         var objects = root["objects"]!.AsArray();
         objects.Add(JsonSerializer.SerializeToNode(new
         {
-            apiVersion = "v1", kind = "Service",
+            apiVersion = "v1",
+            kind = "Service",
             metadata = new
             {
-                name = "legacy-maliev-web", @namespace = Namespace,
+                name = "legacy-maliev-web",
+                @namespace = Namespace,
                 annotations = new Dictionary<string, string>
                 {
                     ["cloud.google.com/backend-config"] = "{\"ports\":{\"8080\":\"legacy-maliev-web-backend\"}}"
@@ -277,12 +279,14 @@ public static class LegacyEdgeReviewPackage
             {
                 ports = new[] { new { port = 8080, protocol = "TCP", targetPort = 8080, name = "http" } },
                 selector = new { run = "maliev-web" },
-                sessionAffinity = "None", type = "NodePort"
+                sessionAffinity = "None",
+                type = "NodePort"
             }
         }));
         objects.Add(JsonSerializer.SerializeToNode(new
         {
-            apiVersion = "cloud.google.com/v1", kind = "BackendConfig",
+            apiVersion = "cloud.google.com/v1",
+            kind = "BackendConfig",
             metadata = new { name = "legacy-maliev-web-backend", @namespace = Namespace },
             spec = new { timeoutSec = 120 }
         }));
@@ -307,7 +311,8 @@ public static class LegacyEdgeReviewPackage
             targetImage = (string?)null,
             deploymentPortFragment = new
             {
-                fragmentOnly = true, validFullDeployment = false,
+                fragmentOnly = true,
+                validFullDeployment = false,
                 sourcePath = "Maliev.Web/deployment.yaml",
                 sourceBlob = "bc840ee931dcd45d4b9a1788f27963962c8ad453",
                 sourceNamespace = "maliev",
