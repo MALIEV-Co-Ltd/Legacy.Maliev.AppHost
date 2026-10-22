@@ -1120,9 +1120,9 @@ public sealed class LegacyEdgeReviewPackageTests
         Assert.Single(labels.EnumerateObject());
         Assert.Equal("maliev-web", labels.GetProperty("run").GetString());
         var template = deployment.GetProperty("template");
-        Assert.Equal(labels.GetRawText(), template.GetProperty("metadata").GetProperty("labels").GetRawText());
+        Assert.True(JsonElement.DeepEquals(labels, template.GetProperty("metadata").GetProperty("labels")));
         var service = Single(root.GetProperty("objects").EnumerateArray().ToArray(), "Service");
-        Assert.Equal(labels.GetRawText(), service.GetProperty("spec").GetProperty("selector").GetRawText());
+        Assert.True(JsonElement.DeepEquals(labels, service.GetProperty("spec").GetProperty("selector")));
         var container = Assert.Single(template.GetProperty("spec").GetProperty("containers").EnumerateArray());
         Assert.Equal("maliev-web", container.GetProperty("name").GetString());
         Assert.False(container.TryGetProperty("image", out _));
