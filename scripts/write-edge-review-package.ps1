@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory)] [string]$AcmeEmail,
     [Parameter(Mandatory)] [string]$ExistingStaticIpName,
     [Parameter(Mandatory)] [string]$OutputPath,
-    [ValidateSet(1, 2, 3, 4)] [int]$SchemaVersion = 1,
+    [ValidateSet(1, 2, 3, 4, 5)] [int]$SchemaVersion = 1,
     [Parameter(Mandatory)] [ValidatePattern('\A[A-Fa-f0-9]{64}\z')] [string]$ReviewedAssemblySha256,
     [string]$ReleaseObservationPath,
     [string]$ExportDirectory
@@ -91,6 +91,19 @@ try {
             throw 'Compiled renderer did not return an unexecuted, unverified installer plan.'
         }
     }
+    if ($SchemaVersion -eq 5) {
+        $backend = $root.GetProperty('webBackendReview')
+        if ($backend.GetProperty('semantics').GetString() -ne 'UnadoptedSourceWebBackendContract' -or
+            $backend.GetProperty('selectorOwnershipVerified').GetBoolean() -or
+            $backend.GetProperty('namespaceAdoptionVerified').GetBoolean() -or
+            $backend.GetProperty('runtimeAcceptanceProven').GetBoolean() -or
+            $backend.GetProperty('backendAdoptionVerified').GetBoolean() -or
+            $backend.GetProperty('targetImage').ValueKind -ne [Text.Json.JsonValueKind]::Null -or
+            -not $backend.GetProperty('deploymentPortFragment').GetProperty('fragmentOnly').GetBoolean() -or
+            $backend.GetProperty('deploymentPortFragment').GetProperty('validFullDeployment').GetBoolean()) {
+            throw 'Compiled renderer did not return an unadopted Web contract and incomplete Deployment fragment.'
+        }
+    }
     if ($SchemaVersion -eq 4) {
         $selector = $root.GetProperty('releaseSelectorReview')
         if ($selector.GetProperty('semantics').GetString() -ne 'SuppliedSourceControlFlowReview' -or
@@ -111,7 +124,7 @@ try {
 $exports = @()
 if ($PSBoundParameters.ContainsKey('ExportDirectory')) {
     if ($SchemaVersion -lt 3 -or [string]::IsNullOrWhiteSpace($ExportDirectory)) {
-        throw 'Installer text export requires schema three or four and an explicit existing directory.'
+        throw 'Installer text export requires schema three, four or five and an explicit existing directory.'
     }
     $exportRoot = [IO.Path]::GetFullPath($ExportDirectory)
     if (-not [IO.Directory]::Exists($exportRoot)) { throw 'The explicit export directory must already exist.' }

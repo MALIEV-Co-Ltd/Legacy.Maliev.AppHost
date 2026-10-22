@@ -253,13 +253,103 @@ public static class LegacyEdgeReviewPackage
         }
     }
 
+    /// <summary>Reviews the final source Web port and backend association without claiming workload adoption.</summary>
+    /// <param name="acmeEmail">The explicit ACME contact for the unchanged edge review.</param>
+    /// <param name="existingStaticIpName">The explicit existing static-IP name for the unchanged edge review.</param>
+    /// <returns>An inert schema-five contract with a deliberately incomplete Deployment fragment.</returns>
+    public static string RenderWebBackendReview(string acmeEmail, string existingStaticIpName)
+    {
+        var root = System.Text.Json.Nodes.JsonNode.Parse(Render(acmeEmail, existingStaticIpName, 3))!.AsObject();
+        root["schemaVersion"] = 5;
+        var objects = root["objects"]!.AsArray();
+        objects.Add(JsonSerializer.SerializeToNode(new
+        {
+            apiVersion = "v1",
+            kind = "Service",
+            metadata = new
+            {
+                name = "legacy-maliev-web",
+                @namespace = Namespace,
+                annotations = new Dictionary<string, string>
+                {
+                    ["cloud.google.com/backend-config"] = "{\"ports\":{\"8080\":\"legacy-maliev-web-backend\"}}"
+                }
+            },
+            spec = new
+            {
+                ports = new[] { new { port = 8080, protocol = "TCP", targetPort = 8080, name = "http" } },
+                selector = new { run = "maliev-web" },
+                sessionAffinity = "None",
+                type = "NodePort"
+            }
+        }));
+        objects.Add(JsonSerializer.SerializeToNode(new
+        {
+            apiVersion = "cloud.google.com/v1",
+            kind = "BackendConfig",
+            metadata = new { name = "legacy-maliev-web-backend", @namespace = Namespace },
+            spec = new { timeoutSec = 120 }
+        }));
+        root["webBackendReview"] = JsonSerializer.SerializeToNode(new
+        {
+            semantics = "UnadoptedSourceWebBackendContract",
+            sourceCommit = "f0b3422f23ff037c3f8f91f0338afcab2202e733",
+            sourceParent = "e27008a3f323a92dbf05076d93ac5c4f4d3f3e1e",
+            sourceFinal = "edf4e45d7ffce2f55b0d607ca82d51e81c330781",
+            sourceTestPath = "Maliev.Web.Tests/TechnicalSeoTests.cs",
+            sourceTestIntroducedBlob = "36a6926fded7d6143d1a9e272c51df888153a340",
+            sourceTestFinalBlob = "ed42caf9765a8b7ea19eb190b009532f9dca795d",
+            sourceServicePath = "Maliev.Web/service.yaml",
+            sourceServiceBlob = "603d98cc37b09355eb8219835187df84faf4aa77",
+            sourceBackendPath = "Maliev.Web/backendconfig.yaml",
+            sourceBackendFinalBlob = "5b17aa9410ff1cb82ce0a07a35c40be4948e0859",
+            finalHeaderOwner = "ApplicationSecurityHeaderPolicy",
+            selectorOwnershipVerified = false,
+            namespaceAdoptionVerified = false,
+            runtimeAcceptanceProven = false,
+            backendAdoptionVerified = false,
+            targetImage = (string?)null,
+            deploymentPortFragment = new
+            {
+                fragmentOnly = true,
+                validFullDeployment = false,
+                sourcePath = "Maliev.Web/deployment.yaml",
+                sourceBlob = "bc840ee931dcd45d4b9a1788f27963962c8ad453",
+                sourceNamespace = "maliev",
+                spec = new
+                {
+                    selector = new { matchLabels = new { run = "maliev-web" } },
+                    template = new
+                    {
+                        metadata = new { labels = new { run = "maliev-web" } },
+                        spec = new
+                        {
+                            containers = new[]
+                            {
+                                new { name = "maliev-web", ports = new[] { new { containerPort = 8080, protocol = "TCP" } } }
+                            }
+                        }
+                    }
+                }
+            },
+            unresolvedGates = new[]
+            {
+                "The source run label is provenance, not verified successor selector ownership",
+                "Target image, complete Deployment and namespace adoption require independent owner acceptance",
+                "AppHost #33 Aspire and deployment approval, live routing and backend adoption remain unproven"
+            }
+        });
+        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
     /// <summary>Opts into a resource-intent review without executing the retained source helper.</summary>
     /// <param name="acmeEmail">The explicitly supplied ACME contact.</param>
     /// <param name="existingStaticIpName">The explicitly supplied existing static-IP name.</param>
-    /// <param name="schemaVersion">One preserves the original report; two adds resource intent; three adds an unexecuted installer plan.</param>
+    /// <param name="schemaVersion">One preserves the original report; two adds resource intent; three adds an unexecuted installer plan; five adds the unadopted Web backend contract.</param>
     /// <returns>An inert review envelope, never a deployment or patch.</returns>
     public static string Render(string acmeEmail, string existingStaticIpName, int schemaVersion)
     {
+        if (schemaVersion == 5) { return RenderWebBackendReview(acmeEmail, existingStaticIpName); }
         if (schemaVersion == 3)
         {
             var versionThree = System.Text.Json.Nodes.JsonNode.Parse(Render(acmeEmail, existingStaticIpName, 2))!.AsObject();

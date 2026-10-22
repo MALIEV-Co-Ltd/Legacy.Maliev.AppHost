@@ -1045,6 +1045,178 @@ public sealed class LegacyEdgeReviewPackageTests
         Assert.Null(invalidUtf8.Output);
     }
 
+    [Fact]
+    public void Render_WebBackendReviewBindsThePublicPortToTheFinalSourceBackend()
+    {
+        using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", 5));
+        var root = package.RootElement;
+        var objects = root.GetProperty("objects").EnumerateArray().ToArray();
+        var service = Single(objects, "Service");
+        var backend = Single(objects, "BackendConfig");
+        Assert.Equal(10, objects.Length);
+        Assert.Equal("legacy-maliev-web", service.GetProperty("metadata").GetProperty("name").GetString());
+        Assert.Equal("maliev-legacy", service.GetProperty("metadata").GetProperty("namespace").GetString());
+        Assert.Equal("legacy-maliev-web-backend", backend.GetProperty("metadata").GetProperty("name").GetString());
+        Assert.Equal("maliev-legacy", backend.GetProperty("metadata").GetProperty("namespace").GetString());
+        var annotations = service.GetProperty("metadata").GetProperty("annotations");
+        Assert.Single(annotations.EnumerateObject());
+        using var association = JsonDocument.Parse(annotations.GetProperty("cloud.google.com/backend-config").GetString()!);
+        Assert.Single(association.RootElement.EnumerateObject());
+        var ports = association.RootElement.GetProperty("ports");
+        Assert.Single(ports.EnumerateObject());
+        Assert.Equal(backend.GetProperty("metadata").GetProperty("name").GetString(), ports.GetProperty("8080").GetString());
+        Assert.False(ports.TryGetProperty("default", out _));
+        var spec = service.GetProperty("spec");
+        var port = Assert.Single(spec.GetProperty("ports").EnumerateArray());
+        Assert.Equal(8080, port.GetProperty("port").GetInt32());
+        Assert.Equal(8080, port.GetProperty("targetPort").GetInt32());
+        Assert.Equal("TCP", port.GetProperty("protocol").GetString());
+        Assert.Equal("http", port.GetProperty("name").GetString());
+        Assert.Equal("NodePort", spec.GetProperty("type").GetString());
+        Assert.Equal("None", spec.GetProperty("sessionAffinity").GetString());
+        var backendSpec = backend.GetProperty("spec");
+        Assert.Single(backendSpec.EnumerateObject());
+        Assert.Equal(120, backendSpec.GetProperty("timeoutSec").GetInt32());
+        Assert.False(backendSpec.TryGetProperty("customResponseHeaders", out _));
+        foreach (var host in new[] { "www.maliev.com", "maliev.com" })
+        {
+            var rule = Assert.Single(Single(objects, "Ingress").GetProperty("spec").GetProperty("rules").EnumerateArray(),
+                item => item.GetProperty("host").GetString() == host);
+            var target = Assert.Single(rule.GetProperty("http").GetProperty("paths").EnumerateArray())
+                .GetProperty("backend").GetProperty("service");
+            Assert.Equal(service.GetProperty("metadata").GetProperty("name").GetString(), target.GetProperty("name").GetString());
+            Assert.Equal(port.GetProperty("port").GetInt32(), target.GetProperty("port").GetProperty("number").GetInt32());
+        }
+    }
+
+    [Fact]
+    public void Render_WebBackendReviewKeepsSourceSelectorsSeparateFromUnverifiedTargetOwnership()
+    {
+        using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.RenderWebBackendReview("owner@maliev.test", "existing-ip"));
+        var root = package.RootElement;
+        var review = root.GetProperty("webBackendReview");
+        Assert.Equal(5, root.GetProperty("schemaVersion").GetInt32());
+        Assert.True(root.GetProperty("reviewOnly").GetBoolean());
+        Assert.False(root.GetProperty("productionDeploymentAllowed").GetBoolean());
+        Assert.Equal(0, root.GetProperty("cutoverPercent").GetInt32());
+        Assert.False(root.TryGetProperty("kind", out _));
+        Assert.Equal("UnadoptedSourceWebBackendContract", review.GetProperty("semantics").GetString());
+        Assert.Equal("f0b3422f23ff037c3f8f91f0338afcab2202e733", review.GetProperty("sourceCommit").GetString());
+        Assert.Equal("e27008a3f323a92dbf05076d93ac5c4f4d3f3e1e", review.GetProperty("sourceParent").GetString());
+        Assert.Equal("edf4e45d7ffce2f55b0d607ca82d51e81c330781", review.GetProperty("sourceFinal").GetString());
+        Assert.Equal("ApplicationSecurityHeaderPolicy", review.GetProperty("finalHeaderOwner").GetString());
+        Assert.False(review.GetProperty("selectorOwnershipVerified").GetBoolean());
+        Assert.False(review.GetProperty("namespaceAdoptionVerified").GetBoolean());
+        Assert.False(review.GetProperty("runtimeAcceptanceProven").GetBoolean());
+        Assert.False(review.GetProperty("backendAdoptionVerified").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, review.GetProperty("targetImage").ValueKind);
+        var fragment = review.GetProperty("deploymentPortFragment");
+        Assert.True(fragment.GetProperty("fragmentOnly").GetBoolean());
+        Assert.False(fragment.GetProperty("validFullDeployment").GetBoolean());
+        Assert.Equal("Maliev.Web/deployment.yaml", fragment.GetProperty("sourcePath").GetString());
+        Assert.Equal("bc840ee931dcd45d4b9a1788f27963962c8ad453", fragment.GetProperty("sourceBlob").GetString());
+        var deployment = fragment.GetProperty("spec");
+        var labels = deployment.GetProperty("selector").GetProperty("matchLabels");
+        Assert.Single(labels.EnumerateObject());
+        Assert.Equal("maliev-web", labels.GetProperty("run").GetString());
+        var template = deployment.GetProperty("template");
+        Assert.True(JsonElement.DeepEquals(labels, template.GetProperty("metadata").GetProperty("labels")));
+        var service = Single(root.GetProperty("objects").EnumerateArray().ToArray(), "Service");
+        Assert.True(JsonElement.DeepEquals(labels, service.GetProperty("spec").GetProperty("selector")));
+        var container = Assert.Single(template.GetProperty("spec").GetProperty("containers").EnumerateArray());
+        Assert.Equal("maliev-web", container.GetProperty("name").GetString());
+        Assert.False(container.TryGetProperty("image", out _));
+        Assert.Equal(8080, Assert.Single(container.GetProperty("ports").EnumerateArray()).GetProperty("containerPort").GetInt32());
+        Assert.Contains(root.GetProperty("unresolvedGates").EnumerateArray(),
+            gate => gate.GetString()!.Contains("AppHost #33", StringComparison.Ordinal));
+        Assert.Contains(review.GetProperty("unresolvedGates").EnumerateArray(),
+            gate => gate.GetString()!.Contains("source run label is provenance", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Render_WebBackendOptInPreservesThePriorEnvelopeAndDoesNotActivateOlderSchemas()
+    {
+        using var package = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", 5));
+        var upgraded = System.Text.Json.Nodes.JsonNode.Parse(package.RootElement.GetRawText())!.AsObject();
+        var objects = upgraded["objects"]!.AsArray();
+        objects.RemoveAt(9);
+        objects.RemoveAt(8);
+        Assert.True(upgraded.Remove("webBackendReview"));
+        upgraded["schemaVersion"] = 3;
+        Assert.Equal(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", 3),
+            upgraded.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        foreach (var version in new[] { 1, 2, 3 })
+        {
+            using var prior = JsonDocument.Parse(LegacyEdgeReviewPackage.Render("owner@maliev.test", "existing-ip", version));
+            Assert.False(prior.RootElement.TryGetProperty("webBackendReview", out _));
+            Assert.DoesNotContain(prior.RootElement.GetProperty("objects").EnumerateArray(),
+                item => item.GetProperty("kind").GetString() is "Service" or "BackendConfig" or "Deployment");
+        }
+        using var selector = JsonDocument.Parse(LegacyEdgeReviewPackage.RenderReleaseSelectorReview(
+            "owner@maliev.test", "existing-ip", SelectorInput("web", "[]")));
+        Assert.False(selector.RootElement.TryGetProperty("webBackendReview", out _));
+        Assert.DoesNotContain(selector.RootElement.GetProperty("objects").EnumerateArray(),
+            item => item.GetProperty("kind").GetString() is "Service" or "BackendConfig" or "Deployment");
+    }
+
+    [Theory]
+    [InlineData("", "existing-ip")]
+    [InlineData("not-an-email", "existing-ip")]
+    [InlineData("owner@maliev.test", "../unreviewed")]
+    public void Render_WebBackendReviewRejectsInvalidOwnerInputs(string email, string staticIp) =>
+        Assert.Throws<ArgumentException>(() => LegacyEdgeReviewPackage.RenderWebBackendReview(email, staticIp));
+
+    [Fact]
+    public async Task WriteReviewScript_WebBackendOptInWritesOnlyAnExclusiveInertPackage()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "apphost-web-backend-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var result = await RunResourceReviewScript(path, "5");
+            Assert.Equal(0, result.ExitCode);
+            var original = await File.ReadAllTextAsync(path);
+            using var package = JsonDocument.Parse(original);
+            var root = package.RootElement;
+            Assert.Equal(5, root.GetProperty("schemaVersion").GetInt32());
+            Assert.True(root.GetProperty("reviewOnly").GetBoolean());
+            Assert.False(root.GetProperty("productionDeploymentAllowed").GetBoolean());
+            Assert.Equal(0, root.GetProperty("cutoverPercent").GetInt32());
+            Assert.Equal(10, root.GetProperty("objects").GetArrayLength());
+            Assert.False(root.GetProperty("webBackendReview").GetProperty("backendAdoptionVerified").GetBoolean());
+            var duplicate = await RunResourceReviewScript(path, "5");
+            Assert.NotEqual(0, duplicate.ExitCode);
+            Assert.Equal(original, await File.ReadAllTextAsync(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task WriteReviewScript_WebBackendReviewRejectsUnreviewedArtifactsAndUnrelatedObservations(
+        bool wrongHash, bool suppliedObservation)
+    {
+        var prefix = Path.Combine(Path.GetTempPath(), "apphost-web-backend-refusal-" + Guid.NewGuid().ToString("N"));
+        var path = prefix + ".json";
+        var observationPath = prefix + "-input.json";
+        try
+        {
+            if (suppliedObservation) { await File.WriteAllTextAsync(observationPath, "{}"); }
+            var result = await RunResourceReviewScript(path, "5", wrongHash,
+                suppliedObservation ? observationPath : null);
+            Assert.NotEqual(0, result.ExitCode);
+            Assert.False(File.Exists(path));
+        }
+        finally
+        {
+            File.Delete(path);
+            File.Delete(observationPath);
+        }
+    }
+
     private static string SelectorInput(string selector, string children) =>
         "{\"schemaVersion\":1,\"selector\":\"" + selector + "\",\"children\":" + children + "}";
 
