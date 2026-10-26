@@ -14,10 +14,10 @@
       service set so a newer service cannot fail the AppHost build with
       CS1705 when another legacy service still references an older patch.
     -->
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.13" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.13" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.14" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.14" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
-    <PackageReference Include="StackExchange.Redis" Version="3.4.5" />
+    <PackageReference Include="StackExchange.Redis" Version="3.4.20" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Legacy.Maliev.AppHost.Topology\Legacy.Maliev.AppHost.Topology.csproj" />
