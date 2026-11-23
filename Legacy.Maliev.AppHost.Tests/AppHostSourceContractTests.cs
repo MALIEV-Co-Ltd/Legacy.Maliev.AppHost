@@ -266,11 +266,11 @@ public sealed class AppHostSourceContractTests
             "Legacy.Maliev.AppHost.MigrationRunner.csproj"));
 
         Assert.Contains(
-            "<PackageReference Include=\"Microsoft.EntityFrameworkCore\" Version=\"10.0.14\" />",
+            "<PackageReference Include=\"Microsoft.EntityFrameworkCore\" Version=\"10.0.15\" />",
             project,
             StringComparison.Ordinal);
         Assert.Contains(
-            "<PackageReference Include=\"Microsoft.EntityFrameworkCore.Relational\" Version=\"10.0.14\" />",
+            "<PackageReference Include=\"Microsoft.EntityFrameworkCore.Relational\" Version=\"10.0.15\" />",
             project,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -278,7 +278,7 @@ public sealed class AppHostSourceContractTests
             project,
             StringComparison.Ordinal);
         Assert.Contains(
-            "<PackageReference Include=\"StackExchange.Redis\" Version=\"3.4.20\" />",
+            "<PackageReference Include=\"StackExchange.Redis\" Version=\"3.4.31\" />",
             project,
             StringComparison.Ordinal);
         Assert.Contains(

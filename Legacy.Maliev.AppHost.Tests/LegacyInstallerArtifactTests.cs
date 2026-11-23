@@ -188,7 +188,7 @@ public sealed class LegacyInstallerArtifactTests
     private static async Task<(int ExitCode, string Error)> Writer(string output, string? export, int schema)
     {
         var root = RepoRoot();
-        var assembly = Path.Combine(root, "Legacy.Maliev.AppHost.Topology", "bin", "Release", "net10.0", "Legacy.Maliev.AppHost.Topology.dll");
+        var assembly = Path.Combine(root, "Legacy.Maliev.AppHost.Topology", "bin", "Release", "net11.0", "Legacy.Maliev.AppHost.Topology.dll");
         var hash = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(assembly)));
         var arguments = new List<string>
         {

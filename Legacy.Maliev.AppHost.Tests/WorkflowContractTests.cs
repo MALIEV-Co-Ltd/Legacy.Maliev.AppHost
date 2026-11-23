@@ -105,7 +105,9 @@ public sealed partial class WorkflowContractTests
         Assert.Contains("          working-directory: Legacy.Maliev.AppHost", source, StringComparison.Ordinal);
         Assert.Contains("          solution: Legacy.Maliev.AppHost.slnx", source, StringComparison.Ordinal);
         Assert.Contains("          use-local-maliev-dependencies: 'true'", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("actions/setup-dotnet@", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, Regex.Matches(source, @"actions/setup-dotnet@", RegexOptions.IgnoreCase).Count);
+        Assert.Equal(2, Regex.Matches(source,
+            @"uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68\r?\n\s+with:\r?\n\s+dotnet-version: 10\.0\.404").Count);
         Assert.DoesNotContain("actions/cache@", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotMatch(DuplicatedDotnetValidationRegex(), source);
         Assert.DoesNotContain("GITHUB_ACTIONS=false dotnet", source, StringComparison.OrdinalIgnoreCase);
@@ -114,10 +116,11 @@ public sealed partial class WorkflowContractTests
         using var sdkPolicy = System.Text.Json.JsonDocument.Parse(
             File.ReadAllText(Path.Combine(FindRepositoryRoot(), "global.json")));
         var sdk = sdkPolicy.RootElement.GetProperty("sdk");
-        Assert.Equal("10.0.401", sdk.GetProperty("version").GetString());
+        Assert.Equal("11.0.100", sdk.GetProperty("version").GetString());
         Assert.Equal("disable", sdk.GetProperty("rollForward").GetString());
         Assert.False(sdk.GetProperty("allowPrerelease").GetBoolean());
-        Assert.Equal(2, Regex.Matches(source, @"dotnet-version: 10\.0\.401").Count);
+        Assert.Equal(2, Regex.Matches(source, @"dotnet-version: 10\.0\.404").Count);
+        Assert.Equal(2, Regex.Matches(source, @"dotnet-version: 11\.0\.100").Count);
         Assert.Contains("    name: Ubuntu validation\n    runs-on: ubuntu-24.04", source.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
         Assert.Contains("            runner-results/**/*.cobertura.xml", source, StringComparison.Ordinal);
     }

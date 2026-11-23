@@ -10,7 +10,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$assemblyPath = Join-Path $PSScriptRoot '..\Legacy.Maliev.AppHost.Topology\bin\Release\net10.0\Legacy.Maliev.AppHost.Topology.dll'
+$assemblyPath = Join-Path $PSScriptRoot '..\Legacy.Maliev.AppHost.Topology\bin\Release\net11.0\Legacy.Maliev.AppHost.Topology.dll'
 if (-not [IO.File]::Exists($assemblyPath)) {
     throw 'Build the reviewed Topology project in Release before rendering the edge package.'
 }

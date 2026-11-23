@@ -14,9 +14,9 @@ MODULES = {
 }
 LOCAL_DELTA = "Legacy.Maliev.AppHost.LocalDeltaRunner"
 SDK_ZERO_LINE_DOCUMENTS = {
-    LOCAL_DELTA + "/obj/Release/net10.0/.NETCoreApp,Version=v10.0.AssemblyAttributes.cs",
-    LOCAL_DELTA + "/obj/Release/net10.0/" + LOCAL_DELTA + ".AssemblyInfo.cs",
-    LOCAL_DELTA + "/obj/Release/net10.0/" + LOCAL_DELTA + ".GlobalUsings.g.cs",
+    LOCAL_DELTA + "/obj/Release/net11.0/.NETCoreApp,Version=v11.0.AssemblyAttributes.cs",
+    LOCAL_DELTA + "/obj/Release/net11.0/" + LOCAL_DELTA + ".AssemblyInfo.cs",
+    LOCAL_DELTA + "/obj/Release/net11.0/" + LOCAL_DELTA + ".GlobalUsings.g.cs",
 }
 
 
@@ -60,7 +60,7 @@ def load_platform(directory, platform):
     identity = json.loads((directory / "identity.json").read_text(encoding="utf-8"))
     require(isinstance(identity, dict) and bool(identity), "Malformed/empty evidence metadata")
     require(identity["Version"] == 1 and identity["Platform"] == platform, "Wrong evidence version/platform")
-    require(identity["SdkVersion"] == "10.0.401", "Unreviewed compiler SDK identity")
+    require(identity["SdkVersion"] == "11.0.100", "Unreviewed compiler SDK identity")
     require(re.fullmatch(r"[0-9a-f]{40}", identity["Head"]) is not None, "Invalid exact head")
     require(re.fullmatch(r"[0-9a-f]{40}", identity["Tree"]) is not None, "Invalid tree")
     require(re.fullmatch(r"[0-9a-f]{40}", identity["CandidateHead"]) is not None, "Invalid candidate head")
@@ -137,7 +137,7 @@ def prove_sdk_zero_line_eol_pair(key, left_document, right_document, left, right
             "EOL predicate requires generated documents")
     require(left_document["Lines"] == [] and right_document["Lines"] == [],
             "EOL predicate forbids executable generated lines")
-    require(left_sdk == right_sdk == "10.0.401", "EOL predicate compiler SDK mismatch")
+    require(left_sdk == right_sdk == "11.0.100", "EOL predicate compiler SDK mismatch")
     require(left and right, "Empty SDK source bytes")
     for bom in [b"\xef\xbb\xbf", b"\xff\xfe", b"\xfe\xff"]:
         require(not left.startswith(bom) and not right.startswith(bom), "SDK source BOM forbidden")

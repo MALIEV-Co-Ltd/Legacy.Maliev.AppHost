@@ -771,7 +771,7 @@ try {
         throw 'The local Aspire solution did not build.'
     }
     $topologyAssembly = Join-Path $repositoryRoot `
-        'Legacy.Maliev.AppHost.Topology\bin\Release\net10.0\Legacy.Maliev.AppHost.Topology.dll'
+        'Legacy.Maliev.AppHost.Topology\bin\Release\net11.0\Legacy.Maliev.AppHost.Topology.dll'
     [System.Reflection.Assembly]::LoadFrom($topologyAssembly) | Out-Null
     Complete-VerificationStage -Stage 'build'
 

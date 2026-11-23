@@ -49,7 +49,7 @@ class PlatformUnionControls(unittest.TestCase):
             coverage = ET.Element("coverage")
             coverage.append(packages)
             ET.ElementTree(coverage).write(directory / "raw.cobertura.xml")
-            identity = {"Version": 1, "Platform": platform, "SdkVersion": "10.0.401", "CandidateHead": "b" * 40, "Parents": "e" * 40, "Head": "b" * 40, "Tree": "c" * 40,
+            identity = {"Version": 1, "Platform": platform, "SdkVersion": "11.0.100", "CandidateHead": "b" * 40, "Parents": "e" * 40, "Head": "b" * 40, "Tree": "c" * 40,
                         "Dependencies": {**{name: {"Head": pin, "Tree": "d" * 40} for name, pin in union.PINS.items()}, "Legacy.Maliev.AppHost": {"Head": "b" * 40, "Tree": "c" * 40}}, "RepositoryRoot": "/fixture", "Coverage": {"Complete": True},
                         "ArtifactInventory": inventory, "RawSha256": union.digest(directory / "raw.cobertura.xml")}
             (directory / "identity.json").write_text(json.dumps(identity), encoding="utf-8")
@@ -195,10 +195,10 @@ class PlatformUnionControls(unittest.TestCase):
         key = key or sorted(union.SDK_ZERO_LINE_DOCUMENTS)[0]
         return key, {"RelativePath": key, "Generated": True, "Lines": []}
 
-    def prove_eol(self, left, right, key=None, left_document=None, right_document=None, right_sdk="10.0.401"):
+    def prove_eol(self, left, right, key=None, left_document=None, right_document=None, right_sdk="11.0.100"):
         key, document = self.eol_documents(key)
         return union.prove_sdk_zero_line_eol_pair(key, left_document or document, right_document or document,
-                                                left, right, "10.0.401", right_sdk)
+                                                left, right, "11.0.100", right_sdk)
 
     def test_genuine_sdk_zero_line_eol_pairs_retain_raw_hashes(self):
         left = b'// SDK fixture\n[assembly: System.Reflection.AssemblyTitle("fixture")]\n'
@@ -245,8 +245,8 @@ class PlatformUnionControls(unittest.TestCase):
             self.prove_eol(b'// fixture\n', b'// fixture\r\n', key, document, document)
 
     def test_sdk_eol_predicate_rejects_unknown_zero_line_document_and_wrong_tfm(self):
-        for key in [union.LOCAL_DELTA + '/obj/Release/net10.0/Unknown.g.cs',
-                    union.LOCAL_DELTA + '/obj/Release/net11.0/' + union.LOCAL_DELTA + '.GlobalUsings.g.cs']:
+        for key in [union.LOCAL_DELTA + '/obj/Release/net11.0/Unknown.g.cs',
+                    union.LOCAL_DELTA + '/obj/Release/net10.0/' + union.LOCAL_DELTA + '.GlobalUsings.g.cs']:
             with self.subTest(key=key):
                 with self.assertRaises(ValueError):
                     self.prove_eol(b'// fixture\n', b'// fixture\r\n', key)
@@ -263,7 +263,7 @@ class PlatformUnionControls(unittest.TestCase):
             self.prove_eol(b'// fixture\n', b'// fixture\r\n', right_sdk="10.0.402")
 
     def add_sdk_zero_line_route_fixture(self):
-        key = union.LOCAL_DELTA + '/obj/Release/net10.0/' + union.LOCAL_DELTA + '.GlobalUsings.g.cs'
+        key = union.LOCAL_DELTA + '/obj/Release/net11.0/' + union.LOCAL_DELTA + '.GlobalUsings.g.cs'
         for directory, content in [(self.linux, b'// fixture\nglobal using System;\n'),
                                    (self.windows, b'// fixture\r\nglobal using System;\r\n')]:
             source = directory / "sources" / key

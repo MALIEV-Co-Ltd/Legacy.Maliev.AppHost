@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'production-coverage-inventory.ps1')
 if (($Platform -eq 'windows') -ne $IsWindows) { throw 'Platform evidence does not match actual runner OS.' }
 $sdkVersion = & dotnet --version
-if ($LASTEXITCODE -ne 0 -or $sdkVersion -ne '10.0.401') { throw 'Platform evidence requires the reviewed exact SDK.' }
+if ($LASTEXITCODE -ne 0 -or $sdkVersion -ne '11.0.100') { throw 'Platform evidence requires the reviewed exact SDK.' }
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 if (Test-Path -LiteralPath $OutputDirectory) { throw 'Platform evidence output must be new.' }
 [void][IO.Directory]::CreateDirectory($OutputDirectory)

@@ -189,12 +189,16 @@ jobs:
           }
           ./scripts/tests/financial-enrollment-component-tests.ps1
           ./scripts/tests/financial-enrollment-cli-cleanup-tests.ps1
+      - name: Install .NET 10 for pinned service and migration tools
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 10.0.404
       - name: Validate .NET solution
         uses: MALIEV-Co-Ltd/Legacy.Maliev.Workflows/actions/dotnet-validate@e3a6093324a24968876782153286f52db8b29fd8
         with:
           working-directory: Legacy.Maliev.AppHost
           solution: Legacy.Maliev.AppHost.slnx
-          dotnet-version: 10.0.401
+          dotnet-version: 11.0.100
           use-local-maliev-dependencies: 'true'
       - name: Verify Catalog Country migration startup ordering
         working-directory: Legacy.Maliev.AppHost
@@ -450,12 +454,16 @@ jobs:
         ref: 4cc64bd9b419b3a73307af6265d2e59a37eb0e20
         path: Legacy.Maliev.AccountingService
         persist-credentials: false
+    - name: Install .NET 10 for pinned service and migration tools
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+      with:
+        dotnet-version: 10.0.404
     - name: Validate genuine Windows ACL project
       uses: MALIEV-Co-Ltd/Legacy.Maliev.Workflows/actions/dotnet-validate@e3a6093324a24968876782153286f52db8b29fd8
       with:
         working-directory: Legacy.Maliev.AppHost
         solution: Legacy.Maliev.AppHost.Windows.Tests/Legacy.Maliev.AppHost.Windows.Tests.csproj
-        dotnet-version: 10.0.401
+        dotnet-version: 11.0.100
         use-local-maliev-dependencies: 'true'
     - name: Export complete Windows symbol and raw evidence
       if: always()

@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $reviewInstant = [datetimeoffset]::Parse($AsOfUtc, [Globalization.CultureInfo]::InvariantCulture)
-$assemblyPath = Join-Path $PSScriptRoot '../Legacy.Maliev.AppHost.Topology/bin/Release/net10.0/Legacy.Maliev.AppHost.Topology.dll'
+$assemblyPath = Join-Path $PSScriptRoot '../Legacy.Maliev.AppHost.Topology/bin/Release/net11.0/Legacy.Maliev.AppHost.Topology.dll'
 $pdbPath = [IO.Path]::ChangeExtension($assemblyPath, '.pdb')
 $diagnosticSourcePath = Join-Path $PSScriptRoot '../Legacy.Maliev.AppHost.Topology/LegacyCertificateReviewDiagnostics.cs'
 if ([System.Management.Automation.PSTypeName]::new('Legacy.Maliev.AppHost.Topology.LegacyCertificateReviewDiagnostics').Type) {

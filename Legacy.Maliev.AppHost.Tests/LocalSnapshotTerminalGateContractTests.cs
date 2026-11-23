@@ -229,31 +229,36 @@ public sealed class LocalSnapshotTerminalGateContractTests
     }
 
     [Theory]
-    [InlineData(null, true)]
-    [InlineData("worktree-assets", false)]
-    [InlineData("outside-reference", false)]
-    [InlineData("deps-worktree", false)]
-    [InlineData("deps-outside", false)]
-    public async Task CanonicalBuildGraphValidator_RejectsUnreviewedRestorePaths(string? mutation, bool expectedSuccess)
+    [InlineData("net10.0", null, true)]
+    [InlineData("net10.0", "worktree-assets", false)]
+    [InlineData("net10.0", "outside-reference", false)]
+    [InlineData("net10.0", "deps-worktree", false)]
+    [InlineData("net10.0", "deps-outside", false)]
+    [InlineData("net11.0", null, true)]
+    [InlineData("net11.0", "worktree-assets", false)]
+    [InlineData("net11.0", "outside-reference", false)]
+    [InlineData("net11.0", "deps-worktree", false)]
+    [InlineData("net11.0", "deps-outside", false)]
+    public async Task CanonicalBuildGraphValidator_RejectsUnreviewedRestorePaths(string framework, string? mutation, bool expectedSuccess)
     {
         string directory = Directory.CreateTempSubdirectory("legacy-build-graph-").FullName;
         try
         {
             string repository = Directory.CreateDirectory(Path.Combine(directory, "RepoA")).FullName;
-            string rootProject = WriteProjectAssets(repository, "Root", Path.Combine(repository, "Child", "Child.csproj"));
-            string childProject = WriteProjectAssets(repository, "Child", null, mutation == "worktree-assets");
+            string rootProject = WriteProjectAssets(repository, "Root", Path.Combine(repository, "Child", "Child.csproj"), framework);
+            string childProject = WriteProjectAssets(repository, "Child", null, framework, mutation == "worktree-assets");
             if (mutation == "outside-reference")
             {
-                string outside = WriteProjectAssets(directory, "Outside", null);
-                rootProject = WriteProjectAssets(repository, "Root", outside);
+                string outside = WriteProjectAssets(directory, "Outside", null, framework);
+                rootProject = WriteProjectAssets(repository, "Root", outside, framework);
             }
             string depsPath = mutation switch
             {
                 "deps-worktree" => @"B:\maliev-legacy\.worktrees\Legacy.Maliev.CustomerService\evil.dll",
                 "deps-outside" => @"C:\outside\evil.dll",
-                _ => Path.Combine(repository, "Root", "bin", "Release", "net10.0", "Root.dll"),
+                _ => Path.Combine(repository, "Root", "bin", "Release", framework, "Root.dll"),
             };
-            WriteReleaseDeps(repository, "Root", depsPath);
+            WriteReleaseDeps(repository, "Root", depsPath, framework);
 
             string root = FindRepositoryRoot();
             var startInfo = new ProcessStartInfo("pwsh")
@@ -280,7 +285,7 @@ public sealed class LocalSnapshotTerminalGateContractTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
-    private static string WriteProjectAssets(string repository, string projectName, string? reference, bool worktreeMarker = false)
+    private static string WriteProjectAssets(string repository, string projectName, string? reference, string framework, bool worktreeMarker = false)
     {
         string projectDirectory = Directory.CreateDirectory(Path.Combine(repository, projectName)).FullName;
         string projectPath = Path.Combine(projectDirectory, projectName + ".csproj");
@@ -299,7 +304,7 @@ public sealed class LocalSnapshotTerminalGateContractTests
                     ["outputPath"] = obj + Path.DirectorySeparatorChar,
                     ["frameworks"] = new Dictionary<string, object?>
                     {
-                        ["net10.0"] = new Dictionary<string, object?> { ["projectReferences"] = references },
+                        [framework] = new Dictionary<string, object?> { ["projectReferences"] = references },
                     },
                 },
             },
@@ -309,15 +314,16 @@ public sealed class LocalSnapshotTerminalGateContractTests
         return projectPath;
     }
 
-    private static void WriteReleaseDeps(string repository, string projectName, string rootedPath)
+    private static void WriteReleaseDeps(string repository, string projectName, string rootedPath, string framework)
     {
-        string output = Directory.CreateDirectory(Path.Combine(repository, projectName, "bin", "Release", "net10.0")).FullName;
+        string output = Directory.CreateDirectory(Path.Combine(repository, projectName, "bin", "Release", framework)).FullName;
+        string runtimeTarget = $".NETCoreApp,Version=v{framework[3..]}/win-x64";
         var deps = new Dictionary<string, object?>
         {
-            ["runtimeTarget"] = new Dictionary<string, object?> { ["name"] = ".NETCoreApp,Version=v10.0/win-x64" },
+            ["runtimeTarget"] = new Dictionary<string, object?> { ["name"] = runtimeTarget },
             ["targets"] = new Dictionary<string, object?>
             {
-                [".NETCoreApp,Version=v10.0/win-x64"] = new Dictionary<string, object?>
+                [runtimeTarget] = new Dictionary<string, object?>
                 {
                     ["fixture/1.0.0"] = new Dictionary<string, object?>
                     {
